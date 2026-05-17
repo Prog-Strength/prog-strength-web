@@ -212,21 +212,28 @@ function WorkoutRow({
           <ul className="flex flex-col gap-3">
             {[...workout.exercises]
               .sort((a, b) => a.order - b.order)
-              .map((we, i) => (
-                <li key={i}>
-                  <p className="text-sm font-medium">
-                    {exerciseMap.get(we.exercise_id)?.name ?? we.exercise_id}
-                  </p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    {formatSets(we.sets)}
-                  </p>
-                  {we.notes && (
-                    <p className="mt-1 text-xs italic text-[var(--muted)]">
-                      {we.notes}
+              .map((we, i) => {
+                const setLines = formatSets(we.sets);
+                return (
+                  <li key={i}>
+                    <p className="text-sm font-medium">
+                      {exerciseMap.get(we.exercise_id)?.name ?? we.exercise_id}
                     </p>
-                  )}
-                </li>
-              ))}
+                    {setLines.length > 0 && (
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
+                        {setLines.map((line, j) => (
+                          <li key={j}>{line}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {we.notes && (
+                      <p className="mt-1 text-xs italic text-[var(--muted)]">
+                        {we.notes}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
           </ul>
         </div>
       )}
@@ -329,16 +336,22 @@ function formatDuration(start: string, end: string | null): string {
 }
 
 /**
- * Sets summary. Collapses runs of identical reps×weight into "n× <reps>
- * × <weight><unit>" so a flat 5×5×185lb across three sets renders as
- * "3 × 5 × 185 lb" instead of repeating three times. Varied set ranges
- * stay listed out. Bodyweight (weight=0) shows just the rep count.
+ * Sets summary. Returns one human-readable line per *group* of sets,
+ * where a group is a run of identical reps×weight×unit. A flat 5×5
+ * across three sets renders as a single "3 × 5 × 185 lb" line instead
+ * of three identical bullets; varied sets get their own lines.
+ * Bodyweight (weight=0) collapses to just the rep count.
+ *
+ * Returning an array (rather than a joined string) lets the caller
+ * render each line as a list item so the user can scan sets vertically
+ * — much easier to read than a comma-delimited blob, especially for
+ * sessions with many sets.
  */
-function formatSets(sets: WorkoutSet[]): string {
-  if (sets.length === 0) return "";
+function formatSets(sets: WorkoutSet[]): string[] {
+  if (sets.length === 0) return [];
 
-  // Compress adjacent identical sets — most common pattern in linear
-  // progressions and gives a much tighter row than spelling each out.
+  // Compress adjacent identical sets — common pattern in linear
+  // progressions and gives a much tighter list than spelling each out.
   const groups: { count: number; set: WorkoutSet }[] = [];
   for (const s of sets) {
     const last = groups[groups.length - 1];
@@ -355,7 +368,7 @@ function formatSets(sets: WorkoutSet[]): string {
         ? `${g.set.reps}`
         : `${g.set.reps} × ${formatWeight(g.set.weight)} ${g.set.unit}`;
     return g.count > 1 ? `${g.count} × ${setPart}` : setPart;
-  }).join(", ");
+  });
 }
 
 function setsEqual(a: WorkoutSet, b: WorkoutSet): boolean {
