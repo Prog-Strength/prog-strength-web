@@ -311,6 +311,11 @@ function WorkoutRow({
                           <ExerciseDetails
                             exercise={we}
                             exerciseMap={exerciseMap}
+                            // we.order is 0-indexed on the API side
+                            // (assigned from array position on write);
+                            // display it 1-indexed for the lifter's
+                            // natural reading.
+                            index={we.order + 1}
                           />
                         </li>
                       ))}
@@ -320,6 +325,7 @@ function WorkoutRow({
                   <ExerciseDetails
                     exercise={group[0]}
                     exerciseMap={exerciseMap}
+                    index={group[0].order + 1}
                   />
                 )}
               </li>
@@ -334,16 +340,18 @@ function WorkoutRow({
 function ExerciseDetails({
   exercise,
   exerciseMap,
+  index,
 }: {
   exercise: WorkoutExercise;
   exerciseMap: Map<string, Exercise>;
+  index: number;
 }) {
   const catalogEntry = exerciseMap.get(exercise.exercise_id);
   const setLines = formatSets(exercise.sets, catalogEntry);
   return (
     <div>
       <p className="text-sm font-medium">
-        {catalogEntry?.name ?? exercise.exercise_id}
+        {index}. {catalogEntry?.name ?? exercise.exercise_id}
       </p>
       {setLines.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
