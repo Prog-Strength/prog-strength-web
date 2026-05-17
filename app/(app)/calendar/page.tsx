@@ -108,6 +108,33 @@ export default function CalendarPage() {
     [cursor],
   );
 
+  // Stats for the currently-viewed month: total tracked duration and
+  // activity count. "Tracked duration" is the sum across workouts that
+  // have an ended_at — workouts with no end time count toward the
+  // activity total but not the duration (so the duration tile shows
+  // only the hours the user actually clocked, not estimates).
+  const monthStats = useMemo(() => {
+    let count = 0;
+    let totalMinutes = 0;
+    if (!workouts) return { count, totalMinutes };
+    for (const w of workouts) {
+      const d = new Date(w.performed_at);
+      if (
+        d.getFullYear() !== cursor.year ||
+        d.getMonth() !== cursor.month
+      ) {
+        continue;
+      }
+      count += 1;
+      if (w.ended_at) {
+        const ms =
+          new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
+        if (ms > 0) totalMinutes += Math.round(ms / 60000);
+      }
+    }
+    return { count, totalMinutes };
+  }, [workouts, cursor]);
+
   const monthLabel = useMemo(
     () =>
       new Date(cursor.year, cursor.month, 1).toLocaleDateString("en-US", {
@@ -162,6 +189,22 @@ export default function CalendarPage() {
               {error}
             </div>
           )}
+
+          {/* Month-level stats above the grid. Duration only counts
+              workouts with an ended_at (i.e. ones the user actually
+              clocked); activity count includes all workouts in the
+              month regardless. The discrepancy is intentional — we
+              don't want to fabricate durations for un-clocked sessions. */}
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <StatTile
+              value={formatTotalDuration(monthStats.totalMinutes)}
+              label="Total time"
+            />
+            <StatTile
+              value={monthStats.count.toString()}
+              label={monthStats.count === 1 ? "Activity" : "Activities"}
+            />
+          </div>
 
           {/* Weekday header row. Tighter padding so it doesn't compete
               with the day cells visually. */}
@@ -331,6 +374,23 @@ function NavButton({
   );
 }
 
+/**
+ * Single info tile shown above the calendar grid. Two of these live
+ * side by side ("Total time" / "Activities"). Value is rendered large
+ * and prominent; label is small uppercase muted text so it reads as
+ * metadata, not as primary content.
+ */
+function StatTile({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+      <p className="text-2xl font-semibold tracking-tight">{value}</p>
+      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+        {label}
+      </p>
+    </div>
+  );
+}
+
 // --- date helpers ----------------------------------------------------------
 
 /**
@@ -364,4 +424,18 @@ function buildMonthGrid(year: number, month: number): Date[] {
  */
 function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
+ * Total month duration as `Xh Ym`, `Xh`, or `Ym`. Zero shows as "0h"
+ * rather than blank so the tile doesn't look like a loading state.
+ * Minutes are dropped when the hour total cleanly divides — `4h` reads
+ * cleaner than `4h 0m` for a stat tile.
+ */
+function formatTotalDuration(minutes: number): string {
+  if (minutes <= 0) return "0h";
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
