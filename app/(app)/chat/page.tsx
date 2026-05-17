@@ -8,16 +8,23 @@ import { clearToken, getToken } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { parseSSE } from "@/lib/stream";
 
+/**
+ * A tool the agent invoked during a single assistant turn. State
+ * starts as "running" when we see tool_use_start, transitions to "ok"
+ * or "error" on tool_result. Persisted on the Message so the history
+ * shows "the agent called X to answer this" even after streaming ends.
+ */
+type ToolCall = {
+  name: string;
+  state: "running" | "ok" | "error";
+};
+
 type Message = {
   role: "user" | "assistant";
   content: string;
-};
-
-type ActiveTool = {
-  name: string;
-  /** true once the tool returned; we keep showing it briefly for context */
-  done: boolean;
-  error: boolean;
+  // Only populated on assistant messages — the tools the agent
+  // invoked while producing this turn. Order reflects call order.
+  tools?: ToolCall[];
 };
 
 export default function ChatPage() {
@@ -25,7 +32,6 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
   const [error, setError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -35,7 +41,7 @@ export default function ChatPage() {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
-  }, [messages, activeTools, streaming]);
+  }, [messages, streaming]);
 
   const send = useCallback(async () => {
     const trimmed = input.trim();
@@ -48,13 +54,12 @@ export default function ChatPage() {
     }
 
     setError(null);
-    setActiveTools([]);
 
     // Optimistic update: append the user's message and a placeholder
     // assistant message we'll fill as deltas arrive. Setting both at
     // once avoids a flash where the user message renders alone.
     const userMsg: Message = { role: "user", content: trimmed };
-    const placeholder: Message = { role: "assistant", content: "" };
+    const placeholder: Message = { role: "assistant", content: "", tools: [] };
     const nextMessages = [...messages, userMsg];
     setMessages([...nextMessages, placeholder]);
     setInput("");
@@ -87,28 +92,39 @@ export default function ChatPage() {
       for await (const ev of parseSSE(resp.body)) {
         if (ev.type === "text_delta") {
           assistantText += ev.text;
-          // Mutate only the last (assistant) message; everything before
-          // it is frozen history.
-          setMessages((prev) => {
-            const next = prev.slice();
-            next[next.length - 1] = {
-              role: "assistant",
-              content: assistantText,
-            };
-            return next;
-          });
+          // Mutate the text on the last (assistant) message while
+          // preserving any tools that were attached during this turn.
+          setMessages((prev) =>
+            replaceLast(prev, (last) => ({ ...last, content: assistantText })),
+          );
         } else if (ev.type === "tool_use_start") {
-          setActiveTools((prev) => [
-            ...prev,
-            { name: ev.name, done: false, error: false },
-          ]);
+          // Append a "running" tool to the in-progress assistant
+          // message. Persisting tools on the message (rather than a
+          // separate activeTools state) keeps them visible after the
+          // turn completes — the user can scroll back and see what
+          // the agent did for any historical reply.
+          setMessages((prev) =>
+            replaceLast(prev, (last) => ({
+              ...last,
+              tools: [
+                ...(last.tools ?? []),
+                { name: ev.name, state: "running" },
+              ],
+            })),
+          );
         } else if (ev.type === "tool_result") {
-          setActiveTools((prev) =>
-            prev.map((t) =>
-              t.name === ev.name && !t.done
-                ? { ...t, done: true, error: ev.is_error }
-                : t,
-            ),
+          // Flip the matching running tool to ok/error. Match on name
+          // + state so parallel tool calls with the same name resolve
+          // in order (the in-flight one transitions; later ones wait).
+          setMessages((prev) =>
+            replaceLast(prev, (last) => ({
+              ...last,
+              tools: (last.tools ?? []).map((t) =>
+                t.name === ev.name && t.state === "running"
+                  ? { ...t, state: ev.is_error ? "error" : "ok" }
+                  : t,
+              ),
+            })),
           );
         } else if (ev.type === "error") {
           setError(ev.message);
@@ -119,20 +135,24 @@ export default function ChatPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
       // Roll back the empty placeholder so the user doesn't see a blank
-      // assistant bubble after a failure.
+      // assistant bubble after a failure. Only drop the row if no text
+      // AND no tool activity had landed — if the agent already produced
+      // anything visible we keep it so the user retains context for
+      // debugging or retry.
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        if (last.role === "assistant" && last.content === "") {
+        const isBlankAssistant =
+          last.role === "assistant" &&
+          last.content === "" &&
+          (!last.tools || last.tools.length === 0);
+        if (isBlankAssistant) {
           return prev.slice(0, -1);
         }
         return prev;
       });
     } finally {
       setStreaming(false);
-      // Clear in-flight tool indicators on turn completion; their state
-      // isn't meaningful between turns.
-      setActiveTools([]);
     }
   }, [input, streaming, messages, router]);
 
@@ -165,27 +185,13 @@ export default function ChatPage() {
           )}
 
           {messages.map((m, i) => (
-            <MessageBubble key={i} role={m.role} content={m.content} />
+            <MessageBubble
+              key={i}
+              role={m.role}
+              content={m.content}
+              tools={m.tools}
+            />
           ))}
-
-          {/* In-flight tool indicators show inline after the streaming
-              assistant message; they vanish when the turn completes. */}
-          {streaming && activeTools.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {activeTools.map((t, i) => (
-                <span
-                  key={i}
-                  className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs text-[var(--muted)]"
-                >
-                  {t.done
-                    ? t.error
-                      ? `${t.name} failed`
-                      : `${t.name} ✓`
-                    : `Running ${t.name}…`}
-                </span>
-              ))}
-            </div>
-          )}
 
           {error && (
             <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
@@ -223,11 +229,15 @@ export default function ChatPage() {
 function MessageBubble({
   role,
   content,
+  tools,
 }: {
   role: "user" | "assistant";
   content: string;
+  tools?: ToolCall[];
 }) {
   const isUser = role === "user";
+  const hasTools = !isUser && tools && tools.length > 0;
+  const hasContent = content.length > 0;
 
   // User messages render as plain text (the user didn't intentionally
   // write Markdown when typing). Assistant messages render through
@@ -244,17 +254,146 @@ function MessageBubble({
             : "bg-[var(--surface)] text-[var(--foreground)]"
         }`}
       >
-        {!content ? (
+        {hasTools && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {tools.map((t, i) => (
+              <ToolPill key={i} tool={t} />
+            ))}
+          </div>
+        )}
+        {!hasContent && !hasTools ? (
+          // No text and no tools yet — show the typing placeholder.
+          // Once tools start arriving the pills act as the in-progress
+          // indicator and the placeholder isn't needed.
           <span className="inline-block animate-pulse text-[var(--muted)]">
             …
           </span>
         ) : isUser ? (
           content
-        ) : (
+        ) : hasContent ? (
           <AssistantMarkdown content={content} />
-        )}
+        ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Persistent indicator that the agent invoked a tool. Each pill shows
+ * the tool's humanized name and its state — running (animated dots),
+ * ok (check), or error (red x). Stays on the message after the turn
+ * completes so the user can scroll back and see which tools answered
+ * which prompt.
+ */
+function ToolPill({ tool }: { tool: ToolCall }) {
+  const name = humanizeToolName(tool.name);
+  if (tool.state === "running") {
+    return (
+      <span className="inline-flex animate-pulse items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-medium text-[var(--muted)]">
+        <DotsIcon />
+        <span>Calling {name}…</span>
+      </span>
+    );
+  }
+  if (tool.state === "ok") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+        <CheckIcon />
+        <span>{name}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--danger)]">
+      <XIcon />
+      <span>{name} failed</span>
+    </span>
+  );
+}
+
+// --- helpers -----------------------------------------------------------
+
+/**
+ * Immutably replace the last element of an array using a transformer.
+ * Used during streaming to update the in-progress assistant message
+ * (text deltas, tool transitions) without copying the whole array
+ * inline at every call site. Returns the original array unchanged if
+ * it's empty — defensive against state races on first render.
+ */
+function replaceLast<T>(arr: T[], fn: (last: T) => T): T[] {
+  if (arr.length === 0) return arr;
+  const next = arr.slice();
+  next[next.length - 1] = fn(next[next.length - 1]);
+  return next;
+}
+
+/**
+ * Display form for the agent's tool names. The MCP tools are snake_case
+ * ("list_exercises"); Title Case reads more naturally to the user
+ * ("List Exercises") without losing the operation's identity.
+ */
+function humanizeToolName(name: string): string {
+  return name
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+// --- icons -------------------------------------------------------------
+
+function DotsIcon() {
+  // Three small dots — used inside the running-state pill alongside
+  // the surrounding animate-pulse so the whole pill breathes while
+  // a tool call is in flight.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={10}
+      height={10}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={10}
+      height={10}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12l5 5L20 7" />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={10}
+      height={10}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6L6 18" />
+      <path d="M6 6l12 12" />
+    </svg>
   );
 }
 
