@@ -9,7 +9,10 @@ import {
   type Exercise,
   type Workout,
 } from "@/lib/api";
-import { WorkoutModal } from "@/components/workout-modal";
+import {
+  WorkoutDetailsModal,
+  hasMeaningfulName,
+} from "@/components/workout-details";
 
 /**
  * Month-grid calendar with workout markers. Same data source as the
@@ -29,7 +32,10 @@ export default function CalendarPage() {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [editing, setEditing] = useState<Workout | null>(null);
+  // Calendar is read-only by design — clicking a pill opens the shared
+  // WorkoutDetailsModal, not the edit modal. Edits happen from the
+  // Workouts page where the pencil button lives.
+  const [viewing, setViewing] = useState<Workout | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Cursor identifies which month we're viewing. year + 0-indexed month
   // — using a `Date` directly would carry day/time noise we'd have to
@@ -45,9 +51,9 @@ export default function CalendarPage() {
       router.replace("/login");
       return;
     }
-    // Catalog fetched alongside workouts so the edit modal has the
-    // dropdown options it needs without a second round-trip when the
-    // user clicks a pill.
+    // Catalog fetched alongside workouts so the readonly view has the
+    // exercise-name + muscle-group data it needs without a second
+    // round-trip when the user clicks a pill.
     Promise.all([listWorkouts(token), listExercises()])
       .then(([ws, es]) => {
         setWorkouts(ws);
@@ -63,12 +69,12 @@ export default function CalendarPage() {
       });
   }, [router]);
 
-  // Splice the modal's saved workout back into local state so the
-  // calendar re-renders with the new data without another fetch.
-  const handleSaved = (updated: Workout) =>
-    setWorkouts((ws) =>
-      ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws,
-    );
+  // Lookup map for the shared WorkoutDetails component — resolves
+  // exercise_id slugs to catalog entries for name + muscle pills.
+  const exerciseMap = useMemo(
+    () => new Map(exercises.map((e) => [e.id, e])),
+    [exercises],
+  );
 
   // Bucket workouts by local-date key so the cell lookup is O(1) per
   // day during render. Key is `YYYY-M-D` in *local* time — the user's
@@ -181,7 +187,7 @@ export default function CalendarPage() {
                   inMonth={inMonth}
                   isToday={isToday}
                   workouts={dayWorkouts}
-                  onPillClick={(w) => setEditing(w)}
+                  onPillClick={(w) => setViewing(w)}
                 />
               );
             })}
@@ -189,12 +195,11 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {editing && (
-        <WorkoutModal
-          workout={editing}
-          catalog={exercises}
-          onClose={() => setEditing(null)}
-          onSaved={handleSaved}
+      {viewing && (
+        <WorkoutDetailsModal
+          workout={viewing}
+          exerciseMap={exerciseMap}
+          onClose={() => setViewing(null)}
         />
       )}
     </main>
@@ -289,16 +294,6 @@ function WorkoutPill({
       {label}
     </button>
   );
-}
-
-/**
- * Mirror of the helper in the workouts page — true when the workout's
- * name carries information beyond the timestamp. The API stamps
- * "Workout - <date>" as a default; those should fall back to the time
- * on a calendar cell rather than restating the date.
- */
-function hasMeaningfulName(name: string | undefined): name is string {
-  return !!name && !name.startsWith("Workout - ");
 }
 
 function NavButton({

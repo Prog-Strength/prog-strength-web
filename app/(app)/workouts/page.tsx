@@ -9,16 +9,21 @@ import {
   listWorkouts,
   type Exercise,
   type Workout,
-  type WorkoutExercise,
-  type WorkoutSet,
 } from "@/lib/api";
 import { WorkoutModal } from "@/components/workout-modal";
+import {
+  WorkoutDetails,
+  hasMeaningfulName,
+} from "@/components/workout-details";
 
 /**
  * Workouts overview. Lists the user's recent sessions, filtered by a
- * client-side timeframe selection. Clicking a row opens the edit modal
- * so the user can fix up anything that came in wrong from chat-driven
- * logging.
+ * client-side timeframe selection. Each row has two interactions:
+ *   - Click the body to expand an in-place readonly details panel
+ *     (renders the shared WorkoutDetails component).
+ *   - Click the pencil to open the edit modal for the rarer "I need
+ *     to fix something" flow.
+ *   - Click the trash to delete after confirmation.
  *
  * Data is fetched once on mount: workouts (auth'd) + exercises (public)
  * in parallel. Filtering is purely client-side — the API caps results
@@ -43,8 +48,6 @@ export default function WorkoutsPage() {
   const [editing, setEditing] = useState<Workout | null>(null);
   // Tracks which rows have their readonly details panel open. Click on
   // the row body toggles; click on the pencil opens the edit modal.
-  // Separate UI surfaces because reading and editing are different
-  // mental modes — the modal is heavyweight for the read case.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
@@ -77,8 +80,6 @@ export default function WorkoutsPage() {
     return workouts.filter((w) => new Date(w.performed_at).getTime() >= cutoff);
   }, [workouts, timeframe]);
 
-  // Indexed lookup for the expanded view — turns `exercise_id` slugs
-  // ("barbell-bench-press") into the user-facing name.
   const exerciseMap = useMemo(
     () => new Map(exercises.map((e) => [e.id, e])),
     [exercises],
@@ -92,23 +93,20 @@ export default function WorkoutsPage() {
       return next;
     });
 
-  // Splice the modal's returned workout back into local state so the
-  // row reflects edits immediately without a refetch round-trip.
   const handleSaved = (updated: Workout) =>
     setWorkouts((ws) =>
       ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws,
     );
 
-  // Destructive action; gate behind a native confirm() so users can't
-  // mis-click and lose data. The label echoes the workout's identity
-  // (real name when set, falls back to formatted date) so the user
-  // sees what they're about to remove. Server-side this is a soft
-  // delete — but from the user's perspective it's gone.
   const handleDelete = async (workout: Workout) => {
     const label = hasMeaningfulName(workout.name)
       ? workout.name
       : formatDate(workout.performed_at);
-    if (!window.confirm(`Delete "${label}"? This removes the workout from your history.`)) {
+    if (
+      !window.confirm(
+        `Delete "${label}"? This removes the workout from your history.`,
+      )
+    ) {
       return;
     }
     const token = getToken();
@@ -118,9 +116,7 @@ export default function WorkoutsPage() {
     }
     try {
       await deleteWorkout(token, workout.id);
-      setWorkouts((ws) =>
-        ws ? ws.filter((w) => w.id !== workout.id) : ws,
-      );
+      setWorkouts((ws) => (ws ? ws.filter((w) => w.id !== workout.id) : ws));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
     }
@@ -163,9 +159,7 @@ export default function WorkoutsPage() {
             <p className="text-sm text-[var(--muted)]">Loading workouts…</p>
           )}
 
-          {filteredWorkouts && filteredWorkouts.length === 0 && (
-            <EmptyState />
-          )}
+          {filteredWorkouts && filteredWorkouts.length === 0 && <EmptyState />}
 
           {filteredWorkouts && filteredWorkouts.length > 0 && (
             <ul className="flex flex-col gap-2">
@@ -230,15 +224,9 @@ function WorkoutRow({
       {/* Two sibling buttons in the header so the expand-vs-edit
           interaction is unambiguous. Nesting the pencil inside the
           row button would trip "buttons can't nest" and stop click
-          events propagating. */}
+          events propagating. min-w-0 on flex children lets `truncate`
+          actually clip when names/notes are long. */}
       <div className="flex items-stretch">
-        {/* min-w-0 on the flex children — both the button itself and
-            the inner column — is what lets `truncate` on the <p>s
-            actually clip. Without it, flex items default to
-            min-width: auto, which means content can grow the item
-            past its flex-1 share. That was pushing the pencil button
-            off the right edge of the page when a workout had a long
-            notes line. */}
         <button
           type="button"
           onClick={onToggleExpanded}
@@ -267,9 +255,6 @@ function WorkoutRow({
           type="button"
           onClick={onEdit}
           aria-label="Edit workout"
-          // Border-l only — the rest of the row's border is the card.
-          // Title surfaces the action on hover since the icon alone
-          // isn't fully self-explanatory.
           title="Edit workout"
           className="flex shrink-0 items-center border-l border-[var(--border)] px-3 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
         >
@@ -280,8 +265,6 @@ function WorkoutRow({
           onClick={onDelete}
           aria-label="Delete workout"
           title="Delete workout"
-          // Hover turns the icon danger-red so the destructive nature
-          // of the action is unmistakable before the user clicks.
           className="flex shrink-0 items-center border-l border-[var(--border)] px-3 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--danger)]"
         >
           <TrashIcon />
@@ -290,98 +273,10 @@ function WorkoutRow({
 
       {expanded && (
         <div className="border-t border-[var(--border)] px-4 py-3">
-          {workout.notes && (
-            <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
-          )}
-          <ul className="flex flex-col gap-3">
-            {/* A superset is conceptually a single "block" in the
-                workout — the lifter performs it as one unit, alternating
-                sets across the included exercises. So we number by
-                group (1, 2, 3, …) rather than by individual exercise:
-                a superset gets one number applied to its header, and
-                its sub-exercises are unnumbered inside. */}
-            {groupExercises(workout.exercises).map((group, gIdx) => {
-              const groupNum = gIdx + 1;
-              return (
-                <li key={gIdx}>
-                  {group.length > 1 ? (
-                    <div className="rounded-r-md border-l-2 border-[var(--accent)] bg-[var(--surface-2)]/40 py-2 pl-3">
-                      <p className="mb-2 flex items-baseline gap-2 text-sm font-medium">
-                        <span>{groupNum}.</span>
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
-                          Superset
-                        </span>
-                      </p>
-                      <ul className="flex flex-col gap-2">
-                        {group.map((we, i) => (
-                          <li key={i}>
-                            <ExerciseDetails
-                              exercise={we}
-                              exerciseMap={exerciseMap}
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <ExerciseDetails
-                      exercise={group[0]}
-                      exerciseMap={exerciseMap}
-                      index={groupNum}
-                    />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <WorkoutDetails workout={workout} exerciseMap={exerciseMap} />
         </div>
       )}
     </li>
-  );
-}
-
-function ExerciseDetails({
-  exercise,
-  exerciseMap,
-  index,
-}: {
-  exercise: WorkoutExercise;
-  exerciseMap: Map<string, Exercise>;
-  // Optional — standalone exercises receive their group number; sub-
-  // exercises inside a superset are rendered without one (the superset's
-  // own header carries the group number for the whole block).
-  index?: number;
-}) {
-  const catalogEntry = exerciseMap.get(exercise.exercise_id);
-  const setLines = formatSets(exercise.sets, catalogEntry);
-  // Muscle group pills come from the catalog entry; missing catalog
-  // (unknown slug) just renders no pills, which is the right
-  // degradation rather than e.g. showing the slug raw.
-  const muscleGroups = catalogEntry?.muscle_groups ?? [];
-  return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-medium">
-          {index !== undefined && `${index}. `}
-          {catalogEntry?.name ?? exercise.exercise_id}
-        </p>
-        {muscleGroups.map((mg) => (
-          <MuscleGroupPill key={mg} muscleGroup={mg} />
-        ))}
-      </div>
-      {setLines.length > 0 && (
-        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
-          {setLines.map((line, j) => (
-            <li key={j}>{line}</li>
-          ))}
-        </ul>
-      )}
-      {exercise.notes && (
-        <p className="mt-1 text-xs italic text-[var(--muted)]">
-          {exercise.notes}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -445,68 +340,7 @@ function TrashIcon() {
   );
 }
 
-/**
- * Small colored chip displaying a single muscle group next to an
- * exercise name. Each muscle group has its own hue so a user can scan
- * a workout and see at a glance which areas were trained.
- *
- * Color choices are arbitrary but stable per group — picking from the
- * Tailwind 500-shade palette and rendering with /15 background + 300
- * text + /30 border gives a uniformly subtle filled-pill look that
- * reads on the dark background without competing with the surrounding
- * type. Unknown muscle groups (e.g. a future server-side addition we
- * haven't styled yet) fall back to a neutral zinc.
- */
-const MUSCLE_GROUP_CLASSES: Record<string, string> = {
-  chest: "bg-red-500/15 text-red-300 border-red-500/30",
-  back: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  shoulders: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  biceps: "bg-teal-500/15 text-teal-300 border-teal-500/30",
-  triceps: "bg-orange-500/15 text-orange-300 border-orange-500/30",
-  forearms: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
-  core: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  quads: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
-  hamstrings: "bg-lime-500/15 text-lime-300 border-lime-500/30",
-  glutes: "bg-rose-500/15 text-rose-300 border-rose-500/30",
-  calves: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
-};
-
-function MuscleGroupPill({ muscleGroup }: { muscleGroup: string }) {
-  const classes =
-    MUSCLE_GROUP_CLASSES[muscleGroup] ??
-    "bg-zinc-500/15 text-zinc-300 border-zinc-500/30";
-  return (
-    <span
-      className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${classes}`}
-    >
-      {humanizeMuscleGroup(muscleGroup)}
-    </span>
-  );
-}
-
-/**
- * Display form for a muscle group slug. The API only emits simple
- * single-word values today ("chest", "hamstrings") so this is just
- * a capitalize. Kept as a function so a future slug with underscores
- * (e.g. "lower_back") would format correctly without a code change
- * at the call site.
- */
-function humanizeMuscleGroup(mg: string): string {
-  return mg
-    .split("_")
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ");
-}
-
-// --- formatting helpers ----------------------------------------------------
-
-/**
- * Whether the workout's name field carries information beyond what the
- * date/time already conveys. See workout-modal.tsx for the same rule.
- */
-function hasMeaningfulName(name: string | undefined): name is string {
-  return !!name && !name.startsWith("Workout - ");
-}
+// --- row-level formatting helpers ----------------------------------------
 
 /**
  * Friendly date label. For very recent dates we use "Today" / "Yesterday"
@@ -558,116 +392,4 @@ function formatDuration(start: string, end: string | null): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
-/**
- * Sets summary. Returns one human-readable line per *group* of sets,
- * where a group is a run of identical reps×weight×unit. A flat 5×5
- * across three sets renders as "5 reps × 3 sets @ 185 lbs" rather
- * than three duplicate bullets.
- *
- * For bilateral dumbbell exercises (where the recorded weight is the
- * per-dumbbell value, not the combined pair) the suffix "per dumbbell"
- * is appended so the meaning is unambiguous — e.g. `40 lbs per dumbbell`
- * tells the user they were holding two 40s, not a 40 lb combined load.
- *
- * Bodyweight (weight=0) drops the `@ weight` clause entirely.
- */
-function formatSets(sets: WorkoutSet[], exercise?: Exercise): string[] {
-  if (sets.length === 0) return [];
-  const groups: { count: number; set: WorkoutSet }[] = [];
-  for (const s of sets) {
-    const last = groups[groups.length - 1];
-    if (last && setsEqual(last.set, s)) {
-      last.count += 1;
-    } else {
-      groups.push({ count: 1, set: s });
-    }
-  }
-
-  const perDumbbell = isPerDumbbell(exercise);
-
-  return groups.map((g) => {
-    const repsPart = `${g.set.reps} ${pluralize("rep", g.set.reps)}`;
-    const setsPart = `${g.count} ${pluralize("set", g.count)}`;
-    let line = `${repsPart} × ${setsPart}`;
-    if (g.set.weight > 0) {
-      line += ` @ ${formatWeight(g.set.weight)} ${displayUnit(g.set.unit)}`;
-      if (perDumbbell) {
-        line += " per dumbbell";
-      }
-    }
-    return line;
-  });
-}
-
-function setsEqual(a: WorkoutSet, b: WorkoutSet): boolean {
-  return a.reps === b.reps && a.weight === b.weight && a.unit === b.unit;
-}
-
-function formatWeight(w: number): string {
-  // Strip trailing .0 for whole-number weights so "185" reads cleaner
-  // than "185.0", but preserve the decimal for half-plate increments.
-  return Number.isInteger(w) ? String(w) : w.toFixed(1);
-}
-
-/**
- * "lb" → "lbs" for plural-by-default display; kg stays as "kg" because
- * the technical abbreviation is invariant in casual usage.
- */
-function displayUnit(unit: "lb" | "kg"): string {
-  return unit === "lb" ? "lbs" : "kg";
-}
-
-function pluralize(noun: string, count: number): string {
-  return count === 1 ? noun : `${noun}s`;
-}
-
-/**
- * Whether the recorded weight is per-implement (bilateral dumbbell
- * exercises) rather than the combined load. The signal is in the
- * exercise catalog: bilateral DB exercises carry "Record weight per
- * dumbbell, not the combined pair" in their description by convention
- * (see prog-strength-api/internal/exercise/catalog.go). Unilateral DB
- * exercises like dumbbell-tripod-row deliberately omit the phrase.
- *
- * The check is a substring match on description, gated by the
- * equipment field including "dumbbell" so an unrelated description
- * mentioning "per dumbbell" in passing can't trigger this.
- */
-function isPerDumbbell(ex: Exercise | undefined): boolean {
-  if (!ex) return false;
-  if (!ex.equipment?.includes("dumbbell")) return false;
-  return (ex.description ?? "").toLowerCase().includes("per dumbbell");
-}
-
-/**
- * Walk exercises in `order` and bucket consecutive entries that share
- * the same non-null `superset_group` into a single render group.
- * Standalone exercises (null superset_group) always start their own
- * single-element group.
- *
- * Why "consecutive same group" rather than "any same group anywhere":
- * supersets are physically performed back-to-back, so the order field
- * is the source of truth for sequence. Treating non-adjacent matches
- * as one group would let a malformed payload reshuffle the display
- * order in surprising ways.
- */
-function groupExercises(exercises: WorkoutExercise[]): WorkoutExercise[][] {
-  const sorted = [...exercises].sort((a, b) => a.order - b.order);
-  const groups: WorkoutExercise[][] = [];
-  for (const ex of sorted) {
-    const lastGroup = groups[groups.length - 1];
-    const lastEx = lastGroup?.[lastGroup.length - 1];
-    if (
-      lastEx &&
-      ex.superset_group != null &&
-      lastEx.superset_group === ex.superset_group
-    ) {
-      lastGroup.push(ex);
-    } else {
-      groups.push([ex]);
-    }
-  }
-  return groups;
 }
