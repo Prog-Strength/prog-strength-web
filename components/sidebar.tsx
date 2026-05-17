@@ -15,6 +15,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/chat", label: "Chat", icon: <ChatIcon /> },
   { href: "/workouts", label: "Workouts", icon: <DumbbellIcon /> },
+  { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
 ];
 
@@ -161,6 +162,29 @@ function DumbbellIcon() {
       <path d="M3.5 9v6" />
       <path d="M20.5 9v6" />
       <path d="M6.5 12h11" />
+    </svg>
+  );
+}
+
+function CatalogIcon() {
+  // A short stack of "book spines" — reads as a library/catalog at
+  // 16x16 better than a bulleted-list icon does, and visually distinct
+  // from the Workouts dumbbell and Calendar grid.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="4" height="16" rx="1" />
+      <rect x="10" y="7" width="4" height="13" rx="1" />
+      <rect x="17" y="4" width="4" height="16" rx="1" />
     </svg>
   );
 }
