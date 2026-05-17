@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Prog Strength",
-  description: "Prog Strength",
+  description: "Natural-language strength training tracker.",
 };
 
 export default function RootLayout({
@@ -25,9 +25,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // `dark` makes Tailwind's `dark:` variants resolve consistently
+      // with our forced-dark palette in globals.css.
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
+        {children}
+      </body>
     </html>
   );
 }
