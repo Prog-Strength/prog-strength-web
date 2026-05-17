@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { clearToken, getToken, isAuthenticated } from "@/lib/auth";
+import { clearToken, getToken } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { parseSSE } from "@/lib/stream";
 
@@ -27,14 +27,8 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  // Auth gate. Cheaper than a Next middleware for a single page; we
-  // already need to be client-side to read localStorage.
-  useEffect(() => {
-    if (!isAuthenticated()) router.replace("/login");
-  }, [router]);
-
-  // Auto-scroll on every message-list change. Sticking the user to the
-  // bottom as tokens stream in is the standard chat UX expectation.
+  // Auth-gating lives in the (app) layout; this page assumes a token
+  // exists. Auto-scroll on every message-list change — standard chat UX.
   useEffect(() => {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
@@ -148,24 +142,8 @@ export default function ChatPage() {
     }
   };
 
-  const logout = () => {
-    clearToken();
-    router.replace("/login");
-  };
-
   return (
-    <main className="flex flex-1 flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-3">
-        <h1 className="text-sm font-semibold tracking-tight">Prog Strength</h1>
-        <button
-          type="button"
-          onClick={logout}
-          className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
-        >
-          Sign out
-        </button>
-      </header>
-
+    <main className="flex flex-1 flex-col overflow-hidden">
       <div
         ref={scrollerRef}
         className="flex-1 overflow-y-auto px-6 py-6"
@@ -178,8 +156,8 @@ export default function ChatPage() {
                 Ask about your training.
               </p>
               <p className="mt-1">
-                Try <em>"what chest exercises are in the catalog?"</em> or
-                paste a workout log and ask it to record the session.
+                Try <em>&quot;what chest exercises are in the catalog?&quot;</em>{" "}
+                or paste a workout log and ask it to record the session.
               </p>
             </div>
           )}
