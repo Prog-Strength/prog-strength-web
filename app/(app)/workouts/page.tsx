@@ -338,11 +338,12 @@ function ExerciseDetails({
   exercise: WorkoutExercise;
   exerciseMap: Map<string, Exercise>;
 }) {
-  const setLines = formatSets(exercise.sets);
+  const catalogEntry = exerciseMap.get(exercise.exercise_id);
+  const setLines = formatSets(exercise.sets, catalogEntry);
   return (
     <div>
       <p className="text-sm font-medium">
-        {exerciseMap.get(exercise.exercise_id)?.name ?? exercise.exercise_id}
+        {catalogEntry?.name ?? exercise.exercise_id}
       </p>
       {setLines.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
@@ -485,11 +486,17 @@ function formatDuration(start: string, end: string | null): string {
 /**
  * Sets summary. Returns one human-readable line per *group* of sets,
  * where a group is a run of identical reps×weight×unit. A flat 5×5
- * across three sets renders as a single "3 × 5 × 185 lb" line instead
- * of three identical bullets; varied sets get their own lines.
- * Bodyweight (weight=0) collapses to just the rep count.
+ * across three sets renders as "5 reps × 3 sets @ 185 lbs" rather
+ * than three duplicate bullets.
+ *
+ * For bilateral dumbbell exercises (where the recorded weight is the
+ * per-dumbbell value, not the combined pair) the suffix "per dumbbell"
+ * is appended so the meaning is unambiguous — e.g. `40 lbs per dumbbell`
+ * tells the user they were holding two 40s, not a 40 lb combined load.
+ *
+ * Bodyweight (weight=0) drops the `@ weight` clause entirely.
  */
-function formatSets(sets: WorkoutSet[]): string[] {
+function formatSets(sets: WorkoutSet[], exercise?: Exercise): string[] {
   if (sets.length === 0) return [];
   const groups: { count: number; set: WorkoutSet }[] = [];
   for (const s of sets) {
@@ -500,12 +507,20 @@ function formatSets(sets: WorkoutSet[]): string[] {
       groups.push({ count: 1, set: s });
     }
   }
+
+  const perDumbbell = isPerDumbbell(exercise);
+
   return groups.map((g) => {
-    const setPart =
-      g.set.weight === 0
-        ? `${g.set.reps}`
-        : `${g.set.reps} × ${formatWeight(g.set.weight)} ${g.set.unit}`;
-    return g.count > 1 ? `${g.count} × ${setPart}` : setPart;
+    const repsPart = `${g.set.reps} ${pluralize("rep", g.set.reps)}`;
+    const setsPart = `${g.count} ${pluralize("set", g.count)}`;
+    let line = `${repsPart} × ${setsPart}`;
+    if (g.set.weight > 0) {
+      line += ` @ ${formatWeight(g.set.weight)} ${displayUnit(g.set.unit)}`;
+      if (perDumbbell) {
+        line += " per dumbbell";
+      }
+    }
+    return line;
   });
 }
 
@@ -517,6 +532,36 @@ function formatWeight(w: number): string {
   // Strip trailing .0 for whole-number weights so "185" reads cleaner
   // than "185.0", but preserve the decimal for half-plate increments.
   return Number.isInteger(w) ? String(w) : w.toFixed(1);
+}
+
+/**
+ * "lb" → "lbs" for plural-by-default display; kg stays as "kg" because
+ * the technical abbreviation is invariant in casual usage.
+ */
+function displayUnit(unit: "lb" | "kg"): string {
+  return unit === "lb" ? "lbs" : "kg";
+}
+
+function pluralize(noun: string, count: number): string {
+  return count === 1 ? noun : `${noun}s`;
+}
+
+/**
+ * Whether the recorded weight is per-implement (bilateral dumbbell
+ * exercises) rather than the combined load. The signal is in the
+ * exercise catalog: bilateral DB exercises carry "Record weight per
+ * dumbbell, not the combined pair" in their description by convention
+ * (see prog-strength-api/internal/exercise/catalog.go). Unilateral DB
+ * exercises like dumbbell-tripod-row deliberately omit the phrase.
+ *
+ * The check is a substring match on description, gated by the
+ * equipment field including "dumbbell" so an unrelated description
+ * mentioning "per dumbbell" in passing can't trigger this.
+ */
+function isPerDumbbell(ex: Exercise | undefined): boolean {
+  if (!ex) return false;
+  if (!ex.equipment?.includes("dumbbell")) return false;
+  return (ex.description ?? "").toLowerCase().includes("per dumbbell");
 }
 
 /**
