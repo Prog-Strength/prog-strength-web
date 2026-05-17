@@ -354,12 +354,21 @@ function ExerciseDetails({
 }) {
   const catalogEntry = exerciseMap.get(exercise.exercise_id);
   const setLines = formatSets(exercise.sets, catalogEntry);
+  // Muscle group pills come from the catalog entry; missing catalog
+  // (unknown slug) just renders no pills, which is the right
+  // degradation rather than e.g. showing the slug raw.
+  const muscleGroups = catalogEntry?.muscle_groups ?? [];
   return (
     <div>
-      <p className="text-sm font-medium">
-        {index !== undefined && `${index}. `}
-        {catalogEntry?.name ?? exercise.exercise_id}
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-medium">
+          {index !== undefined && `${index}. `}
+          {catalogEntry?.name ?? exercise.exercise_id}
+        </p>
+        {muscleGroups.map((mg) => (
+          <MuscleGroupPill key={mg} muscleGroup={mg} />
+        ))}
+      </div>
       {setLines.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
           {setLines.map((line, j) => (
@@ -434,6 +443,59 @@ function TrashIcon() {
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
     </svg>
   );
+}
+
+/**
+ * Small colored chip displaying a single muscle group next to an
+ * exercise name. Each muscle group has its own hue so a user can scan
+ * a workout and see at a glance which areas were trained.
+ *
+ * Color choices are arbitrary but stable per group — picking from the
+ * Tailwind 500-shade palette and rendering with /15 background + 300
+ * text + /30 border gives a uniformly subtle filled-pill look that
+ * reads on the dark background without competing with the surrounding
+ * type. Unknown muscle groups (e.g. a future server-side addition we
+ * haven't styled yet) fall back to a neutral zinc.
+ */
+const MUSCLE_GROUP_CLASSES: Record<string, string> = {
+  chest: "bg-red-500/15 text-red-300 border-red-500/30",
+  back: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  shoulders: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  biceps: "bg-teal-500/15 text-teal-300 border-teal-500/30",
+  triceps: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+  forearms: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
+  core: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  quads: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+  hamstrings: "bg-lime-500/15 text-lime-300 border-lime-500/30",
+  glutes: "bg-rose-500/15 text-rose-300 border-rose-500/30",
+  calves: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
+};
+
+function MuscleGroupPill({ muscleGroup }: { muscleGroup: string }) {
+  const classes =
+    MUSCLE_GROUP_CLASSES[muscleGroup] ??
+    "bg-zinc-500/15 text-zinc-300 border-zinc-500/30";
+  return (
+    <span
+      className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${classes}`}
+    >
+      {humanizeMuscleGroup(muscleGroup)}
+    </span>
+  );
+}
+
+/**
+ * Display form for a muscle group slug. The API only emits simple
+ * single-word values today ("chest", "hamstrings") so this is just
+ * a capitalize. Kept as a function so a future slug with underscores
+ * (e.g. "lower_back") would format correctly without a code change
+ * at the call site.
+ */
+function humanizeMuscleGroup(mg: string): string {
+  return mg
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
 }
 
 // --- formatting helpers ----------------------------------------------------
