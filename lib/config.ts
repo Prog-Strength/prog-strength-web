@@ -15,4 +15,10 @@ export const config = {
   appUrl:
     process.env.NEXT_PUBLIC_APP_URL ??
     (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"),
+  // Shown on the beta-locked page so rejected users know where to
+  // request access. The default is the project owner's personal
+  // address — override via the env var if you set up a dedicated
+  // alias later.
+  betaContactEmail:
+    process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
 };

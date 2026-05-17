@@ -27,6 +27,20 @@ export default function AuthCallback() {
       : window.location.hash;
 
     const params = new URLSearchParams(hash);
+
+    // Beta gate: the API redirects here with #error=beta_required when
+    // the user's Google email isn't on the allowlist. Forward the
+    // attempted email through to /beta-locked so the page can echo it
+    // back ("you tried to sign in with X — contact admins to request
+    // access for that address").
+    const oauthError = params.get("error");
+    if (oauthError === "beta_required") {
+      const email = params.get("email") ?? "";
+      window.history.replaceState({}, "", "/auth/callback");
+      router.replace(`/beta-locked?email=${encodeURIComponent(email)}`);
+      return;
+    }
+
     const token = params.get("access_token");
     const expiresInRaw = params.get("expires_in");
 
