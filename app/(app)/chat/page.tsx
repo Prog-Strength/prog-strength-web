@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { clearToken, getToken } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { parseSSE } from "@/lib/stream";
@@ -226,21 +228,154 @@ function MessageBubble({
   content: string;
 }) {
   const isUser = role === "user";
+
+  // User messages render as plain text (the user didn't intentionally
+  // write Markdown when typing). Assistant messages render through
+  // ReactMarkdown so `**bold**`, lists, code, and tables come out
+  // formatted instead of as literal asterisks. `remark-gfm` enables
+  // GitHub-flavored Markdown — tables, strikethrough, autolinked URLs,
+  // task lists — which Claude tends to use in tool-rich responses.
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
+        className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
           isUser
-            ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+            ? "whitespace-pre-wrap bg-[var(--accent)] text-[var(--accent-fg)]"
             : "bg-[var(--surface)] text-[var(--foreground)]"
         }`}
       >
-        {content || (
+        {!content ? (
           <span className="inline-block animate-pulse text-[var(--muted)]">
             …
           </span>
+        ) : isUser ? (
+          content
+        ) : (
+          <AssistantMarkdown content={content} />
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Markdown renderer for assistant turns. Each element is mapped to a
+ * Tailwind-styled component so the rendered output sits naturally in
+ * the dark chat bubble — no `prose` plugin, no global typography
+ * styles to maintain.
+ *
+ * `react-markdown` is safe-by-default (raw HTML in input is escaped),
+ * so we don't need a sanitizer step.
+ */
+function AssistantMarkdown({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        // Paragraphs: tight by default. The bubble already has padding,
+        // so internal margins only need to separate consecutive blocks.
+        p: ({ children }) => (
+          <p className="my-1 first:mt-0 last:mb-0">{children}</p>
+        ),
+        strong: ({ children }) => (
+          <strong className="font-semibold">{children}</strong>
+        ),
+        em: ({ children }) => <em className="italic">{children}</em>,
+        // Lists indent with bullets / numbers; tight vertical rhythm
+        // matches the surrounding text.
+        ul: ({ children }) => (
+          <ul className="my-2 list-disc space-y-1 pl-5 first:mt-0 last:mb-0 marker:text-[var(--muted)]">
+            {children}
+          </ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="my-2 list-decimal space-y-1 pl-5 first:mt-0 last:mb-0 marker:text-[var(--muted)]">
+            {children}
+          </ol>
+        ),
+        li: ({ children }) => <li className="leading-snug">{children}</li>,
+        // Headings inside a chat bubble are usually small (Claude uses
+        // them as section labels, not page titles), so we cap the size.
+        h1: ({ children }) => (
+          <h1 className="mb-2 mt-3 text-base font-semibold first:mt-0">
+            {children}
+          </h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="mb-2 mt-3 text-sm font-semibold first:mt-0">
+            {children}
+          </h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">
+            {children}
+          </h3>
+        ),
+        // Inline `code` gets a subtle background; fenced code blocks
+        // get their own dark block + horizontal scroll for long lines.
+        code: ({ className, children, ...rest }) => {
+          const isInline = !className;
+          if (isInline) {
+            return (
+              <code
+                className="rounded bg-[var(--surface-2)] px-1 py-0.5 font-mono text-[0.85em]"
+                {...rest}
+              >
+                {children}
+              </code>
+            );
+          }
+          return (
+            <code className={`${className ?? ""} font-mono text-xs`} {...rest}>
+              {children}
+            </code>
+          );
+        },
+        pre: ({ children }) => (
+          <pre className="my-2 overflow-x-auto rounded-md bg-[var(--surface-2)] p-3 first:mt-0 last:mb-0">
+            {children}
+          </pre>
+        ),
+        // Links open in a new tab — Claude often surfaces external
+        // references and you don't want to lose the chat scroll.
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--accent)] underline-offset-4 hover:underline"
+          >
+            {children}
+          </a>
+        ),
+        blockquote: ({ children }) => (
+          <blockquote className="my-2 border-l-2 border-[var(--border)] pl-3 italic text-[var(--muted)] first:mt-0 last:mb-0">
+            {children}
+          </blockquote>
+        ),
+        // GFM tables. Horizontal scroll on overflow so long workout
+        // tables don't blow out the bubble width.
+        table: ({ children }) => (
+          <div className="my-2 overflow-x-auto first:mt-0 last:mb-0">
+            <table className="min-w-full border-collapse text-xs">
+              {children}
+            </table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th className="border-b border-[var(--border)] px-2 py-1 text-left font-medium">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="border-b border-[var(--border)]/50 px-2 py-1">
+            {children}
+          </td>
+        ),
+        hr: () => <hr className="my-3 border-[var(--border)]" />,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
   );
 }
