@@ -100,6 +100,28 @@ export type WorkoutPayload = {
 };
 
 /**
+ * DELETE /workouts/{id}. Soft-deletes the workout server-side (sets
+ * deleted_at; subsequent reads treat the row as gone). Throws on non-
+ * 2xx with the API's `error` envelope as the message — typically a
+ * 404 if the ID doesn't exist or isn't owned by this user.
+ */
+export async function deleteWorkout(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
  * PUT /workouts/{id}. Full replacement — the body is the complete
  * workout state, not a partial diff. Ownership is enforced server-side;
  * a non-2xx response means the API rejected the payload (validation

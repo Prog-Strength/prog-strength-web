@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
+  deleteWorkout,
   listExercises,
   listWorkouts,
   type Exercise,
@@ -97,6 +98,33 @@ export default function WorkoutsPage() {
       ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws,
     );
 
+  // Destructive action; gate behind a native confirm() so users can't
+  // mis-click and lose data. The label echoes the workout's identity
+  // (real name when set, falls back to formatted date) so the user
+  // sees what they're about to remove. Server-side this is a soft
+  // delete — but from the user's perspective it's gone.
+  const handleDelete = async (workout: Workout) => {
+    const label = hasMeaningfulName(workout.name)
+      ? workout.name
+      : formatDate(workout.performed_at);
+    if (!window.confirm(`Delete "${label}"? This removes the workout from your history.`)) {
+      return;
+    }
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    try {
+      await deleteWorkout(token, workout.id);
+      setWorkouts((ws) =>
+        ws ? ws.filter((w) => w.id !== workout.id) : ws,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-3 border-b border-[var(--border)] px-6 py-4">
@@ -147,6 +175,7 @@ export default function WorkoutsPage() {
                   expanded={expanded.has(w.id)}
                   onToggleExpanded={() => toggleExpanded(w.id)}
                   onEdit={() => setEditing(w)}
+                  onDelete={() => handleDelete(w)}
                   exerciseMap={exerciseMap}
                 />
               ))}
@@ -184,12 +213,14 @@ function WorkoutRow({
   expanded,
   onToggleExpanded,
   onEdit,
+  onDelete,
   exerciseMap,
 }: {
   workout: Workout;
   expanded: boolean;
   onToggleExpanded: () => void;
   onEdit: () => void;
+  onDelete: () => void;
   exerciseMap: Map<string, Exercise>;
 }) {
   const named = hasMeaningfulName(workout.name);
@@ -242,6 +273,17 @@ function WorkoutRow({
           className="flex shrink-0 items-center border-l border-[var(--border)] px-3 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
         >
           <PencilIcon />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label="Delete workout"
+          title="Delete workout"
+          // Hover turns the icon danger-red so the destructive nature
+          // of the action is unmistakable before the user clicks.
+          className="flex shrink-0 items-center border-l border-[var(--border)] px-3 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--danger)]"
+        >
+          <TrashIcon />
         </button>
       </div>
 
@@ -318,6 +360,26 @@ function PencilIcon() {
     >
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
     </svg>
   );
 }
