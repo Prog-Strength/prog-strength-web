@@ -8,6 +8,7 @@ import {
   listWorkouts,
   type Exercise,
   type Workout,
+  type WorkoutSet,
 } from "@/lib/api";
 import { WorkoutModal } from "@/components/workout-modal";
 
@@ -38,6 +39,11 @@ export default function WorkoutsPage() {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>("30d");
   const [editing, setEditing] = useState<Workout | null>(null);
+  // Tracks which rows have their readonly details panel open. Click on
+  // the row body toggles; click on the pencil opens the edit modal.
+  // Separate UI surfaces because reading and editing are different
+  // mental modes — the modal is heavyweight for the read case.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,6 +74,21 @@ export default function WorkoutsPage() {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     return workouts.filter((w) => new Date(w.performed_at).getTime() >= cutoff);
   }, [workouts, timeframe]);
+
+  // Indexed lookup for the expanded view — turns `exercise_id` slugs
+  // ("barbell-bench-press") into the user-facing name.
+  const exerciseMap = useMemo(
+    () => new Map(exercises.map((e) => [e.id, e])),
+    [exercises],
+  );
+
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // Splice the modal's returned workout back into local state so the
   // row reflects edits immediately without a refetch round-trip.
@@ -123,7 +144,10 @@ export default function WorkoutsPage() {
                 <WorkoutRow
                   key={w.id}
                   workout={w}
+                  expanded={expanded.has(w.id)}
+                  onToggleExpanded={() => toggleExpanded(w.id)}
                   onEdit={() => setEditing(w)}
+                  exerciseMap={exerciseMap}
                 />
               ))}
             </ul>
@@ -157,45 +181,101 @@ function EmptyState() {
 
 function WorkoutRow({
   workout,
+  expanded,
+  onToggleExpanded,
   onEdit,
+  exerciseMap,
 }: {
   workout: Workout;
+  expanded: boolean;
+  onToggleExpanded: () => void;
   onEdit: () => void;
+  exerciseMap: Map<string, Exercise>;
 }) {
   const named = hasMeaningfulName(workout.name);
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
-      >
-        <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
-          <p className="truncate text-sm font-medium">
-            {named ? workout.name : formatDate(workout.performed_at)}
-          </p>
-          <p className="text-xs text-[var(--muted)]">
-            {named && `${formatDate(workout.performed_at)} · `}
-            {formatDuration(workout.performed_at, workout.ended_at ?? null)} ·{" "}
-            {workout.exercises.length}{" "}
-            {workout.exercises.length === 1 ? "exercise" : "exercises"}
-          </p>
-          {workout.notes && (
-            <p className="truncate text-xs text-[var(--muted)]">
-              {workout.notes}
+    <li className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+      {/* Two sibling buttons in the header so the expand-vs-edit
+          interaction is unambiguous. Nesting the pencil inside the
+          row button would trip "buttons can't nest" and stop click
+          events propagating. */}
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          aria-expanded={expanded}
+          className="flex flex-1 items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
+        >
+          <ChevronIcon expanded={expanded} />
+          <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+            <p className="truncate text-sm font-medium">
+              {named ? workout.name : formatDate(workout.performed_at)}
             </p>
+            <p className="text-xs text-[var(--muted)]">
+              {named && `${formatDate(workout.performed_at)} · `}
+              {formatDuration(workout.performed_at, workout.ended_at ?? null)}{" "}
+              · {workout.exercises.length}{" "}
+              {workout.exercises.length === 1 ? "exercise" : "exercises"}
+            </p>
+            {workout.notes && (
+              <p className="truncate text-xs text-[var(--muted)]">
+                {workout.notes}
+              </p>
+            )}
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="Edit workout"
+          // Border-l only — the rest of the row's border is the card.
+          // Title surfaces the action on hover since the icon alone
+          // isn't fully self-explanatory.
+          title="Edit workout"
+          className="flex items-center border-l border-[var(--border)] px-3 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+        >
+          <PencilIcon />
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-[var(--border)] px-4 py-3">
+          {workout.notes && (
+            <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
           )}
+          <ul className="flex flex-col gap-3">
+            {[...workout.exercises]
+              .sort((a, b) => a.order - b.order)
+              .map((we, i) => {
+                const setLines = formatSets(we.sets);
+                return (
+                  <li key={i}>
+                    <p className="text-sm font-medium">
+                      {exerciseMap.get(we.exercise_id)?.name ?? we.exercise_id}
+                    </p>
+                    {setLines.length > 0 && (
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
+                        {setLines.map((line, j) => (
+                          <li key={j}>{line}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {we.notes && (
+                      <p className="mt-1 text-xs italic text-[var(--muted)]">
+                        {we.notes}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+          </ul>
         </div>
-        <ChevronIcon />
-      </button>
+      )}
     </li>
   );
 }
 
-function ChevronIcon() {
-  // Right-pointing chevron as a visual affordance that the row opens
-  // something (the modal) rather than expanding in place. Subtler than
-  // a full "Edit" button on every row.
+function ChevronIcon({ expanded }: { expanded: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -206,10 +286,31 @@ function ChevronIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="shrink-0 text-[var(--muted)]"
+      className={`shrink-0 text-[var(--muted)] transition-transform ${
+        expanded ? "rotate-90" : ""
+      }`}
       aria-hidden="true"
     >
       <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
     </svg>
   );
 }
@@ -274,4 +375,41 @@ function formatDuration(start: string, end: string | null): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+/**
+ * Sets summary. Returns one human-readable line per *group* of sets,
+ * where a group is a run of identical reps×weight×unit. A flat 5×5
+ * across three sets renders as a single "3 × 5 × 185 lb" line instead
+ * of three identical bullets; varied sets get their own lines.
+ * Bodyweight (weight=0) collapses to just the rep count.
+ */
+function formatSets(sets: WorkoutSet[]): string[] {
+  if (sets.length === 0) return [];
+  const groups: { count: number; set: WorkoutSet }[] = [];
+  for (const s of sets) {
+    const last = groups[groups.length - 1];
+    if (last && setsEqual(last.set, s)) {
+      last.count += 1;
+    } else {
+      groups.push({ count: 1, set: s });
+    }
+  }
+  return groups.map((g) => {
+    const setPart =
+      g.set.weight === 0
+        ? `${g.set.reps}`
+        : `${g.set.reps} × ${formatWeight(g.set.weight)} ${g.set.unit}`;
+    return g.count > 1 ? `${g.count} × ${setPart}` : setPart;
+  });
+}
+
+function setsEqual(a: WorkoutSet, b: WorkoutSet): boolean {
+  return a.reps === b.reps && a.weight === b.weight && a.unit === b.unit;
+}
+
+function formatWeight(w: number): string {
+  // Strip trailing .0 for whole-number weights so "185" reads cleaner
+  // than "185.0", but preserve the decimal for half-plate increments.
+  return Number.isInteger(w) ? String(w) : w.toFixed(1);
 }
