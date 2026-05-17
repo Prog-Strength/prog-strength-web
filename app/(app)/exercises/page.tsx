@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { config } from "@/lib/config";
 import { listExercises, type Exercise } from "@/lib/api";
 import { MuscleGroupPill } from "@/components/muscle-group-pill";
+import { EquipmentPill } from "@/components/equipment-pill";
 
 /**
  * Read-only browser for the shared exercise catalog (the same list the
@@ -41,6 +42,26 @@ export default function ExercisesPage() {
       return false;
     });
   }, [exercises, query]);
+
+  // Group the filtered set into alphabetical sections keyed by the
+  // first letter of the exercise name. The map preserves insertion
+  // order, so sorting names first means each bucket comes out
+  // alphabetized too. Sections are then sorted by letter for the
+  // overall A→Z order.
+  const grouped = useMemo(() => {
+    if (!filtered) return null;
+    const sorted = [...filtered].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    const map = new Map<string, Exercise[]>();
+    for (const ex of sorted) {
+      const letter = (ex.name[0] ?? "#").toUpperCase();
+      const list = map.get(letter);
+      if (list) list.push(ex);
+      else map.set(letter, [ex]);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [filtered]);
 
   const toggleExpanded = (id: string) => {
     setExpanded((prev) => {
@@ -93,7 +114,7 @@ export default function ExercisesPage() {
             <p className="text-sm text-[var(--muted)]">Loading exercises…</p>
           )}
 
-          {filtered && filtered.length === 0 && (
+          {grouped && grouped.length === 0 && (
             <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 text-center text-sm text-[var(--muted)]">
               No exercises match{" "}
               <span className="font-mono text-[var(--foreground)]">
@@ -103,17 +124,31 @@ export default function ExercisesPage() {
             </p>
           )}
 
-          {filtered && filtered.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {filtered.map((e) => (
-                <ExerciseRow
-                  key={e.id}
-                  exercise={e}
-                  expanded={expanded.has(e.id)}
-                  onToggle={() => toggleExpanded(e.id)}
-                />
+          {grouped && grouped.length > 0 && (
+            <div className="flex flex-col gap-6">
+              {grouped.map(([letter, items]) => (
+                <section key={letter}>
+                  {/* Sticky letter header: stays at the top of the
+                      scroll container as the user moves through the
+                      letter's exercises, so they always know which
+                      section they're in. Background matches the page
+                      so list content scrolling underneath is hidden. */}
+                  <h2 className="sticky top-0 z-10 -mx-6 mb-2 border-b border-[var(--border)] bg-[var(--background)] px-6 py-1.5 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
+                    {letter}
+                  </h2>
+                  <ul className="flex flex-col gap-2">
+                    {items.map((e) => (
+                      <ExerciseRow
+                        key={e.id}
+                        exercise={e}
+                        expanded={expanded.has(e.id)}
+                        onToggle={() => toggleExpanded(e.id)}
+                      />
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
+            </div>
           )}
         </div>
       </div>
@@ -171,11 +206,10 @@ function ExerciseRow({
 }
 
 /**
- * Equipment chips — bordered/muted style, distinct from the colored
- * muscle-group pills. Equipment doesn't carry semantic color the way
- * a muscle group does ("barbell" isn't a hue), so a uniform neutral
- * chip reads as "metadata you might filter on" without competing
- * with the muscle-group pills above.
+ * Equipment chips row — uses the shared EquipmentPill component so
+ * the styling matches anywhere else equipment is surfaced (and so
+ * adding a new equipment color is a one-file change in
+ * components/equipment-pill.tsx).
  */
 function EquipmentRow({ tags }: { tags: string[] }) {
   return (
@@ -184,12 +218,7 @@ function EquipmentRow({ tags }: { tags: string[] }) {
         Equipment
       </span>
       {tags.map((t) => (
-        <span
-          key={t}
-          className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] text-[var(--muted)]"
-        >
-          {humanizeSlug(t)}
-        </span>
+        <EquipmentPill key={t} equipment={t} />
       ))}
     </div>
   );
@@ -237,14 +266,3 @@ function InfoIcon() {
   );
 }
 
-/**
- * Turn an API slug ("flat_bench", "barbell", "incline_bench") into a
- * display string ("Flat Bench", "Barbell", "Incline Bench"). The API
- * uses lowercase + underscores; we only need to undo that for display.
- */
-function humanizeSlug(slug: string): string {
-  return slug
-    .split("_")
-    .map((s) => (s ? s[0].toUpperCase() + s.slice(1) : s))
-    .join(" ");
-}
