@@ -11,6 +11,10 @@ export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_use_start"; name: string }
   | { type: "tool_result"; name: string; is_error: boolean }
+  // Emitted once at the start of each assistant turn so the UI can
+  // label which model produced the response (Haiku for simple CRUD,
+  // Sonnet for analysis). See ModelRouter on the agent side.
+  | { type: "model_chosen"; model: string }
   | { type: "done"; stop_reason: string }
   | { type: "error"; message: string };
 

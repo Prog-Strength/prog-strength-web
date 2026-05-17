@@ -25,6 +25,11 @@ type Message = {
   // Only populated on assistant messages — the tools the agent
   // invoked while producing this turn. Order reflects call order.
   tools?: ToolCall[];
+  // The Claude model that produced this turn, e.g. "claude-haiku-4-5…"
+  // or "claude-sonnet-4-6". Set when the agent emits model_chosen at
+  // the start of the response, kept on the message so historical
+  // turns show "via Haiku" / "via Sonnet" labels.
+  model?: string;
 };
 
 export default function ChatPage() {
@@ -126,6 +131,13 @@ export default function ChatPage() {
               ),
             })),
           );
+        } else if (ev.type === "model_chosen") {
+          // Stamp the chosen model onto the in-progress assistant
+          // message so the UI can render "via Haiku" / "via Sonnet"
+          // and the label persists in conversation history.
+          setMessages((prev) =>
+            replaceLast(prev, (last) => ({ ...last, model: ev.model })),
+          );
         } else if (ev.type === "error") {
           setError(ev.message);
         }
@@ -134,18 +146,19 @@ export default function ChatPage() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
-      // Roll back the empty placeholder so the user doesn't see a blank
-      // assistant bubble after a failure. Only drop the row if no text
-      // AND no tool activity had landed — if the agent already produced
-      // anything visible we keep it so the user retains context for
-      // debugging or retry.
+      // Roll back the empty placeholder so the user doesn't see a
+      // blank assistant bubble after a failure. Only drop the row if
+      // nothing visible to the user had landed yet — no text, no tool
+      // activity, and no model label. If any signal arrived we keep
+      // the row so the user retains context for debugging or retry.
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
         const isBlankAssistant =
           last.role === "assistant" &&
           last.content === "" &&
-          (!last.tools || last.tools.length === 0);
+          (!last.tools || last.tools.length === 0) &&
+          !last.model;
         if (isBlankAssistant) {
           return prev.slice(0, -1);
         }
@@ -190,6 +203,7 @@ export default function ChatPage() {
               role={m.role}
               content={m.content}
               tools={m.tools}
+              model={m.model}
             />
           ))}
 
@@ -230,14 +244,18 @@ function MessageBubble({
   role,
   content,
   tools,
+  model,
 }: {
   role: "user" | "assistant";
   content: string;
   tools?: ToolCall[];
+  model?: string;
 }) {
   const isUser = role === "user";
   const hasTools = !isUser && tools && tools.length > 0;
+  const hasModel = !isUser && !!model;
   const hasContent = content.length > 0;
+  const hasMetadata = hasTools || hasModel;
 
   // User messages render as plain text (the user didn't intentionally
   // write Markdown when typing). Assistant messages render through
@@ -254,17 +272,17 @@ function MessageBubble({
             : "bg-[var(--surface)] text-[var(--foreground)]"
         }`}
       >
-        {hasTools && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {tools.map((t, i) => (
-              <ToolPill key={i} tool={t} />
-            ))}
+        {hasMetadata && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {hasModel && <ModelLabel model={model} />}
+            {hasTools &&
+              tools.map((t, i) => <ToolPill key={i} tool={t} />)}
           </div>
         )}
-        {!hasContent && !hasTools ? (
-          // No text and no tools yet — show the typing placeholder.
-          // Once tools start arriving the pills act as the in-progress
-          // indicator and the placeholder isn't needed.
+        {!hasContent && !hasMetadata ? (
+          // No text and no metadata yet — show the typing placeholder.
+          // Once any signal arrives (model_chosen, tool start, text)
+          // the metadata row acts as the in-progress indicator.
           <span className="inline-block animate-pulse text-[var(--muted)]">
             …
           </span>
@@ -275,6 +293,20 @@ function MessageBubble({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Small "via Haiku 4.5" label that sits in the assistant bubble's
+ * metadata row. Styled as muted plain text rather than a colored pill
+ * so it recedes against the more visually weighted tool pills next to
+ * it — the model is contextual info, not an action.
+ */
+function ModelLabel({ model }: { model: string }) {
+  return (
+    <span className="text-[10px] font-medium text-[var(--muted)]">
+      via {humanizeModelName(model)}
+    </span>
   );
 }
 
@@ -337,6 +369,20 @@ function humanizeToolName(name: string): string {
     .split("_")
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(" ");
+}
+
+/**
+ * Friendly form for a Claude model id. `claude-haiku-4-5-20251001` →
+ * `Haiku 4.5`, `claude-sonnet-4-6` → `Sonnet 4.6`. Falls back to the
+ * raw id if the pattern doesn't match — better to show the cryptic
+ * value than nothing when a new model family lands.
+ */
+function humanizeModelName(model: string): string {
+  const match = model.match(/^claude-([a-z]+)-(\d+)-(\d+)/);
+  if (!match) return model;
+  const [, family, major, minor] = match;
+  const familyTitle = family[0].toUpperCase() + family.slice(1);
+  return `${familyTitle} ${major}.${minor}`;
 }
 
 // --- icons -------------------------------------------------------------
