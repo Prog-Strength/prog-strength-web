@@ -80,6 +80,15 @@ export default function WorkoutsPage() {
     return workouts.filter((w) => new Date(w.performed_at).getTime() >= cutoff);
   }, [workouts, timeframe]);
 
+  // Group by Monday-anchored week so each section header can summarize
+  // the week's total time and activity count. The filtered list is
+  // already newest-first (the API returns most-recent first); iterating
+  // in order means Map preserves week order from newest to oldest.
+  const weekGroups = useMemo(
+    () => (filteredWorkouts ? groupByWeek(filteredWorkouts) : null),
+    [filteredWorkouts],
+  );
+
   const exerciseMap = useMemo(
     () => new Map(exercises.map((e) => [e.id, e])),
     [exercises],
@@ -161,20 +170,27 @@ export default function WorkoutsPage() {
 
           {filteredWorkouts && filteredWorkouts.length === 0 && <EmptyState />}
 
-          {filteredWorkouts && filteredWorkouts.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {filteredWorkouts.map((w) => (
-                <WorkoutRow
-                  key={w.id}
-                  workout={w}
-                  expanded={expanded.has(w.id)}
-                  onToggleExpanded={() => toggleExpanded(w.id)}
-                  onEdit={() => setEditing(w)}
-                  onDelete={() => handleDelete(w)}
-                  exerciseMap={exerciseMap}
-                />
+          {weekGroups && weekGroups.length > 0 && (
+            <div className="flex flex-col gap-8">
+              {weekGroups.map((group) => (
+                <section key={group.mondayKey} className="flex flex-col gap-3">
+                  <WeekHeader group={group} />
+                  <ul className="flex flex-col gap-2">
+                    {group.workouts.map((w) => (
+                      <WorkoutRow
+                        key={w.id}
+                        workout={w}
+                        expanded={expanded.has(w.id)}
+                        onToggleExpanded={() => toggleExpanded(w.id)}
+                        onEdit={() => setEditing(w)}
+                        onDelete={() => handleDelete(w)}
+                        exerciseMap={exerciseMap}
+                      />
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
+            </div>
           )}
         </div>
       </div>
@@ -338,6 +354,153 @@ function TrashIcon() {
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
     </svg>
   );
+}
+
+// --- week grouping -------------------------------------------------------
+
+type WeekGroup = {
+  // ISO date of the Monday that anchors this week (YYYY-MM-DD), used
+  // as a React key and as the dedupe key during grouping.
+  mondayKey: string;
+  monday: Date;
+  workouts: Workout[];
+  totalDurationMs: number;
+  count: number;
+};
+
+/**
+ * Buckets workouts by Monday-anchored week. Assumes the input is
+ * already in display order (newest first); the returned array reflects
+ * that order because Map iteration is insertion-ordered. In-progress
+ * workouts (no ended_at) don't contribute to totalDurationMs.
+ */
+function groupByWeek(workouts: Workout[]): WeekGroup[] {
+  const groups = new Map<string, WeekGroup>();
+  for (const w of workouts) {
+    const performed = new Date(w.performed_at);
+    const monday = startOfMonday(performed);
+    const key = isoDate(monday);
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        mondayKey: key,
+        monday,
+        workouts: [],
+        totalDurationMs: 0,
+        count: 0,
+      };
+      groups.set(key, group);
+    }
+    group.workouts.push(w);
+    group.count += 1;
+    if (w.ended_at) {
+      const dur = new Date(w.ended_at).getTime() - performed.getTime();
+      if (dur > 0) group.totalDurationMs += dur;
+    }
+  }
+  return [...groups.values()];
+}
+
+/** Midnight (local) of the Monday in the same ISO week as `d`. */
+function startOfMonday(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  // getDay: 0 = Sunday, 1 = Monday, ..., 6 = Saturday. Offset to Monday
+  // is (day + 6) % 7 — Sun→6 days back, Mon→0, Tue→1, etc.
+  const offset = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - offset);
+  return x;
+}
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function WeekHeader({ group }: { group: WeekGroup }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold tracking-tight">
+          {formatWeekLabel(group.monday)}
+        </h2>
+        <span className="text-xs text-[var(--muted)]">
+          {formatWeekRange(group.monday)}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <StatTile
+          label="Total time"
+          value={formatTotalDuration(group.totalDurationMs)}
+        />
+        <StatTile label="Activities" value={String(group.count)} />
+      </div>
+    </div>
+  );
+}
+
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+      <p className="text-xs text-[var(--muted)]">{label}</p>
+      <p className="mt-0.5 text-base font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+/**
+ * Friendly title for a week. "This week" / "Last week" win when they
+ * apply; otherwise "Week of <Mon D>". Year is omitted from the title
+ * since the right-side range carries it when it matters.
+ */
+function formatWeekLabel(monday: Date): string {
+  const today = new Date();
+  const thisMonday = startOfMonday(today);
+  const lastMonday = new Date(thisMonday);
+  lastMonday.setDate(lastMonday.getDate() - 7);
+  if (monday.getTime() === thisMonday.getTime()) return "This week";
+  if (monday.getTime() === lastMonday.getTime()) return "Last week";
+  return `Week of ${monday.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })}`;
+}
+
+/**
+ * Mon–Sun span. Drops the leading month when both ends share one
+ * ("May 11 – 17"), and shows the year only when the week falls outside
+ * the current calendar year so the common case stays compact.
+ */
+function formatWeekRange(monday: Date): string {
+  const sunday = new Date(monday);
+  sunday.setDate(sunday.getDate() + 6);
+  const now = new Date();
+  const sameMonth = monday.getMonth() === sunday.getMonth();
+  const includeYear =
+    monday.getFullYear() !== now.getFullYear() ||
+    sunday.getFullYear() !== now.getFullYear();
+  const start = monday.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  const end = sunday.toLocaleDateString(
+    "en-US",
+    sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" },
+  );
+  return includeYear
+    ? `${start} – ${end}, ${sunday.getFullYear()}`
+    : `${start} – ${end}`;
+}
+
+/** Same format as the row's `formatDuration` but sums across the week. */
+function formatTotalDuration(ms: number): string {
+  if (ms <= 0) return "—";
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 // --- row-level formatting helpers ----------------------------------------
