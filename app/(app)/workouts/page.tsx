@@ -294,42 +294,45 @@ function WorkoutRow({
             <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
           )}
           <ul className="flex flex-col gap-3">
-            {groupExercises(workout.exercises).map((group, gIdx) => (
-              <li key={gIdx}>
-                {group.length > 1 ? (
-                  // Superset: visually grouped with a left accent border
-                  // and a small label, since the alternating-set semantics
-                  // ("set 1 of A, set 1 of B, …") aren't obvious from the
-                  // flat per-exercise sets list alone.
-                  <div className="rounded-r-md border-l-2 border-[var(--accent)] bg-[var(--surface-2)]/40 py-2 pl-3">
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
-                      Superset
-                    </p>
-                    <ul className="flex flex-col gap-2">
-                      {group.map((we, i) => (
-                        <li key={i}>
-                          <ExerciseDetails
-                            exercise={we}
-                            exerciseMap={exerciseMap}
-                            // we.order is 0-indexed on the API side
-                            // (assigned from array position on write);
-                            // display it 1-indexed for the lifter's
-                            // natural reading.
-                            index={we.order + 1}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <ExerciseDetails
-                    exercise={group[0]}
-                    exerciseMap={exerciseMap}
-                    index={group[0].order + 1}
-                  />
-                )}
-              </li>
-            ))}
+            {/* A superset is conceptually a single "block" in the
+                workout — the lifter performs it as one unit, alternating
+                sets across the included exercises. So we number by
+                group (1, 2, 3, …) rather than by individual exercise:
+                a superset gets one number applied to its header, and
+                its sub-exercises are unnumbered inside. */}
+            {groupExercises(workout.exercises).map((group, gIdx) => {
+              const groupNum = gIdx + 1;
+              return (
+                <li key={gIdx}>
+                  {group.length > 1 ? (
+                    <div className="rounded-r-md border-l-2 border-[var(--accent)] bg-[var(--surface-2)]/40 py-2 pl-3">
+                      <p className="mb-2 flex items-baseline gap-2 text-sm font-medium">
+                        <span>{groupNum}.</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                          Superset
+                        </span>
+                      </p>
+                      <ul className="flex flex-col gap-2">
+                        {group.map((we, i) => (
+                          <li key={i}>
+                            <ExerciseDetails
+                              exercise={we}
+                              exerciseMap={exerciseMap}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <ExerciseDetails
+                      exercise={group[0]}
+                      exerciseMap={exerciseMap}
+                      index={groupNum}
+                    />
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -344,14 +347,18 @@ function ExerciseDetails({
 }: {
   exercise: WorkoutExercise;
   exerciseMap: Map<string, Exercise>;
-  index: number;
+  // Optional — standalone exercises receive their group number; sub-
+  // exercises inside a superset are rendered without one (the superset's
+  // own header carries the group number for the whole block).
+  index?: number;
 }) {
   const catalogEntry = exerciseMap.get(exercise.exercise_id);
   const setLines = formatSets(exercise.sets, catalogEntry);
   return (
     <div>
       <p className="text-sm font-medium">
-        {index}. {catalogEntry?.name ?? exercise.exercise_id}
+        {index !== undefined && `${index}. `}
+        {catalogEntry?.name ?? exercise.exercise_id}
       </p>
       {setLines.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
