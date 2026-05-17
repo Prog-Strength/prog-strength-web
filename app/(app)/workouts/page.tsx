@@ -9,6 +9,7 @@ import {
   listWorkouts,
   type Exercise,
   type Workout,
+  type WorkoutExercise,
   type WorkoutSet,
 } from "@/lib/api";
 import { WorkoutModal } from "@/components/workout-modal";
@@ -293,34 +294,69 @@ function WorkoutRow({
             <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
           )}
           <ul className="flex flex-col gap-3">
-            {[...workout.exercises]
-              .sort((a, b) => a.order - b.order)
-              .map((we, i) => {
-                const setLines = formatSets(we.sets);
-                return (
-                  <li key={i}>
-                    <p className="text-sm font-medium">
-                      {exerciseMap.get(we.exercise_id)?.name ?? we.exercise_id}
+            {groupExercises(workout.exercises).map((group, gIdx) => (
+              <li key={gIdx}>
+                {group.length > 1 ? (
+                  // Superset: visually grouped with a left accent border
+                  // and a small label, since the alternating-set semantics
+                  // ("set 1 of A, set 1 of B, …") aren't obvious from the
+                  // flat per-exercise sets list alone.
+                  <div className="rounded-r-md border-l-2 border-[var(--accent)] bg-[var(--surface-2)]/40 py-2 pl-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                      Superset
                     </p>
-                    {setLines.length > 0 && (
-                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
-                        {setLines.map((line, j) => (
-                          <li key={j}>{line}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {we.notes && (
-                      <p className="mt-1 text-xs italic text-[var(--muted)]">
-                        {we.notes}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
+                    <ul className="flex flex-col gap-2">
+                      {group.map((we, i) => (
+                        <li key={i}>
+                          <ExerciseDetails
+                            exercise={we}
+                            exerciseMap={exerciseMap}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <ExerciseDetails
+                    exercise={group[0]}
+                    exerciseMap={exerciseMap}
+                  />
+                )}
+              </li>
+            ))}
           </ul>
         </div>
       )}
     </li>
+  );
+}
+
+function ExerciseDetails({
+  exercise,
+  exerciseMap,
+}: {
+  exercise: WorkoutExercise;
+  exerciseMap: Map<string, Exercise>;
+}) {
+  const setLines = formatSets(exercise.sets);
+  return (
+    <div>
+      <p className="text-sm font-medium">
+        {exerciseMap.get(exercise.exercise_id)?.name ?? exercise.exercise_id}
+      </p>
+      {setLines.length > 0 && (
+        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
+          {setLines.map((line, j) => (
+            <li key={j}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {exercise.notes && (
+        <p className="mt-1 text-xs italic text-[var(--muted)]">
+          {exercise.notes}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -481,4 +517,35 @@ function formatWeight(w: number): string {
   // Strip trailing .0 for whole-number weights so "185" reads cleaner
   // than "185.0", but preserve the decimal for half-plate increments.
   return Number.isInteger(w) ? String(w) : w.toFixed(1);
+}
+
+/**
+ * Walk exercises in `order` and bucket consecutive entries that share
+ * the same non-null `superset_group` into a single render group.
+ * Standalone exercises (null superset_group) always start their own
+ * single-element group.
+ *
+ * Why "consecutive same group" rather than "any same group anywhere":
+ * supersets are physically performed back-to-back, so the order field
+ * is the source of truth for sequence. Treating non-adjacent matches
+ * as one group would let a malformed payload reshuffle the display
+ * order in surprising ways.
+ */
+function groupExercises(exercises: WorkoutExercise[]): WorkoutExercise[][] {
+  const sorted = [...exercises].sort((a, b) => a.order - b.order);
+  const groups: WorkoutExercise[][] = [];
+  for (const ex of sorted) {
+    const lastGroup = groups[groups.length - 1];
+    const lastEx = lastGroup?.[lastGroup.length - 1];
+    if (
+      lastEx &&
+      ex.superset_group != null &&
+      lastEx.superset_group === ex.superset_group
+    ) {
+      lastGroup.push(ex);
+    } else {
+      groups.push([ex]);
+    }
+  }
+  return groups;
 }
