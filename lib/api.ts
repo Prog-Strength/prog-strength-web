@@ -81,6 +81,84 @@ export async function listExercises(): Promise<Exercise[]> {
 }
 
 /**
+ * One workout's aggregated contribution to a progression chart —
+ * estimated 1RM (Epley) computed across each of the workout's sets
+ * for the queried exercise, then summarized as avg/max/min.
+ */
+export type ProgressionPoint = {
+  workout_id: string;
+  performed_at: string; // RFC3339
+  avg_estimated_1rm: number;
+  max_estimated_1rm: number;
+  min_estimated_1rm: number;
+  set_count: number;
+};
+
+/**
+ * Two endpoints of a least-squares trendline, evaluated at the query's
+ * `since` and `until`. The frontend connects them with a straight line
+ * — the regression math lives on the server.
+ */
+export type Trendline = {
+  start_at: string;
+  start_value: number;
+  end_at: string;
+  end_value: number;
+};
+
+export type Progression = {
+  exercise_id: string;
+  since: string;
+  until: string;
+  unit: "lb" | "kg" | ""; // empty when no points
+  skipped_other_unit_count: number;
+  points: ProgressionPoint[];
+  // Null when fewer than 2 points or when all points share the same
+  // X. Render lines only when present.
+  trendline_avg: Trendline | null;
+  trendline_max: Trendline | null;
+  trendline_min: Trendline | null;
+};
+
+/**
+ * GET /workouts/progression?exercise_id=...&since=...&until=...
+ *
+ * Requires auth. Returns per-workout 1RM aggregates and least-squares
+ * trendlines for the chart. Both timestamps are RFC3339; if either is
+ * omitted, the server defaults to the last 90 days.
+ */
+export async function listProgression(
+  token: string,
+  exerciseId: string,
+  since?: string,
+  until?: string,
+): Promise<Progression> {
+  const params = new URLSearchParams({ exercise_id: exerciseId });
+  if (since) params.set("since", since);
+  if (until) params.set("until", until);
+  const resp = await fetch(
+    `${config.apiUrl}/workouts/progression?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  // Force a non-null default — empty progression rather than throwing
+  // on missing payload, so callers can render a clean empty state.
+  const got = await unwrap<Progression | null>(resp, null);
+  return (
+    got ?? {
+      exercise_id: exerciseId,
+      since: since ?? "",
+      until: until ?? "",
+      unit: "",
+      skipped_other_unit_count: 0,
+      points: [],
+      trendline_avg: null,
+      trendline_max: null,
+      trendline_min: null,
+    }
+  );
+}
+
+/**
  * Payload shape for create/update. Matches the Go handler's
  * createWorkoutRequest (which the PUT handler also accepts).
  * Timestamps are RFC3339 strings; the caller is responsible for

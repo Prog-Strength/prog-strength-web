@@ -17,6 +17,10 @@ const NAV: NavItem[] = [
   { href: "/workouts", label: "Workouts", icon: <DumbbellIcon /> },
   { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
+  // Progress = analysis layered on top of the logged data — slots
+  // after the raw-data views (Workouts/Calendar) and the reference
+  // catalog (Exercises) since it depends on all three conceptually.
+  { href: "/progress", label: "Progress", icon: <TrendingUpIcon /> },
 ];
 
 const COLLAPSE_KEY = "ps_sidebar_collapsed";
@@ -206,6 +210,27 @@ function CalendarIcon() {
       <path d="M16 2v4" />
       <path d="M8 2v4" />
       <path d="M3 10h18" />
+    </svg>
+  );
+}
+
+function TrendingUpIcon() {
+  // Classic "up and to the right" line + arrowhead — the universal
+  // shorthand for progress/growth charts.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="3 17 9 11 13 15 21 7" />
+      <polyline points="14 7 21 7 21 14" />
     </svg>
   );
 }
