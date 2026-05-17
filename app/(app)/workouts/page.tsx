@@ -200,18 +200,25 @@ function WorkoutRow({
           row button would trip "buttons can't nest" and stop click
           events propagating. */}
       <div className="flex items-stretch">
+        {/* min-w-0 on the flex children — both the button itself and
+            the inner column — is what lets `truncate` on the <p>s
+            actually clip. Without it, flex items default to
+            min-width: auto, which means content can grow the item
+            past its flex-1 share. That was pushing the pencil button
+            off the right edge of the page when a workout had a long
+            notes line. */}
         <button
           type="button"
           onClick={onToggleExpanded}
           aria-expanded={expanded}
-          className="flex flex-1 items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
+          className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
         >
           <ChevronIcon expanded={expanded} />
-          <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="truncate text-sm font-medium">
               {named ? workout.name : formatDate(workout.performed_at)}
             </p>
-            <p className="text-xs text-[var(--muted)]">
+            <p className="truncate text-xs text-[var(--muted)]">
               {named && `${formatDate(workout.performed_at)} · `}
               {formatDuration(workout.performed_at, workout.ended_at ?? null)}{" "}
               · {workout.exercises.length}{" "}
@@ -232,7 +239,7 @@ function WorkoutRow({
           // Title surfaces the action on hover since the icon alone
           // isn't fully self-explanatory.
           title="Edit workout"
-          className="flex items-center border-l border-[var(--border)] px-3 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+          className="flex shrink-0 items-center border-l border-[var(--border)] px-3 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
         >
           <PencilIcon />
         </button>
