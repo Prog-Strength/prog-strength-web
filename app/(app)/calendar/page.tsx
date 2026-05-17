@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import { listWorkouts, type Workout } from "@/lib/api";
+import {
+  listExercises,
+  listWorkouts,
+  type Exercise,
+  type Workout,
+} from "@/lib/api";
+import { WorkoutModal } from "@/components/workout-modal";
 
 /**
  * Month-grid calendar with workout markers. Same data source as the
@@ -22,6 +28,8 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export default function CalendarPage() {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [editing, setEditing] = useState<Workout | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Cursor identifies which month we're viewing. year + 0-indexed month
   // — using a `Date` directly would carry day/time noise we'd have to
@@ -37,8 +45,14 @@ export default function CalendarPage() {
       router.replace("/login");
       return;
     }
-    listWorkouts(token)
-      .then(setWorkouts)
+    // Catalog fetched alongside workouts so the edit modal has the
+    // dropdown options it needs without a second round-trip when the
+    // user clicks a pill.
+    Promise.all([listWorkouts(token), listExercises()])
+      .then(([ws, es]) => {
+        setWorkouts(ws);
+        setExercises(es);
+      })
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
           clearToken();
@@ -48,6 +62,13 @@ export default function CalendarPage() {
         setError(err.message);
       });
   }, [router]);
+
+  // Splice the modal's saved workout back into local state so the
+  // calendar re-renders with the new data without another fetch.
+  const handleSaved = (updated: Workout) =>
+    setWorkouts((ws) =>
+      ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws,
+    );
 
   // Bucket workouts by local-date key so the cell lookup is O(1) per
   // day during render. Key is `YYYY-M-D` in *local* time — the user's
@@ -160,12 +181,22 @@ export default function CalendarPage() {
                   inMonth={inMonth}
                   isToday={isToday}
                   workouts={dayWorkouts}
+                  onPillClick={(w) => setEditing(w)}
                 />
               );
             })}
           </div>
         </div>
       </div>
+
+      {editing && (
+        <WorkoutModal
+          workout={editing}
+          catalog={exercises}
+          onClose={() => setEditing(null)}
+          onSaved={handleSaved}
+        />
+      )}
     </main>
   );
 }
@@ -175,11 +206,13 @@ function DayCell({
   inMonth,
   isToday,
   workouts,
+  onPillClick,
 }: {
   day: Date;
   inMonth: boolean;
   isToday: boolean;
   workouts: Workout[];
+  onPillClick: (w: Workout) => void;
 }) {
   const visible = workouts.slice(0, MAX_VISIBLE_PILLS);
   const hiddenCount = workouts.length - visible.length;
@@ -216,7 +249,7 @@ function DayCell({
       </div>
       <div className="flex flex-col gap-1">
         {visible.map((w) => (
-          <WorkoutPill key={w.id} workout={w} />
+          <WorkoutPill key={w.id} workout={w} onClick={() => onPillClick(w)} />
         ))}
         {hiddenCount > 0 && (
           <span className="px-1 text-[10px] text-[var(--muted)]">
@@ -228,7 +261,13 @@ function DayCell({
   );
 }
 
-function WorkoutPill({ workout }: { workout: Workout }) {
+function WorkoutPill({
+  workout,
+  onClick,
+}: {
+  workout: Workout;
+  onClick: () => void;
+}) {
   const time = new Date(workout.performed_at).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -241,12 +280,14 @@ function WorkoutPill({ workout }: { workout: Workout }) {
   const named = hasMeaningfulName(workout.name);
   const label = named ? (workout.name as string) : time;
   return (
-    <span
+    <button
+      type="button"
+      onClick={onClick}
       title={named ? `${time} · ${workout.name}` : time}
-      className="truncate rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]"
+      className="truncate rounded bg-[var(--accent)] px-1.5 py-0.5 text-left text-[10px] font-medium text-[var(--accent-fg)] transition hover:opacity-90"
     >
       {label}
-    </span>
+    </button>
   );
 }
 

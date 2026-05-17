@@ -81,6 +81,56 @@ export async function listExercises(): Promise<Exercise[]> {
 }
 
 /**
+ * Payload shape for create/update. Matches the Go handler's
+ * createWorkoutRequest (which the PUT handler also accepts).
+ * Timestamps are RFC3339 strings; the caller is responsible for
+ * converting datetime-local form values before calling this.
+ */
+export type WorkoutPayload = {
+  name?: string;
+  performed_at: string; // RFC3339, required by the API
+  ended_at?: string;    // RFC3339, optional
+  notes?: string;
+  exercises: {
+    exercise_id: string;
+    superset_group?: number | null;
+    notes?: string;
+    sets: WorkoutSet[];
+  }[];
+};
+
+/**
+ * PUT /workouts/{id}. Full replacement — the body is the complete
+ * workout state, not a partial diff. Ownership is enforced server-side;
+ * a non-2xx response means the API rejected the payload (validation
+ * error) or the workout doesn't belong to this user.
+ *
+ * Returns the updated Workout from the API response so callers can
+ * splice it into local state without a follow-up refetch.
+ */
+export async function updateWorkout(
+  token: string,
+  id: string,
+  payload: WorkoutPayload,
+): Promise<Workout> {
+  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  // For mutations we don't fall back to an empty value — if the
+  // response shape is wrong, that's a bug worth surfacing as an error.
+  const updated = await unwrap<Workout | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated workout");
+  }
+  return updated;
+}
+
+/**
  * Common envelope unwrapper. The API wraps every success response in
  * `{service, message, data}`; the caller only cares about `data`.
  * Errors come back as `{service, error}` — we surface `error` as the

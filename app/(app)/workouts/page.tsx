@@ -8,20 +8,19 @@ import {
   listWorkouts,
   type Exercise,
   type Workout,
-  type WorkoutSet,
 } from "@/lib/api";
+import { WorkoutModal } from "@/components/workout-modal";
 
 /**
  * Workouts overview. Lists the user's recent sessions, filtered by a
- * client-side timeframe selection. Each row is collapsed by default
- * (date + duration + truncated notes) and expands to show the per-
- * exercise sets pulled from the workout payload.
+ * client-side timeframe selection. Clicking a row opens the edit modal
+ * so the user can fix up anything that came in wrong from chat-driven
+ * logging.
  *
  * Data is fetched once on mount: workouts (auth'd) + exercises (public)
  * in parallel. Filtering is purely client-side — the API caps results
  * at 50 and the handler doesn't yet expose since/until query params,
- * so a power user with >50 workouts in 90 days could see gaps. Document
- * that as a known limit until it actually matters in production.
+ * so a power user with >50 workouts in 90 days could see gaps.
  */
 
 type Timeframe = "7d" | "30d" | "90d" | "all";
@@ -36,11 +35,9 @@ const TIMEFRAMES: { id: Timeframe; label: string; days: number | null }[] = [
 export default function WorkoutsPage() {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
-  const [exerciseMap, setExerciseMap] = useState<Map<string, Exercise>>(
-    new Map(),
-  );
+  const [exercises, setExercises] = useState<Exercise[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>("30d");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<Workout | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,17 +46,12 @@ export default function WorkoutsPage() {
       router.replace("/login");
       return;
     }
-    // Parallel fetch — neither depends on the other and the exercise
-    // catalog is cacheable enough that we don't worry about it on
-    // every navigation.
     Promise.all([listWorkouts(token), listExercises()])
       .then(([ws, es]) => {
         setWorkouts(ws);
-        setExerciseMap(new Map(es.map((e) => [e.id, e])));
+        setExercises(es);
       })
       .catch((err: Error) => {
-        // 401 from the API means the token expired or was revoked.
-        // Surface a clean re-login flow rather than a raw error.
         if (err.message.toLowerCase().includes("401")) {
           clearToken();
           router.replace("/login");
@@ -77,14 +69,12 @@ export default function WorkoutsPage() {
     return workouts.filter((w) => new Date(w.performed_at).getTime() >= cutoff);
   }, [workouts, timeframe]);
 
-  const toggleExpanded = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  // Splice the modal's returned workout back into local state so the
+  // row reflects edits immediately without a refetch round-trip.
+  const handleSaved = (updated: Workout) =>
+    setWorkouts((ws) =>
+      ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws,
+    );
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
@@ -133,15 +123,22 @@ export default function WorkoutsPage() {
                 <WorkoutRow
                   key={w.id}
                   workout={w}
-                  expanded={expanded.has(w.id)}
-                  onToggle={() => toggleExpanded(w.id)}
-                  exerciseMap={exerciseMap}
+                  onEdit={() => setEditing(w)}
                 />
               ))}
             </ul>
           )}
         </div>
       </div>
+
+      {editing && (
+        <WorkoutModal
+          workout={editing}
+          catalog={exercises}
+          onClose={() => setEditing(null)}
+          onSaved={handleSaved}
+        />
+      )}
     </main>
   );
 }
@@ -160,38 +157,25 @@ function EmptyState() {
 
 function WorkoutRow({
   workout,
-  expanded,
-  onToggle,
-  exerciseMap,
+  onEdit,
 }: {
   workout: Workout;
-  expanded: boolean;
-  onToggle: () => void;
-  exerciseMap: Map<string, Exercise>;
+  onEdit: () => void;
 }) {
+  const named = hasMeaningfulName(workout.name);
   return (
-    <li className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+    <li>
       <button
         type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
+        onClick={onEdit}
+        className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
       >
-        <ChevronIcon expanded={expanded} />
         <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
-          {/* Primary line: the workout's name when the user (or their
-              coach's program) set one explicitly. When the name is the
-              API's auto-generated "Workout - <date>" fallback, that
-              text is just a tautology of the timestamp below it, so we
-              use the date as the primary instead. */}
           <p className="truncate text-sm font-medium">
-            {hasMeaningfulName(workout.name)
-              ? workout.name
-              : formatDate(workout.performed_at)}
+            {named ? workout.name : formatDate(workout.performed_at)}
           </p>
           <p className="text-xs text-[var(--muted)]">
-            {hasMeaningfulName(workout.name) &&
-              `${formatDate(workout.performed_at)} · `}
+            {named && `${formatDate(workout.performed_at)} · `}
             {formatDuration(workout.performed_at, workout.ended_at ?? null)} ·{" "}
             {workout.exercises.length}{" "}
             {workout.exercises.length === 1 ? "exercise" : "exercises"}
@@ -202,46 +186,16 @@ function WorkoutRow({
             </p>
           )}
         </div>
+        <ChevronIcon />
       </button>
-
-      {expanded && (
-        <div className="border-t border-[var(--border)] px-4 py-3">
-          {workout.notes && (
-            <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
-          )}
-          <ul className="flex flex-col gap-3">
-            {[...workout.exercises]
-              .sort((a, b) => a.order - b.order)
-              .map((we, i) => {
-                const setLines = formatSets(we.sets);
-                return (
-                  <li key={i}>
-                    <p className="text-sm font-medium">
-                      {exerciseMap.get(we.exercise_id)?.name ?? we.exercise_id}
-                    </p>
-                    {setLines.length > 0 && (
-                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-[var(--muted)] marker:text-[var(--muted)]">
-                        {setLines.map((line, j) => (
-                          <li key={j}>{line}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {we.notes && (
-                      <p className="mt-1 text-xs italic text-[var(--muted)]">
-                        {we.notes}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-          </ul>
-        </div>
-      )}
     </li>
   );
 }
 
-function ChevronIcon({ expanded }: { expanded: boolean }) {
+function ChevronIcon() {
+  // Right-pointing chevron as a visual affordance that the row opens
+  // something (the modal) rather than expanding in place. Subtler than
+  // a full "Edit" button on every row.
   return (
     <svg
       viewBox="0 0 24 24"
@@ -252,9 +206,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`shrink-0 text-[var(--muted)] transition-transform ${
-        expanded ? "rotate-90" : ""
-      }`}
+      className="shrink-0 text-[var(--muted)]"
       aria-hidden="true"
     >
       <path d="M9 18l6-6-6-6" />
@@ -266,22 +218,11 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
 
 /**
  * Whether the workout's name field carries information beyond what the
- * date/time already conveys.
- *
- * The API auto-generates `Workout - Jan 02, 2026` for create requests
- * with no explicit name — those literally restate the timestamp the
- * row already has. The user wants to surface real names from coached
- * programs ("Upper 1", "Push Day A") as the primary label; the
- * auto-generated ones should fall back to the date/time instead.
- *
- * The check is a prefix heuristic — a user-written workout that starts
- * with "Workout - " would collide, but that's unlikely in practice and
- * the cost is just showing the date-fallback for that one entry.
+ * date/time already conveys. See workout-modal.tsx for the same rule.
  */
 function hasMeaningfulName(name: string | undefined): name is string {
   return !!name && !name.startsWith("Workout - ");
 }
-
 
 /**
  * Friendly date label. For very recent dates we use "Today" / "Yesterday"
@@ -333,50 +274,4 @@ function formatDuration(start: string, end: string | null): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
-/**
- * Sets summary. Returns one human-readable line per *group* of sets,
- * where a group is a run of identical reps×weight×unit. A flat 5×5
- * across three sets renders as a single "3 × 5 × 185 lb" line instead
- * of three identical bullets; varied sets get their own lines.
- * Bodyweight (weight=0) collapses to just the rep count.
- *
- * Returning an array (rather than a joined string) lets the caller
- * render each line as a list item so the user can scan sets vertically
- * — much easier to read than a comma-delimited blob, especially for
- * sessions with many sets.
- */
-function formatSets(sets: WorkoutSet[]): string[] {
-  if (sets.length === 0) return [];
-
-  // Compress adjacent identical sets — common pattern in linear
-  // progressions and gives a much tighter list than spelling each out.
-  const groups: { count: number; set: WorkoutSet }[] = [];
-  for (const s of sets) {
-    const last = groups[groups.length - 1];
-    if (last && setsEqual(last.set, s)) {
-      last.count += 1;
-    } else {
-      groups.push({ count: 1, set: s });
-    }
-  }
-
-  return groups.map((g) => {
-    const setPart =
-      g.set.weight === 0
-        ? `${g.set.reps}`
-        : `${g.set.reps} × ${formatWeight(g.set.weight)} ${g.set.unit}`;
-    return g.count > 1 ? `${g.count} × ${setPart}` : setPart;
-  });
-}
-
-function setsEqual(a: WorkoutSet, b: WorkoutSet): boolean {
-  return a.reps === b.reps && a.weight === b.weight && a.unit === b.unit;
-}
-
-function formatWeight(w: number): string {
-  // Strip trailing .0 for whole-number weights so "185" reads cleaner
-  // than "185.0", but preserve the decimal for half-plate increments.
-  return Number.isInteger(w) ? String(w) : w.toFixed(1);
 }
