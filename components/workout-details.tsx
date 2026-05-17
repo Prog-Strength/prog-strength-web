@@ -7,6 +7,7 @@ import type {
   WorkoutExercise,
   WorkoutSet,
 } from "@/lib/api";
+import { MuscleGroupPill } from "@/components/muscle-group-pill";
 
 /**
  * Readonly workout details — shared between the Workouts page (rendered
@@ -319,49 +320,6 @@ function isPerDumbbell(ex: Exercise | undefined): boolean {
   if (!ex) return false;
   if (!ex.equipment?.includes("dumbbell")) return false;
   return (ex.description ?? "").toLowerCase().includes("per dumbbell");
-}
-
-// --- muscle group pills --------------------------------------------------
-
-/**
- * One filled-pill color per muscle group so a workout's targeted areas
- * read at a glance. Tailwind 500-shade palette with /15 background +
- * 300 text + /30 border gives a uniformly subtle look that reads on
- * the dark background without competing with the surrounding type.
- * Unknown muscle groups fall back to a neutral zinc.
- */
-const MUSCLE_GROUP_CLASSES: Record<string, string> = {
-  chest: "bg-red-500/15 text-red-300 border-red-500/30",
-  back: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  shoulders: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  biceps: "bg-teal-500/15 text-teal-300 border-teal-500/30",
-  triceps: "bg-orange-500/15 text-orange-300 border-orange-500/30",
-  forearms: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
-  core: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  quads: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
-  hamstrings: "bg-lime-500/15 text-lime-300 border-lime-500/30",
-  glutes: "bg-rose-500/15 text-rose-300 border-rose-500/30",
-  calves: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
-};
-
-function MuscleGroupPill({ muscleGroup }: { muscleGroup: string }) {
-  const classes =
-    MUSCLE_GROUP_CLASSES[muscleGroup] ??
-    "bg-zinc-500/15 text-zinc-300 border-zinc-500/30";
-  return (
-    <span
-      className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${classes}`}
-    >
-      {humanizeMuscleGroup(muscleGroup)}
-    </span>
-  );
-}
-
-function humanizeMuscleGroup(mg: string): string {
-  return mg
-    .split("_")
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ");
 }
 
 // --- icons ---------------------------------------------------------------

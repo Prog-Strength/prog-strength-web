@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { config } from "@/lib/config";
 import { listExercises, type Exercise } from "@/lib/api";
+import { MuscleGroupPill } from "@/components/muscle-group-pill";
 
 /**
  * Read-only browser for the shared exercise catalog (the same list the
@@ -150,15 +151,18 @@ function ExerciseRow({
           )}
 
           {exercise.muscle_groups.length > 0 && (
-            <TagRow
-              label="Targets"
-              tags={exercise.muscle_groups}
-              accent
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                Targets
+              </span>
+              {exercise.muscle_groups.map((mg) => (
+                <MuscleGroupPill key={mg} muscleGroup={mg} />
+              ))}
+            </div>
           )}
 
           {exercise.equipment.length > 0 && (
-            <TagRow label="Equipment" tags={exercise.equipment} />
+            <EquipmentRow tags={exercise.equipment} />
           )}
         </div>
       )}
@@ -166,28 +170,23 @@ function ExerciseRow({
   );
 }
 
-function TagRow({
-  label,
-  tags,
-  accent = false,
-}: {
-  label: string;
-  tags: string[];
-  accent?: boolean;
-}) {
+/**
+ * Equipment chips — bordered/muted style, distinct from the colored
+ * muscle-group pills. Equipment doesn't carry semantic color the way
+ * a muscle group does ("barbell" isn't a hue), so a uniform neutral
+ * chip reads as "metadata you might filter on" without competing
+ * with the muscle-group pills above.
+ */
+function EquipmentRow({ tags }: { tags: string[] }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-xs uppercase tracking-wide text-[var(--muted)]">
-        {label}
+        Equipment
       </span>
       {tags.map((t) => (
         <span
           key={t}
-          className={
-            accent
-              ? "rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]"
-              : "rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] text-[var(--muted)]"
-          }
+          className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] text-[var(--muted)]"
         >
           {humanizeSlug(t)}
         </span>
