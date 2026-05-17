@@ -26,7 +26,9 @@ import {
  */
 
 const MAX_VISIBLE_PILLS = 2;
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Monday-first ordering. Keep this in sync with buildMonthGrid's
+// mondayOffset math — flipping one without the other shears the grid.
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function CalendarPage() {
   const router = useRouter();
@@ -332,16 +334,21 @@ function NavButton({
 // --- date helpers ----------------------------------------------------------
 
 /**
- * Build a 6-week (42-day) grid starting on the Sunday that contains
+ * Build a 6-week (42-day) grid starting on the Monday that contains
  * the first of the month. The fixed 42-cell shape keeps prev/next
  * navigation from reshaping the layout when months have 4, 5, or 6
  * visible weeks; trailing days from the next month fill the bottom row
  * when the actual month is short.
+ *
+ * JS's getDay() returns 0 for Sunday through 6 for Saturday. We want
+ * 0 for Monday through 6 for Sunday, so `(getDay() + 6) % 7` does the
+ * shift: Mon→0, Tue→1, …, Sat→5, Sun→6. Subtracting that offset from
+ * the 1st of the month lands us on the correct preceding Monday.
  */
 function buildMonthGrid(year: number, month: number): Date[] {
   const firstOfMonth = new Date(year, month, 1);
-  const startDow = firstOfMonth.getDay(); // 0=Sunday
-  const start = new Date(year, month, 1 - startDow);
+  const mondayOffset = (firstOfMonth.getDay() + 6) % 7;
+  const start = new Date(year, month, 1 - mondayOffset);
   const days: Date[] = [];
   for (let i = 0; i < 42; i++) {
     days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
