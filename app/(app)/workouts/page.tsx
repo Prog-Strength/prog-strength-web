@@ -179,16 +179,23 @@ function WorkoutRow({
       >
         <ChevronIcon expanded={expanded} />
         <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
-          <div className="flex items-baseline gap-3 text-sm">
-            <span className="font-medium">{formatDate(workout.performed_at)}</span>
-            <span className="text-xs text-[var(--muted)]">
-              {formatDuration(workout.performed_at, workout.ended_at ?? null)}
-            </span>
-            <span className="text-xs text-[var(--muted)]">
-              · {workout.exercises.length}{" "}
-              {workout.exercises.length === 1 ? "exercise" : "exercises"}
-            </span>
-          </div>
+          {/* Primary line: the workout's name when the user (or their
+              coach's program) set one explicitly. When the name is the
+              API's auto-generated "Workout - <date>" fallback, that
+              text is just a tautology of the timestamp below it, so we
+              use the date as the primary instead. */}
+          <p className="truncate text-sm font-medium">
+            {hasMeaningfulName(workout.name)
+              ? workout.name
+              : formatDate(workout.performed_at)}
+          </p>
+          <p className="text-xs text-[var(--muted)]">
+            {hasMeaningfulName(workout.name) &&
+              `${formatDate(workout.performed_at)} · `}
+            {formatDuration(workout.performed_at, workout.ended_at ?? null)} ·{" "}
+            {workout.exercises.length}{" "}
+            {workout.exercises.length === 1 ? "exercise" : "exercises"}
+          </p>
           {workout.notes && (
             <p className="truncate text-xs text-[var(--muted)]">
               {workout.notes}
@@ -199,11 +206,6 @@ function WorkoutRow({
 
       {expanded && (
         <div className="border-t border-[var(--border)] px-4 py-3">
-          {workout.name && (
-            <p className="mb-2 text-xs uppercase tracking-wide text-[var(--muted)]">
-              {workout.name}
-            </p>
-          )}
           {workout.notes && (
             <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
           )}
@@ -254,6 +256,25 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
 }
 
 // --- formatting helpers ----------------------------------------------------
+
+/**
+ * Whether the workout's name field carries information beyond what the
+ * date/time already conveys.
+ *
+ * The API auto-generates `Workout - Jan 02, 2026` for create requests
+ * with no explicit name — those literally restate the timestamp the
+ * row already has. The user wants to surface real names from coached
+ * programs ("Upper 1", "Push Day A") as the primary label; the
+ * auto-generated ones should fall back to the date/time instead.
+ *
+ * The check is a prefix heuristic — a user-written workout that starts
+ * with "Workout - " would collide, but that's unlikely in practice and
+ * the cost is just showing the date-fallback for that one entry.
+ */
+function hasMeaningfulName(name: string | undefined): name is string {
+  return !!name && !name.startsWith("Workout - ");
+}
+
 
 /**
  * Friendly date label. For very recent dates we use "Today" / "Yesterday"

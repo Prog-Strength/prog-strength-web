@@ -233,18 +233,31 @@ function WorkoutPill({ workout }: { workout: Workout }) {
     hour: "numeric",
     minute: "2-digit",
   });
-  // Workout name is auto-generated as "Workout - <date>" when the user
-  // didn't set one explicitly — that text is redundant on a calendar
-  // (the date is the cell itself), so the pill just shows the time.
-  // The full name appears on hover via title for the curious user.
+  // Prefer the user-set workout name (e.g., "Upper 1" from a coached
+  // program) as the pill label, since the name is the primary thing a
+  // lifter wants to index on. The API auto-generates "Workout - <date>"
+  // when no name was set; in that case the date is redundant on a
+  // calendar cell so we fall back to the start time instead.
+  const named = hasMeaningfulName(workout.name);
+  const label = named ? (workout.name as string) : time;
   return (
     <span
-      title={workout.name ? `${time} · ${workout.name}` : time}
+      title={named ? `${time} · ${workout.name}` : time}
       className="truncate rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]"
     >
-      {time}
+      {label}
     </span>
   );
+}
+
+/**
+ * Mirror of the helper in the workouts page — true when the workout's
+ * name carries information beyond the timestamp. The API stamps
+ * "Workout - <date>" as a default; those should fall back to the time
+ * on a calendar cell rather than restating the date.
+ */
+function hasMeaningfulName(name: string | undefined): name is string {
+  return !!name && !name.startsWith("Workout - ");
 }
 
 function NavButton({
