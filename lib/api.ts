@@ -80,18 +80,57 @@ export type Exercise = {
   equipment: string[];
 };
 
+/** Optional filters and pagination params for GET /workouts. */
+export type ListWorkoutsOptions = {
+  // RFC3339 lower/upper bounds on performed_at.
+  since?: string;
+  until?: string;
+  // Page size, 1–100. The API defaults to 50 when omitted.
+  limit?: number;
+  // Rows to skip, ≥ 0. Defaults to 0.
+  offset?: number;
+};
+
 /**
- * GET /workouts. Returns the authed user's workouts, most recent
- * first. The API currently caps the response at 50 and doesn't expose
- * server-side date filtering on the handler — when the beta outgrows
- * 50 workouts per user, add `since`/`until` query params on the
- * handler (the repository already supports them).
+ * One page of workouts plus the metadata callers need to render
+ * pagination controls. Mirrors the API's data envelope shape.
  */
-export async function listWorkouts(token: string): Promise<Workout[]> {
-  const resp = await fetch(`${config.apiUrl}/workouts`, {
-    headers: { Authorization: `Bearer ${token}` },
+export type WorkoutsPage = {
+  items: Workout[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+};
+
+/**
+ * GET /workouts. Returns one page of the authed user's workouts,
+ * most recent first. Pass `since`/`until` for server-side timeframe
+ * filtering; pass `limit`/`offset` for pagination.
+ */
+export async function listWorkouts(
+  token: string,
+  options: ListWorkoutsOptions = {},
+): Promise<WorkoutsPage> {
+  const params = new URLSearchParams();
+  if (options.since) params.set("since", options.since);
+  if (options.until) params.set("until", options.until);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  const qs = params.toString();
+  const resp = await fetch(
+    `${config.apiUrl}/workouts${qs ? `?${qs}` : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  // Empty page fallback so callers can render a clean empty state
+  // rather than throw on missing payload.
+  return await unwrap<WorkoutsPage>(resp, {
+    items: [],
+    total: 0,
+    limit: options.limit ?? 50,
+    offset: options.offset ?? 0,
+    has_more: false,
   });
-  return unwrap<Workout[]>(resp, []);
 }
 
 /**

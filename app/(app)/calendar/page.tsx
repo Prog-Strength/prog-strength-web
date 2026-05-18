@@ -56,9 +56,13 @@ export default function CalendarPage() {
     // Catalog fetched alongside workouts so the readonly view has the
     // exercise-name + muscle-group data it needs without a second
     // round-trip when the user clicks a pill.
+    // Calendar pulls the first page (default limit). Server-side
+    // timeframe filtering by visible month is a future enhancement —
+    // today the calendar fetches the most recent page and renders any
+    // entries that fall in the visible month.
     Promise.all([listWorkouts(token), listExercises()])
-      .then(([ws, es]) => {
-        setWorkouts(ws);
+      .then(([page, es]) => {
+        setWorkouts(page.items);
         setExercises(es);
       })
       .catch((err: Error) => {

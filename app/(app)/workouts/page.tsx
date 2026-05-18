@@ -17,18 +17,14 @@ import {
 } from "@/components/workout-details";
 
 /**
- * Workouts overview. Lists the user's recent sessions, filtered by a
- * client-side timeframe selection. Each row has two interactions:
- *   - Click the body to expand an in-place readonly details panel
- *     (renders the shared WorkoutDetails component).
- *   - Click the pencil to open the edit modal for the rarer "I need
- *     to fix something" flow.
+ * Workouts overview. Lists the user's sessions for the selected
+ * timeframe, paginated server-side. Each row has three interactions:
+ *   - Click the body to expand an in-place readonly details panel.
+ *   - Click the pencil to open the edit modal.
  *   - Click the trash to delete after confirmation.
  *
- * Data is fetched once on mount: workouts (auth'd) + exercises (public)
- * in parallel. Filtering is purely client-side — the API caps results
- * at 50 and the handler doesn't yet expose since/until query params,
- * so a power user with >50 workouts in 90 days could see gaps.
+ * Timeframe pills drive the API's `since` filter; pagination uses
+ * `limit`/`offset`. Catalog is fetched once and reused across pages.
  */
 
 type Timeframe = "7d" | "30d" | "90d" | "all";
@@ -40,27 +36,50 @@ const TIMEFRAMES: { id: Timeframe; label: string; days: number | null }[] = [
   { id: "all", label: "All", days: null },
 ];
 
+const PAGE_SIZE = 25;
+
 export default function WorkoutsPage() {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>("30d");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [editing, setEditing] = useState<Workout | null>(null);
   // Tracks which rows have their readonly details panel open. Click on
   // the row body toggles; click on the pencil opens the edit modal.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
+  // Catalog only needs to load once — it's not user-scoped.
+  useEffect(() => {
+    listExercises()
+      .then(setExercises)
+      .catch((err: Error) => setError(err.message));
+  }, []);
+
+  // Refetch the workouts page on every timeframe or page change.
+  // Keeping the previous data in state during the in-flight request
+  // avoids a flash of "Loading…" when paging.
   useEffect(() => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
     }
-    Promise.all([listWorkouts(token), listExercises()])
-      .then(([ws, es]) => {
-        setWorkouts(ws);
-        setExercises(es);
+    const days = TIMEFRAMES.find((t) => t.id === timeframe)?.days;
+    const since =
+      days !== null && days !== undefined
+        ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+        : undefined;
+    const offset = (page - 1) * PAGE_SIZE;
+
+    listWorkouts(token, { since, limit: PAGE_SIZE, offset })
+      .then((p) => {
+        setWorkouts(p.items);
+        setTotal(p.total);
+        setHasMore(p.has_more);
       })
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
@@ -70,23 +89,23 @@ export default function WorkoutsPage() {
         }
         setError(err.message);
       });
-  }, [router]);
+  }, [router, timeframe, page]);
 
-  const filteredWorkouts = useMemo(() => {
-    if (!workouts) return null;
-    const days = TIMEFRAMES.find((t) => t.id === timeframe)?.days;
-    if (days === null || days === undefined) return workouts;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return workouts.filter((w) => new Date(w.performed_at).getTime() >= cutoff);
-  }, [workouts, timeframe]);
+  // Reset to page 1 whenever the timeframe changes — the offset from
+  // the old timeframe almost certainly doesn't address the same data
+  // window in the new one.
+  const handleTimeframeChange = (tf: Timeframe) => {
+    setTimeframe(tf);
+    setPage(1);
+  };
 
   // Group by Monday-anchored week so each section header can summarize
-  // the week's total time and activity count. The filtered list is
-  // already newest-first (the API returns most-recent first); iterating
-  // in order means Map preserves week order from newest to oldest.
+  // the week's total time and activity count. The API returns rows
+  // most-recent first; Map preserves insertion order so week sections
+  // come out newest-to-oldest.
   const weekGroups = useMemo(
-    () => (filteredWorkouts ? groupByWeek(filteredWorkouts) : null),
-    [filteredWorkouts],
+    () => (workouts ? groupByWeek(workouts) : null),
+    [workouts],
   );
 
   const exerciseMap = useMemo(
@@ -126,6 +145,14 @@ export default function WorkoutsPage() {
     try {
       await deleteWorkout(token, workout.id);
       setWorkouts((ws) => (ws ? ws.filter((w) => w.id !== workout.id) : ws));
+      setTotal((t) => Math.max(0, t - 1));
+      // If the current page just emptied out (we deleted the only row
+      // and we're not on page 1), step back so the user isn't stranded
+      // staring at a blank page.
+      setPage((p) => {
+        const remaining = (workouts?.length ?? 1) - 1;
+        return p > 1 && remaining === 0 ? p - 1 : p;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
     }
@@ -142,7 +169,7 @@ export default function WorkoutsPage() {
               <button
                 key={tf.id}
                 type="button"
-                onClick={() => setTimeframe(tf.id)}
+                onClick={() => handleTimeframeChange(tf.id)}
                 className={`rounded-full px-3 py-1 text-xs transition ${
                   active
                     ? "bg-[var(--accent)] text-[var(--accent-fg)]"
@@ -168,7 +195,7 @@ export default function WorkoutsPage() {
             <p className="text-sm text-[var(--muted)]">Loading workouts…</p>
           )}
 
-          {filteredWorkouts && filteredWorkouts.length === 0 && <EmptyState />}
+          {workouts && workouts.length === 0 && <EmptyState />}
 
           {weekGroups && weekGroups.length > 0 && (
             <div className="flex flex-col gap-8">
@@ -192,6 +219,18 @@ export default function WorkoutsPage() {
               ))}
             </div>
           )}
+
+          {workouts && total > 0 && (
+            <PaginationFooter
+              page={page}
+              pageSize={PAGE_SIZE}
+              pageCount={workouts.length}
+              total={total}
+              hasMore={hasMore}
+              onPrev={() => setPage((p) => Math.max(1, p - 1))}
+              onNext={() => setPage((p) => p + 1)}
+            />
+          )}
         </div>
       </div>
 
@@ -204,6 +243,56 @@ export default function WorkoutsPage() {
         />
       )}
     </main>
+  );
+}
+
+function PaginationFooter({
+  page,
+  pageSize,
+  pageCount,
+  total,
+  hasMore,
+  onPrev,
+  onNext,
+}: {
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  total: number;
+  hasMore: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  // Range readout uses the actual count of rows on this page rather
+  // than page * pageSize so the last page reads honestly when it has
+  // fewer than pageSize entries.
+  const from = (page - 1) * pageSize + 1;
+  const to = (page - 1) * pageSize + pageCount;
+  const canPrev = page > 1;
+  const canNext = hasMore;
+
+  return (
+    <div className="mt-8 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={!canPrev}
+        className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 transition hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--muted)]"
+      >
+        ← Previous
+      </button>
+      <span className="tabular-nums">
+        Showing {from}–{to} of {total}
+      </span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!canNext}
+        className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 transition hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--muted)]"
+      >
+        Next →
+      </button>
+    </div>
   );
 }
 
