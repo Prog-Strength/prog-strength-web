@@ -38,6 +38,16 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Session ID groups every turn from this chat page mount into one
+  // conversation in the agent's telemetry. Generated once via the
+  // useState lazy initializer so it survives re-renders but resets
+  // on page refresh — that's the "new conversation" boundary today,
+  // until a dedicated "New chat" button ships.
+  //
+  // Frontend is the canonical generator; the agent server falls back
+  // to its own UUID only when this field is missing (older clients
+  // or scripted callers).
+  const [sessionId] = useState(() => crypto.randomUUID());
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   // Auth-gating lives in the (app) layout; this page assumes a token
@@ -80,7 +90,7 @@ export default function ChatPage() {
           // a useful signal for shared middleware (e.g. Caddy).
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({ messages: nextMessages }),
+        body: JSON.stringify({ messages: nextMessages, session_id: sessionId }),
       });
 
       if (resp.status === 401) {
@@ -167,7 +177,7 @@ export default function ChatPage() {
     } finally {
       setStreaming(false);
     }
-  }, [input, streaming, messages, router]);
+  }, [input, streaming, messages, router, sessionId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter inserts a newline. Standard chat UX.
