@@ -81,23 +81,9 @@ export async function listExercises(): Promise<Exercise[]> {
 }
 
 /**
- * One workout's aggregated contribution to a progression chart —
- * estimated 1RM (Epley) computed across each of the workout's sets
- * for the queried exercise, then summarized as avg/max/min.
- */
-export type ProgressionPoint = {
-  workout_id: string;
-  performed_at: string; // RFC3339
-  avg_estimated_1rm: number;
-  max_estimated_1rm: number;
-  min_estimated_1rm: number;
-  set_count: number;
-};
-
-/**
  * Two endpoints of a least-squares trendline, evaluated at the query's
- * `since` and `until`. The frontend connects them with a straight line
- * — the regression math lives on the server.
+ * `since` and `until`. The frontend connects them with a straight line;
+ * the regression math lives on the server.
  */
 export type Trendline = {
   start_at: string;
@@ -106,34 +92,76 @@ export type Trendline = {
   end_value: number;
 };
 
-export type Progression = {
+/**
+ * One (workout, exercise) contribution to the muscle-group progression
+ * chart. `normalized_avg` is the field plotted on the Y-axis — the
+ * exercise's per-workout avg estimated 1RM divided by that exercise's
+ * current recency-weighted baseline. 1.0 means the lifter performed
+ * exactly at their current capability on that exercise; >1.0 means
+ * above; <1.0 below. The raw fields are carried for tooltips so the
+ * UI can show absolute load alongside the normalized percentage.
+ */
+export type MuscleGroupProgressionPoint = {
+  workout_id: string;
   exercise_id: string;
-  since: string;
-  until: string;
-  unit: "lb" | "kg" | ""; // empty when no points
-  skipped_other_unit_count: number;
-  points: ProgressionPoint[];
-  // Null when fewer than 2 points or when all points share the same
-  // X. Render lines only when present.
-  trendline_avg: Trendline | null;
-  trendline_max: Trendline | null;
-  trendline_min: Trendline | null;
+  exercise_name: string;
+  performed_at: string; // RFC3339
+  normalized_avg: number;
+  avg_estimated_1rm: number;
+  max_estimated_1rm: number;
+  min_estimated_1rm: number;
+  set_count: number;
+  unit: "lb" | "kg";
 };
 
 /**
- * GET /workouts/progression?exercise_id=...&since=...&until=...
+ * Per-exercise baseline used to normalize one exercise's contributions
+ * to the chart. Sorted by `exercise_name` server-side for stable
+ * rendering in legend/tooltip layouts.
+ */
+export type ExerciseBaseline = {
+  exercise_id: string;
+  exercise_name: string;
+  baseline: number;
+  unit: "lb" | "kg" | "";
+};
+
+/**
+ * GET /workouts/progression response. Currently driven by the
+ * `muscle_group` query parameter; future filters (exercise_id,
+ * equipment, etc.) will produce different response shapes returned
+ * from the same endpoint. See
+ * prog-strength-docs/sows/estimated-one-rep-max-time-series-table.md.
+ */
+export type MuscleGroupProgression = {
+  muscle_group: string;
+  since: string;
+  until: string;
+  exercise_baselines: ExerciseBaseline[];
+  points: MuscleGroupProgressionPoint[];
+  // Single combined trendline through every normalized point.
+  // Null when there are fewer than 2 points or all share the same X.
+  trendline: Trendline | null;
+};
+
+/**
+ * GET /workouts/progression?muscle_group=...&since=...&until=...
  *
- * Requires auth. Returns per-workout 1RM aggregates and least-squares
- * trendlines for the chart. Both timestamps are RFC3339; if either is
- * omitted, the server defaults to the last 90 days.
+ * Requires auth. The backend resolves the muscle-group filter into
+ * every exercise that targets it, reads each exercise's 1RM history,
+ * computes a recency-weighted current baseline per exercise, and
+ * returns normalized points + a single trendline ready to plot.
+ *
+ * Timestamps are RFC3339; if either is omitted, the server defaults
+ * to the last 90 days.
  */
 export async function listProgression(
   token: string,
-  exerciseId: string,
+  muscleGroup: string,
   since?: string,
   until?: string,
-): Promise<Progression> {
-  const params = new URLSearchParams({ exercise_id: exerciseId });
+): Promise<MuscleGroupProgression> {
+  const params = new URLSearchParams({ muscle_group: muscleGroup });
   if (since) params.set("since", since);
   if (until) params.set("until", until);
   const resp = await fetch(
@@ -142,18 +170,15 @@ export async function listProgression(
   );
   // Force a non-null default — empty progression rather than throwing
   // on missing payload, so callers can render a clean empty state.
-  const got = await unwrap<Progression | null>(resp, null);
+  const got = await unwrap<MuscleGroupProgression | null>(resp, null);
   return (
     got ?? {
-      exercise_id: exerciseId,
+      muscle_group: muscleGroup,
       since: since ?? "",
       until: until ?? "",
-      unit: "",
-      skipped_other_unit_count: 0,
+      exercise_baselines: [],
       points: [],
-      trendline_avg: null,
-      trendline_max: null,
-      trendline_min: null,
+      trendline: null,
     }
   );
 }

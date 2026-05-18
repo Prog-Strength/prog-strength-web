@@ -4,78 +4,100 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
+  ReferenceLine,
   ResponsiveContainer,
+  Scatter,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { clearToken, getToken } from "@/lib/auth";
 import {
-  listExercises,
   listProgression,
-  type Exercise,
-  type Progression,
-  type Trendline,
+  type MuscleGroupProgression,
+  type MuscleGroupProgressionPoint,
 } from "@/lib/api";
 
 /**
- * Progress page — pick an exercise, pick a timeframe, see the
- * estimated-1RM trend over time. Data comes from the API's
- * /workouts/progression endpoint which computes Epley 1RM per set,
- * averages/min/maxes per workout, and fits least-squares trendlines.
- * This page is the chart layer on top of that.
+ * Progress page — pick a muscle group, pick a timeframe, see whether
+ * you're actually getting stronger.
  *
- * Empty/error states are handled inline; the user always sees one of:
- * pick-an-exercise prompt, loading state, "no data" state, error
- * banner, or the chart.
+ * The chart's Y-axis is *normalized* estimated 1RM: each per-workout
+ * data point is expressed as a fraction of that exercise's current
+ * recency-weighted baseline (1.0 = at current capability). That
+ * normalization is what lets disparate exercises within a muscle group
+ * — barbell bench, dumbbell bench, cable fly — share a single axis.
+ * See prog-strength-docs/sows/estimated-one-rep-max-time-series-table.md
+ * for the full design.
+ *
+ * Every per-point detail (raw 1RM, baseline, exercise, set count) sits
+ * in the tooltip so the chart stays clean but the underlying numbers
+ * are one hover away.
  */
 
 type Timeframe = "30d" | "60d" | "90d";
 
 const TIMEFRAMES: { id: Timeframe; label: string; days: number }[] = [
-  { id: "30d", label: "Last 30 days", days: 30 },
-  { id: "60d", label: "Last 60 days", days: 60 },
-  { id: "90d", label: "Last 90 days", days: 90 },
+  { id: "30d", label: "30d", days: 30 },
+  { id: "60d", label: "60d", days: 60 },
+  { id: "90d", label: "90d", days: 90 },
 ];
 
-// Chart palette — three shades of accent blue keep the avg/max/min
-// series visually related (they're three views of the same lift, not
-// three independent metrics). Trendlines reuse each series' color but
-// dashed so the actual data points stay primary.
-const COLOR_AVG = "#3b82f6"; // blue-500 — matches the app's --accent
-const COLOR_MAX = "#93c5fd"; // blue-300 — lighter, "ceiling"
-const COLOR_MIN = "#1d4ed8"; // blue-700 — darker, "floor"
+// Muscle groups in display order — primary upper-body movers first,
+// then lower body, then small/secondary groups. Matches the order most
+// lifters mentally scan when answering "what did I train this week?".
+const MUSCLE_GROUPS: { id: string; label: string }[] = [
+  { id: "chest", label: "Chest" },
+  { id: "back", label: "Back" },
+  { id: "shoulders", label: "Shoulders" },
+  { id: "biceps", label: "Biceps" },
+  { id: "triceps", label: "Triceps" },
+  { id: "core", label: "Core" },
+  { id: "quads", label: "Quads" },
+  { id: "hamstrings", label: "Hamstrings" },
+  { id: "glutes", label: "Glutes" },
+  { id: "calves", label: "Calves" },
+  { id: "forearms", label: "Forearms" },
+];
+
+// Distinct palette for exercise series. Eight colors covers every
+// realistic muscle group (which usually has 2-5 tracked exercises)
+// with room to spare. Chosen to be visually distinct on a dark
+// background and to avoid clashing with the app's blue accent —
+// blue is the lead color, the rest fan out around the wheel.
+const EXERCISE_COLORS = [
+  "#3b82f6", // blue-500
+  "#f59e0b", // amber-500
+  "#10b981", // emerald-500
+  "#ec4899", // pink-500
+  "#8b5cf6", // violet-500
+  "#ef4444", // red-500
+  "#06b6d4", // cyan-500
+  "#84cc16", // lime-500
+];
+
+// Trendline + reference line palette. The reference line at y=1.0
+// gets a neutral gray so it reads as "baseline anchor" rather than
+// another data series. The trendline gets the app accent so the
+// "where are you trending" answer is visually prominent.
+const COLOR_TREND = "#3b82f6";
+const COLOR_REFERENCE = "#71717a";
 
 export default function ProgressPage() {
   const router = useRouter();
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [exerciseId, setExerciseId] = useState<string>("");
+  const [muscleGroup, setMuscleGroup] = useState<string>("chest");
   const [timeframe, setTimeframe] = useState<Timeframe>("90d");
-  const [progression, setProgression] = useState<Progression | null>(null);
+  const [progression, setProgression] =
+    useState<MuscleGroupProgression | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch the catalog once on mount; populates the exercise picker.
-  // No auth needed for /exercises so the page renders even if the
-  // user's token is stale, but progression lookups will 401 below.
+  // Fetch progression whenever selection changes. Default to chest +
+  // 90d so the chart appears immediately on first visit rather than
+  // forcing the user through an empty pick-something state.
   useEffect(() => {
-    listExercises()
-      .then((es) => {
-        const sorted = [...es].sort((a, b) => a.name.localeCompare(b.name));
-        setExercises(sorted);
-      })
-      .catch((err: Error) => setError(err.message));
-  }, []);
-
-  // Fetch progression whenever the user changes selection or
-  // timeframe. Empty exerciseId is the initial state — no fetch.
-  useEffect(() => {
-    if (!exerciseId) {
-      setProgression(null);
-      return;
-    }
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -87,7 +109,12 @@ export default function ProgressPage() {
 
     setLoading(true);
     setError(null);
-    listProgression(token, exerciseId, since.toISOString(), until.toISOString())
+    listProgression(
+      token,
+      muscleGroup,
+      since.toISOString(),
+      until.toISOString(),
+    )
       .then(setProgression)
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
@@ -99,27 +126,34 @@ export default function ProgressPage() {
         setProgression(null);
       })
       .finally(() => setLoading(false));
-  }, [exerciseId, timeframe, router]);
+  }, [muscleGroup, timeframe, router]);
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-4 border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Progress</h1>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <select
-            value={exerciseId}
-            onChange={(e) => setExerciseId(e.target.value)}
-            aria-label="Exercise"
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none sm:w-72"
-          >
-            <option value="">Pick an exercise…</option>
-            {exercises.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            {MUSCLE_GROUPS.map((mg) => {
+              const active = mg.id === muscleGroup;
+              return (
+                <button
+                  key={mg.id}
+                  type="button"
+                  onClick={() => setMuscleGroup(mg.id)}
+                  aria-pressed={active}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                    active
+                      ? muscleGroupActiveClass(mg.id)
+                      : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {mg.label}
+                </button>
+              );
+            })}
+          </div>
 
           <div className="flex flex-wrap gap-2">
             {TIMEFRAMES.map((tf) => {
@@ -135,7 +169,7 @@ export default function ProgressPage() {
                       : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
                   }`}
                 >
-                  {tf.label}
+                  Last {tf.label}
                 </button>
               );
             })}
@@ -151,33 +185,20 @@ export default function ProgressPage() {
             </div>
           )}
 
-          {!exerciseId && !error && (
-            <EmptyHint
-              title="Pick an exercise to see your progress"
-              body="Estimated 1RM is plotted per workout (Epley formula), with a least-squares trendline to show whether you're trending up, flat, or down."
-            />
-          )}
-
-          {exerciseId && loading && (
+          {loading && !progression && (
             <p className="text-sm text-[var(--muted)]">Loading progression…</p>
           )}
 
-          {exerciseId &&
-            !loading &&
-            progression &&
-            progression.points.length === 0 && (
-              <EmptyHint
-                title="No data for this exercise in the selected range"
-                body="Try a longer window, or log a few sessions of this lift via chat and come back."
-              />
-            )}
+          {!loading && progression && progression.points.length === 0 && (
+            <EmptyHint
+              title={`No ${muscleGroup} sessions in this window`}
+              body="Log a few sessions of this muscle group via chat and come back, or extend the timeframe to look further back."
+            />
+          )}
 
-          {exerciseId &&
-            !loading &&
-            progression &&
-            progression.points.length > 0 && (
-              <ProgressionView progression={progression} />
-            )}
+          {progression && progression.points.length > 0 && (
+            <ProgressionView progression={progression} />
+          )}
         </div>
       </div>
     </main>
@@ -193,80 +214,127 @@ function EmptyHint({ title, body }: { title: string; body: string }) {
   );
 }
 
-function ProgressionView({ progression }: { progression: Progression }) {
-  const { points, trendline_avg, unit, skipped_other_unit_count } = progression;
+function ProgressionView({
+  progression,
+}: {
+  progression: MuscleGroupProgression;
+}) {
+  const { points, trendline, exercise_baselines } = progression;
 
-  // Pre-compute chart data: actual values per workout + interpolated
-  // trendline values at each X. Putting everything in a single array
-  // keyed by performed_at keeps recharts' Line components happy with
-  // a shared dataKey strategy.
-  const chartData = useMemo(
-    () =>
-      points.map((p) => {
-        const t = new Date(p.performed_at).getTime();
-        return {
-          t,
-          avg: p.avg_estimated_1rm,
-          max: p.max_estimated_1rm,
-          min: p.min_estimated_1rm,
-          trend_avg: interpolateTrend(progression.trendline_avg, t),
-          trend_max: interpolateTrend(progression.trendline_max, t),
-          trend_min: interpolateTrend(progression.trendline_min, t),
-          set_count: p.set_count,
-        };
-      }),
-    [points, progression.trendline_avg, progression.trendline_max, progression.trendline_min],
-  );
+  // Map exercise_id → color, in the order exercises are listed in
+  // exercise_baselines (alphabetical). Stable per render so the
+  // legend, scatter dots, and tooltip swatches all agree.
+  const exerciseColors = useMemo(() => {
+    const map = new Map<string, string>();
+    exercise_baselines.forEach((b, i) => {
+      map.set(b.exercise_id, EXERCISE_COLORS[i % EXERCISE_COLORS.length]);
+    });
+    return map;
+  }, [exercise_baselines]);
 
-  // Stat tiles: latest avg, best max, period change %. "Change" uses
-  // the avg trendline's endpoints since that captures the overall
-  // direction without being whipsawed by a single noisy data point.
-  const latestAvg = points[points.length - 1]?.avg_estimated_1rm ?? 0;
-  const bestMax = points.reduce(
-    (acc, p) => (p.max_estimated_1rm > acc ? p.max_estimated_1rm : acc),
-    0,
-  );
-  const changePct =
-    trendline_avg && trendline_avg.start_value > 0
-      ? ((trendline_avg.end_value - trendline_avg.start_value) /
-          trendline_avg.start_value) *
+  // Group points by exercise so each gets its own <Scatter> — that's
+  // what lets recharts color them independently and gives the tooltip
+  // a clean per-series identity. The shape preserves the API's
+  // (already-sorted) order within each group.
+  const seriesByExercise = useMemo(() => {
+    const m = new Map<string, MuscleGroupProgressionPoint[]>();
+    for (const p of points) {
+      const arr = m.get(p.exercise_id);
+      if (arr) arr.push(p);
+      else m.set(p.exercise_id, [p]);
+    }
+    return m;
+  }, [points]);
+
+  // Trendline data — just two endpoints, recharts will draw a straight
+  // segment between them. Kept as its own data array so it can live
+  // in a ComposedChart alongside the Scatter series without scaling
+  // issues from missing values.
+  const trendlineData = useMemo(() => {
+    if (!trendline) return [];
+    return [
+      { t: new Date(trendline.start_at).getTime(), trend: trendline.start_value },
+      { t: new Date(trendline.end_at).getTime(), trend: trendline.end_value },
+    ];
+  }, [trendline]);
+
+  // Y-axis padding: include a little headroom above the max point
+  // and below the min so the chart doesn't clip dots that sit at the
+  // edge of the visible range. Anchored around 1.0 so the reference
+  // line is always visible even if the user is well above or below.
+  const yDomain = useMemo<[number, number]>(() => {
+    const values = points.map((p) => p.normalized_avg);
+    if (trendline) {
+      values.push(trendline.start_value, trendline.end_value);
+    }
+    values.push(1.0);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const pad = Math.max(0.05, (max - min) * 0.15);
+    return [Math.max(0, min - pad), max + pad];
+  }, [points, trendline]);
+
+  // Stat tiles. "Trend" uses the trendline's normalized endpoint delta
+  // (the slope answer), "Best session" finds the workout where the
+  // lifter performed highest relative to their current baseline (most
+  // motivating metric to surface), and "Exercises" counts the unique
+  // exercises that contributed at least one point in this window.
+  const trendPct =
+    trendline && trendline.start_value > 0
+      ? ((trendline.end_value - trendline.start_value) /
+          trendline.start_value) *
         100
       : null;
+  const bestPoint = useMemo(
+    () =>
+      points.reduce<MuscleGroupProgressionPoint | null>(
+        (acc, p) =>
+          acc === null || p.normalized_avg > acc.normalized_avg ? p : acc,
+        null,
+      ),
+    [points],
+  );
+  const exerciseCount = seriesByExercise.size;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatTile value={`${formatNumber(latestAvg)} ${unit}`} label="Latest avg 1RM" />
-        <StatTile value={`${formatNumber(bestMax)} ${unit}`} label="Best estimated 1RM" />
         <StatTile
-          value={formatChange(changePct)}
+          value={formatChange(trendPct)}
           label="Trend over period"
           tone={
-            changePct === null
+            trendPct === null
               ? "neutral"
-              : changePct > 0.5
+              : trendPct > 0.5
                 ? "positive"
-                : changePct < -0.5
+                : trendPct < -0.5
                   ? "negative"
                   : "neutral"
           }
         />
+        <StatTile
+          value={
+            bestPoint
+              ? `${formatPercent(bestPoint.normalized_avg)} of baseline`
+              : "—"
+          }
+          label={
+            bestPoint
+              ? `Best session • ${formatDate(bestPoint.performed_at)}`
+              : "Best session"
+          }
+        />
+        <StatTile
+          value={String(exerciseCount)}
+          label={`${exerciseCount === 1 ? "Exercise" : "Exercises"} tracked`}
+        />
       </div>
 
-      {skipped_other_unit_count > 0 && (
-        <p className="text-xs text-[var(--muted)]">
-          {skipped_other_unit_count}{" "}
-          {skipped_other_unit_count === 1 ? "set was" : "sets were"} excluded
-          from the chart because they used the other weight unit.
-        </p>
-      )}
-
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-        <div className="h-[360px] w-full">
+        <div className="h-[380px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={chartData}
-              margin={{ top: 10, right: 16, bottom: 10, left: 0 }}
+            <ComposedChart
+              margin={{ top: 12, right: 16, bottom: 8, left: 0 }}
             >
               <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
               <XAxis
@@ -283,117 +351,151 @@ function ProgressionView({ progression }: { progression: Progression }) {
                 }
               />
               <YAxis
+                type="number"
+                domain={yDomain}
                 stroke="#a1a1aa"
                 tick={{ fill: "#a1a1aa", fontSize: 11 }}
-                tickFormatter={(v: number) => `${Math.round(v)}`}
-                width={48}
+                tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
+                width={52}
               />
               <Tooltip
+                cursor={{ stroke: "#52525b", strokeWidth: 1 }}
                 contentStyle={{
                   backgroundColor: "#18181b",
                   border: "1px solid #3f3f46",
                   borderRadius: "0.375rem",
+                  padding: "8px 10px",
                   fontSize: "12px",
                 }}
-                labelStyle={{ color: "#ededed", marginBottom: "4px" }}
-                itemStyle={{ color: "#ededed" }}
-                // recharts types these callbacks loosely (label is
-                // ReactNode, value is `ValueType | undefined`); we
-                // narrow inside the callback body so the formatter
-                // logic stays simple.
-                labelFormatter={(label) => {
-                  if (typeof label !== "number") return "";
-                  return new Date(label).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  });
-                }}
-                formatter={(value, name) => {
-                  const n = typeof value === "number" ? value : 0;
-                  return [`${formatNumber(n)} ${unit}`, name as string];
+                wrapperStyle={{ outline: "none" }}
+                content={
+                  <CustomTooltip exerciseColors={exerciseColors} />
+                }
+              />
+
+              {/* Reference line at 1.0 = "your current baseline".
+                  Drawn first so series sit on top of it. */}
+              <ReferenceLine
+                y={1.0}
+                stroke={COLOR_REFERENCE}
+                strokeDasharray="2 4"
+                strokeWidth={1}
+                ifOverflow="extendDomain"
+                label={{
+                  value: "Current baseline",
+                  position: "insideTopRight",
+                  fill: COLOR_REFERENCE,
+                  fontSize: 10,
                 }}
               />
 
-              {/* Trendlines drawn first so the dashed lines sit
-                  behind the actual data points visually. */}
-              <Line
-                type="monotone"
-                dataKey="trend_max"
-                name="Max trend"
-                stroke={COLOR_MAX}
-                strokeWidth={1}
-                strokeDasharray="4 4"
-                dot={false}
-                isAnimationActive={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="trend_avg"
-                name="Avg trend"
-                stroke={COLOR_AVG}
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-                isAnimationActive={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="trend_min"
-                name="Min trend"
-                stroke={COLOR_MIN}
-                strokeWidth={1}
-                strokeDasharray="4 4"
-                dot={false}
-                isAnimationActive={false}
-              />
+              {/* Trendline — single line through every normalized
+                  point, drawn in the lead accent color. Dot-less; the
+                  scatter series carry the actual data. */}
+              {trendlineData.length === 2 && (
+                <Line
+                  data={trendlineData}
+                  dataKey="trend"
+                  stroke={COLOR_TREND}
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              )}
 
-              {/* Actual series — avg gets the visual hierarchy (thicker
-                  stroke, larger dots) since it's the smoothed signal
-                  the user cares about most. */}
-              <Line
-                type="monotone"
-                dataKey="max"
-                name="Max"
-                stroke={COLOR_MAX}
-                strokeWidth={1.5}
-                dot={{ r: 2.5, fill: COLOR_MAX }}
-                isAnimationActive={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="avg"
-                name="Avg"
-                stroke={COLOR_AVG}
-                strokeWidth={2.5}
-                dot={{ r: 4, fill: COLOR_AVG }}
-                isAnimationActive={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="min"
-                name="Min"
-                stroke={COLOR_MIN}
-                strokeWidth={1.5}
-                dot={{ r: 2.5, fill: COLOR_MIN }}
-                isAnimationActive={false}
-              />
-            </LineChart>
+              {/* One Scatter per exercise so each gets its own color
+                  and its own tooltip identity. */}
+              {Array.from(seriesByExercise.entries()).map(
+                ([exerciseID, exercisePoints]) => {
+                  const data = exercisePoints.map((p) => ({
+                    t: new Date(p.performed_at).getTime(),
+                    normalized_avg: p.normalized_avg,
+                    point: p,
+                  }));
+                  return (
+                    <Scatter
+                      key={exerciseID}
+                      data={data}
+                      dataKey="normalized_avg"
+                      fill={exerciseColors.get(exerciseID) ?? COLOR_TREND}
+                      stroke={exerciseColors.get(exerciseID) ?? COLOR_TREND}
+                      isAnimationActive={false}
+                    />
+                  );
+                },
+              )}
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Compact legend — recharts' built-in <Legend> is fine but
-            wastes vertical space. A flat row below the chart is
-            tighter and reads better on narrow viewports. */}
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
-          <LegendSwatch color={COLOR_AVG} label="Avg" />
-          <LegendSwatch color={COLOR_MAX} label="Max" />
-          <LegendSwatch color={COLOR_MIN} label="Min" />
+          {exercise_baselines.map((b) => (
+            <LegendSwatch
+              key={b.exercise_id}
+              color={exerciseColors.get(b.exercise_id) ?? COLOR_TREND}
+              label={`${b.exercise_name}${
+                b.baseline > 0
+                  ? ` · baseline ${formatNumber(b.baseline)} ${b.unit}`
+                  : ""
+              }`}
+            />
+          ))}
           <span className="text-[10px] uppercase tracking-wider">
-            Dashed = trendline
+            Dashed line = trend
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Recharts' default tooltip renders a generic dataKey label. For a
+// scatter where the data is points keyed by exercise, we want the
+// exercise name, the date, and rich per-point context. Custom tooltip
+// gets the full payload so we can pull `point` out of the embedded
+// scatter datum and render it directly.
+type TooltipPayloadItem = {
+  payload?: {
+    point?: MuscleGroupProgressionPoint;
+  };
+};
+function CustomTooltip({
+  active,
+  payload,
+  exerciseColors,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+  exerciseColors: Map<string, string>;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0]?.payload?.point;
+  if (!point) return null;
+  const color = exerciseColors.get(point.exercise_id) ?? COLOR_TREND;
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+        {formatDate(point.performed_at)}
+      </p>
+      <p className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
+        <span
+          aria-hidden
+          className="inline-block h-2 w-2 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+        {point.exercise_name}
+      </p>
+      <p className="text-base font-semibold text-[var(--foreground)]">
+        {formatPercent(point.normalized_avg)} of current baseline
+      </p>
+      <p className="text-xs text-[var(--muted)]">
+        {formatNumber(point.avg_estimated_1rm)} {point.unit} avg
+        {" · "}
+        {point.set_count} {point.set_count === 1 ? "set" : "sets"}
+        {point.max_estimated_1rm > point.avg_estimated_1rm &&
+          ` · max ${formatNumber(point.max_estimated_1rm)} ${point.unit}`}
+      </p>
     </div>
   );
 }
@@ -409,7 +511,7 @@ function StatTile({
 }) {
   const toneColor =
     tone === "positive"
-      ? "text-[#86efac]" // emerald-300 — slight win color independent of accent
+      ? "text-[#86efac]"
       : tone === "negative"
         ? "text-[var(--danger)]"
         : "text-[var(--foreground)]";
@@ -441,31 +543,50 @@ function LegendSwatch({ color, label }: { color: string; label: string }) {
 // --- helpers --------------------------------------------------------------
 
 /**
- * Linear interpolation of a trendline at timestamp `x`. The API gave
- * us the two endpoints (at since/until), so this is just slope-form
- * arithmetic. Returns null if the trendline is missing — the chart
- * sees null and renders a gap in the dashed line, which is the right
- * behavior when the regression couldn't be fit.
+ * Active-state classes for a muscle-group selector pill. Reuses the
+ * same hue family the rest of the app already uses for muscle-group
+ * pills (see components/muscle-group-pill.tsx), so a selected pill on
+ * this page reads as "you're looking at chest data" without needing
+ * to learn a second color language.
  */
-function interpolateTrend(trend: Trendline | null, x: number): number | null {
-  if (!trend) return null;
-  const startX = new Date(trend.start_at).getTime();
-  const endX = new Date(trend.end_at).getTime();
-  const span = endX - startX;
-  if (span === 0) return trend.start_value;
-  return (
-    trend.start_value +
-    ((x - startX) / span) * (trend.end_value - trend.start_value)
-  );
+function muscleGroupActiveClass(id: string): string {
+  switch (id) {
+    case "chest":
+      return "border-red-500/40 bg-red-500/20 text-red-200";
+    case "back":
+      return "border-blue-500/40 bg-blue-500/20 text-blue-200";
+    case "shoulders":
+      return "border-amber-500/40 bg-amber-500/20 text-amber-200";
+    case "biceps":
+      return "border-teal-500/40 bg-teal-500/20 text-teal-200";
+    case "triceps":
+      return "border-orange-500/40 bg-orange-500/20 text-orange-200";
+    case "forearms":
+      return "border-yellow-500/40 bg-yellow-500/20 text-yellow-200";
+    case "core":
+      return "border-emerald-500/40 bg-emerald-500/20 text-emerald-200";
+    case "quads":
+      return "border-indigo-500/40 bg-indigo-500/20 text-indigo-200";
+    case "hamstrings":
+      return "border-lime-500/40 bg-lime-500/20 text-lime-200";
+    case "glutes":
+      return "border-rose-500/40 bg-rose-500/20 text-rose-200";
+    case "calves":
+      return "border-cyan-500/40 bg-cyan-500/20 text-cyan-200";
+    default:
+      return "border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]";
+  }
 }
 
 function formatNumber(v: number): string {
-  // One decimal place, drop trailing .0 — matches the backend's
-  // round1 convention so values display consistently with how
-  // they're stored in the JSON.
   if (!Number.isFinite(v)) return "—";
   const rounded = Math.round(v * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function formatPercent(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  return `${Math.round(v * 100)}%`;
 }
 
 function formatChange(pct: number | null): string {
@@ -473,3 +594,12 @@ function formatChange(pct: number | null): string {
   const sign = pct > 0 ? "+" : "";
   return `${sign}${pct.toFixed(1)}%`;
 }
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
