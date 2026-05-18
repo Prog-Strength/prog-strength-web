@@ -34,6 +34,26 @@ export type WorkoutExercise = {
   notes?: string;
 };
 
+/**
+ * One row of the personal record event log — captures the moment a
+ * (user, exercise) PR was broken. Embedded inline on workouts that
+ * produced one or more breaks so the workout list/detail UIs can
+ * badge sessions inline without a second round trip.
+ */
+export type PersonalRecordEvent = {
+  id: string;
+  exercise_id: string;
+  workout_id: string;
+  weight: number;
+  reps: number;
+  unit: "lb" | "kg";
+  // null when this was the user's first logged set on this exercise.
+  previous_weight: number | null;
+  previous_reps: number | null;
+  previous_unit: "lb" | "kg" | null;
+  achieved_at: string;
+};
+
 /** A logged training session. */
 export type Workout = {
   id: string;
@@ -45,6 +65,10 @@ export type Workout = {
   exercises: WorkoutExercise[];
   created_at: string;
   updated_at: string;
+  // PR break events this workout produced. Always present in API
+  // responses (empty array when no PRs); the field is non-optional so
+  // UIs can iterate without a null check.
+  personal_records_set: PersonalRecordEvent[];
 };
 
 /** A catalog entry — the canonical definition of an exercise. */
@@ -78,6 +102,58 @@ export async function listWorkouts(token: string): Promise<Workout[]> {
 export async function listExercises(): Promise<Exercise[]> {
   const resp = await fetch(`${config.apiUrl}/exercises`);
   return unwrap<Exercise[]>(resp, []);
+}
+
+/**
+ * GET /workouts/{id}. Returns a single workout owned by the authed
+ * user. Used by the workout detail route reachable from the Personal
+ * Records page. 404 if the ID doesn't exist or belongs to another
+ * user (deliberately indistinguishable so IDs can't be enumerated).
+ */
+export async function getWorkout(token: string, id: string): Promise<Workout> {
+  const resp = await fetch(
+    `${config.apiUrl}/workouts/${encodeURIComponent(id)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const got = await unwrap<Workout | null>(resp, null);
+  if (!got) {
+    throw new Error("workout not found");
+  }
+  return got;
+}
+
+/**
+ * One row of the Personal Records page — a headline lift plus the
+ * user's current PR for it (nullable if never set) and the current
+ * recency-weighted estimated 1RM for comparison.
+ *
+ * The set of headline lifts is curated server-side, so this response
+ * always returns one row per headline lift even for lifts the user
+ * has never trained. The frontend renders empty-state cards for those.
+ */
+export type PersonalRecord = {
+  exercise_id: string;
+  exercise_name: string;
+  workout_id: string | null;
+  weight: number | null;
+  reps: number | null;
+  unit: "lb" | "kg" | null;
+  achieved_at: string | null;
+  current_estimated_1rm: number | null;
+  estimated_1rm_unit: "lb" | "kg" | null;
+};
+
+/**
+ * GET /personal-records. Returns one row per backend-curated headline
+ * lift; entries the user hasn't yet PR'd appear with null PR fields.
+ */
+export async function listPersonalRecords(
+  token: string,
+): Promise<PersonalRecord[]> {
+  const resp = await fetch(`${config.apiUrl}/personal-records`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<PersonalRecord[]>(resp, []);
 }
 
 /**

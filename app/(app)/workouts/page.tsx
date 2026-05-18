@@ -251,8 +251,20 @@ function WorkoutRow({
         >
           <ChevronIcon expanded={expanded} />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <p className="truncate text-sm font-medium">
-              {named ? workout.name : formatDate(workout.performed_at)}
+            <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+              <span className="truncate">
+                {named ? workout.name : formatDate(workout.performed_at)}
+              </span>
+              {workout.personal_records_set.length > 0 && (
+                <TrophyIcon
+                  count={workout.personal_records_set.length}
+                  title={
+                    workout.personal_records_set.length === 1
+                      ? "This workout set a new personal record"
+                      : `This workout set ${workout.personal_records_set.length} new personal records`
+                  }
+                />
+              )}
             </p>
             <p className="truncate text-xs text-[var(--muted)]">
               {named && `${formatDate(workout.performed_at)} · `}
@@ -333,6 +345,39 @@ function PencilIcon() {
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
     </svg>
+  );
+}
+
+function TrophyIcon({ count, title }: { count: number; title: string }) {
+  // Inline trophy with the PR count next to it. Same visual idiom as
+  // the sidebar trophy so users learn it once and recognize it across
+  // surfaces. Amber to read as "achievement" without using emoji.
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
+      title={title}
+      aria-label={title}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width={11}
+        height={11}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M8 4h8v6a4 4 0 0 1-8 0V4z" />
+        <path d="M8 6H5a2 2 0 0 0 0 4h3" />
+        <path d="M16 6h3a2 2 0 0 1 0 4h-3" />
+        <path d="M12 14v3" />
+        <path d="M9 21h6" />
+        <path d="M10 17h4l-1 4h-2l-1-4z" />
+      </svg>
+      {count > 1 && <span className="tabular-nums">{count}</span>}
+    </span>
   );
 }
 

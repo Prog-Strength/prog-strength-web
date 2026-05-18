@@ -21,6 +21,9 @@ const NAV: NavItem[] = [
   // after the raw-data views (Workouts/Calendar) and the reference
   // catalog (Exercises) since it depends on all three conceptually.
   { href: "/progress", label: "Progress", icon: <TrendingUpIcon /> },
+  // Personal Records sits at the end as the "trophy case" view —
+  // built on top of every other source of data in the app.
+  { href: "/personal-records", label: "Personal Records", icon: <TrophyIcon /> },
 ];
 
 const COLLAPSE_KEY = "ps_sidebar_collapsed";
@@ -231,6 +234,31 @@ function TrendingUpIcon() {
     >
       <polyline points="3 17 9 11 13 15 21 7" />
       <polyline points="14 7 21 7 21 14" />
+    </svg>
+  );
+}
+
+function TrophyIcon() {
+  // Awards-style trophy — a cup with two side handles on a base.
+  // Reads as "personal records" without using an emoji.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 4h8v6a4 4 0 0 1-8 0V4z" />
+      <path d="M8 6H5a2 2 0 0 0 0 4h3" />
+      <path d="M16 6h3a2 2 0 0 1 0 4h-3" />
+      <path d="M12 14v3" />
+      <path d="M9 21h6" />
+      <path d="M10 17h4l-1 4h-2l-1-4z" />
     </svg>
   );
 }
