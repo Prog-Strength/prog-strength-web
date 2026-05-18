@@ -264,7 +264,7 @@ function ProgressionView({
   // edge of the visible range. Anchored around 1.0 so the reference
   // line is always visible even if the user is well above or below.
   const yDomain = useMemo<[number, number]>(() => {
-    const values = points.map((p) => p.normalized_avg);
+    const values = points.map((p) => p.normalized_max);
     if (trendline) {
       values.push(trendline.start_value, trendline.end_value);
     }
@@ -290,7 +290,7 @@ function ProgressionView({
     () =>
       points.reduce<MuscleGroupProgressionPoint | null>(
         (acc, p) =>
-          acc === null || p.normalized_avg > acc.normalized_avg ? p : acc,
+          acc === null || p.normalized_max > acc.normalized_max ? p : acc,
         null,
       ),
     [points],
@@ -316,7 +316,7 @@ function ProgressionView({
         <StatTile
           value={
             bestPoint
-              ? `${formatPercent(bestPoint.normalized_avg)} of baseline`
+              ? `${formatPercent(bestPoint.normalized_max)} of baseline`
               : "—"
           }
           label={
@@ -411,14 +411,14 @@ function ProgressionView({
                 ([exerciseID, exercisePoints]) => {
                   const data = exercisePoints.map((p) => ({
                     t: new Date(p.performed_at).getTime(),
-                    normalized_avg: p.normalized_avg,
+                    normalized_max: p.normalized_max,
                     point: p,
                   }));
                   return (
                     <Scatter
                       key={exerciseID}
                       data={data}
-                      dataKey="normalized_avg"
+                      dataKey="normalized_max"
                       fill={exerciseColors.get(exerciseID) ?? COLOR_TREND}
                       stroke={exerciseColors.get(exerciseID) ?? COLOR_TREND}
                       isAnimationActive={false}
@@ -594,7 +594,7 @@ function EstimatesTable({
                       {p.set_count}
                     </td>
                     <td className="py-2 text-right tabular-nums">
-                      {formatPercent(p.normalized_avg)}
+                      {formatPercent(p.normalized_max)}
                     </td>
                   </tr>
                 );
@@ -678,7 +678,7 @@ function CustomTooltip({
         {point.exercise_name}
       </p>
       <p className="text-base font-semibold text-[var(--foreground)]">
-        {formatPercent(point.normalized_avg)} of current baseline
+        {formatPercent(point.normalized_max)} of current baseline
       </p>
       <p className="text-xs text-[var(--muted)]">
         {formatNumber(point.avg_estimated_1rm)} {point.unit} avg

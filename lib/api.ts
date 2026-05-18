@@ -94,11 +94,12 @@ export type Trendline = {
 
 /**
  * One (workout, exercise) contribution to the muscle-group progression
- * chart. `normalized_avg` is the field plotted on the Y-axis — the
- * exercise's per-workout avg estimated 1RM divided by that exercise's
- * current recency-weighted baseline. 1.0 means the lifter performed
- * exactly at their current capability on that exercise; >1.0 means
- * above; <1.0 below. The raw fields are carried for tooltips so the
+ * chart. `normalized_max` is the field plotted on the Y-axis — the
+ * exercise's per-workout MAX estimated 1RM divided by that exercise's
+ * current recency-weighted baseline. 1.0 means the lifter's heaviest
+ * set today matched their current capability on that exercise; >1.0
+ * above, <1.0 below. Max (not avg) is used so warmup sets don't
+ * deflate the signal; the raw fields are carried for tooltips so the
  * UI can show absolute load alongside the normalized percentage.
  */
 export type MuscleGroupProgressionPoint = {
@@ -106,7 +107,7 @@ export type MuscleGroupProgressionPoint = {
   exercise_id: string;
   exercise_name: string;
   performed_at: string; // RFC3339
-  normalized_avg: number;
+  normalized_max: number;
   avg_estimated_1rm: number;
   max_estimated_1rm: number;
   min_estimated_1rm: number;
