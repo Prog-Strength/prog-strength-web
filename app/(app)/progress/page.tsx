@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   CartesianGrid,
@@ -16,6 +16,7 @@ import {
 import { clearToken, getToken } from "@/lib/auth";
 import {
   listProgression,
+  type ExerciseBaseline,
   type MuscleGroupProgression,
   type MuscleGroupProgressionPoint,
 } from "@/lib/api";
@@ -446,7 +447,197 @@ function ProgressionView({
           </span>
         </div>
       </div>
+
+      <EstimatesTable
+        points={points}
+        exerciseBaselines={exercise_baselines}
+        exerciseColors={exerciseColors}
+      />
     </div>
+  );
+}
+
+/**
+ * Per-workout, per-exercise table view of every estimate that fed
+ * the chart above. Each row is one OneRepMaxEntry from the API
+ * (the 1RM history table introduced by the
+ * estimated-one-rep-max-time-series-table SOW). Filter pills at the
+ * top scope to a single exercise so the lifter can see, in isolation,
+ * the data points that determined that exercise's current baseline.
+ *
+ * Reflects the chart's selected timeframe — the rows here are the
+ * same rows visualized as dots above, just in tabular form. To see
+ * the full 90-day baseline window regardless of the chart timeframe,
+ * the endpoint would need to return a separate baseline_history
+ * field; left as a follow-up.
+ */
+function EstimatesTable({
+  points,
+  exerciseBaselines,
+  exerciseColors,
+}: {
+  points: MuscleGroupProgressionPoint[];
+  exerciseBaselines: ExerciseBaseline[];
+  exerciseColors: Map<string, string>;
+}) {
+  // `null` = no filter, show every exercise. Initial state is null
+  // so the table opens showing all the data the chart shows.
+  const [filterExerciseID, setFilterExerciseID] = useState<string | null>(
+    null,
+  );
+
+  const rows = useMemo(() => {
+    const filtered = filterExerciseID
+      ? points.filter((p) => p.exercise_id === filterExerciseID)
+      : points;
+    // Most recent first — that's how lifters naturally read a log.
+    return [...filtered].sort(
+      (a, b) =>
+        new Date(b.performed_at).getTime() -
+        new Date(a.performed_at).getTime(),
+    );
+  }, [points, filterExerciseID]);
+
+  // Pre-compute the per-exercise count so each filter pill can show
+  // "(N)" without re-scanning points on every render.
+  const countByExercise = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of points) {
+      m.set(p.exercise_id, (m.get(p.exercise_id) ?? 0) + 1);
+    }
+    return m;
+  }, [points]);
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className="mb-3 flex flex-col gap-1">
+        <h2 className="text-sm font-semibold tracking-tight">
+          Per-workout estimates
+        </h2>
+        <p className="text-xs text-[var(--muted)]">
+          Every estimated one rep max in this window. Filter to one
+          exercise to isolate the entries feeding its baseline.
+        </p>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <FilterPill
+          active={filterExerciseID === null}
+          onClick={() => setFilterExerciseID(null)}
+        >
+          All ({points.length})
+        </FilterPill>
+        {exerciseBaselines.map((b) => {
+          const count = countByExercise.get(b.exercise_id) ?? 0;
+          return (
+            <FilterPill
+              key={b.exercise_id}
+              active={filterExerciseID === b.exercise_id}
+              onClick={() => setFilterExerciseID(b.exercise_id)}
+              color={exerciseColors.get(b.exercise_id) ?? COLOR_TREND}
+            >
+              {b.exercise_name} ({count})
+            </FilterPill>
+          );
+        })}
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="py-6 text-center text-xs text-[var(--muted)]">
+          No estimates for this exercise in the selected window.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-xs">
+            <thead>
+              <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                <th className="py-2 pr-3 text-left font-medium">Date</th>
+                <th className="py-2 pr-3 text-left font-medium">Exercise</th>
+                <th className="py-2 pr-3 text-right font-medium">Avg 1RM</th>
+                <th className="py-2 pr-3 text-right font-medium">Min</th>
+                <th className="py-2 pr-3 text-right font-medium">Max</th>
+                <th className="py-2 pr-3 text-right font-medium">Sets</th>
+                <th className="py-2 text-right font-medium">% Baseline</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => {
+                const color = exerciseColors.get(p.exercise_id) ?? COLOR_TREND;
+                return (
+                  <tr
+                    key={`${p.workout_id}:${p.exercise_id}`}
+                    className="border-b border-[var(--border)]/60 last:border-b-0"
+                  >
+                    <td className="py-2 pr-3 whitespace-nowrap text-[var(--muted)]">
+                      {formatDate(p.performed_at)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          aria-hidden
+                          className="inline-block h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="truncate">{p.exercise_name}</span>
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums">
+                      {formatNumber(p.avg_estimated_1rm)} {p.unit}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
+                      {formatNumber(p.min_estimated_1rm)}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
+                      {formatNumber(p.max_estimated_1rm)}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
+                      {p.set_count}
+                    </td>
+                    <td className="py-2 text-right tabular-nums">
+                      {formatPercent(p.normalized_avg)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterPill({
+  children,
+  active,
+  onClick,
+  color,
+}: {
+  children: ReactNode;
+  active: boolean;
+  onClick: () => void;
+  color?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
+        active
+          ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--foreground)]"
+          : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+      }`}
+    >
+      {color !== undefined && (
+        <span
+          aria-hidden
+          className="inline-block h-2 w-2 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+      )}
+      {children}
+    </button>
   );
 }
 
