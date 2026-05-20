@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CartesianGrid,
@@ -16,9 +17,11 @@ import {
 import { clearToken, getToken } from "@/lib/auth";
 import {
   listProgression,
+  listWorkouts,
   type ExerciseBaseline,
   type MuscleGroupProgression,
   type MuscleGroupProgressionPoint,
+  type Workout,
 } from "@/lib/api";
 
 /**
@@ -92,12 +95,16 @@ export default function ProgressPage() {
   const [timeframe, setTimeframe] = useState<Timeframe>("90d");
   const [progression, setProgression] =
     useState<MuscleGroupProgression | null>(null);
+  // Raw workouts in the timeframe — feeds the Sets × Reps × Weight table
+  // view alongside the chart. Fetched in parallel with progression so
+  // both views are ready by the time the user toggles between them.
+  const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch progression whenever selection changes. Default to chest +
-  // 90d so the chart appears immediately on first visit rather than
-  // forcing the user through an empty pick-something state.
+  // Fetch progression + workouts whenever selection changes. Default to
+  // chest + 90d so the chart appears immediately on first visit rather
+  // than forcing the user through an empty pick-something state.
   useEffect(() => {
     const token = getToken();
     if (!token) {
@@ -107,16 +114,23 @@ export default function ProgressPage() {
     const days = TIMEFRAMES.find((t) => t.id === timeframe)?.days ?? 90;
     const until = new Date();
     const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
+    const sinceISO = since.toISOString();
+    const untilISO = until.toISOString();
 
     setLoading(true);
     setError(null);
-    listProgression(
-      token,
-      muscleGroup,
-      since.toISOString(),
-      until.toISOString(),
-    )
-      .then(setProgression)
+    // limit=100 covers a heavy lifter's 90-day window comfortably
+    // (~4-5 sessions/week * 13 weeks ≈ 60). If a user ever exceeds
+    // this, the Sets view truncates silently; pagination is a
+    // follow-up if it becomes a real issue.
+    Promise.all([
+      listProgression(token, muscleGroup, sinceISO, untilISO),
+      listWorkouts(token, { since: sinceISO, until: untilISO, limit: 100 }),
+    ])
+      .then(([prog, page]) => {
+        setProgression(prog);
+        setWorkouts(page.items);
+      })
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
           clearToken();
@@ -125,6 +139,7 @@ export default function ProgressPage() {
         }
         setError(err.message);
         setProgression(null);
+        setWorkouts([]);
       })
       .finally(() => setLoading(false));
   }, [muscleGroup, timeframe, router]);
@@ -198,7 +213,7 @@ export default function ProgressPage() {
           )}
 
           {progression && progression.points.length > 0 && (
-            <ProgressionView progression={progression} />
+            <ProgressionView progression={progression} workouts={workouts} />
           )}
         </div>
       </div>
@@ -217,8 +232,10 @@ function EmptyHint({ title, body }: { title: string; body: string }) {
 
 function ProgressionView({
   progression,
+  workouts,
 }: {
   progression: MuscleGroupProgression;
+  workouts: Workout[];
 }) {
   const { points, trendline, exercise_baselines } = progression;
 
@@ -448,8 +465,9 @@ function ProgressionView({
         </div>
       </div>
 
-      <EstimatesTable
+      <TablesSection
         points={points}
+        workouts={workouts}
         exerciseBaselines={exercise_baselines}
         exerciseColors={exerciseColors}
       />
@@ -457,36 +475,51 @@ function ProgressionView({
   );
 }
 
+type TableView = "estimates" | "sets";
+
 /**
- * Per-workout, per-exercise table view of every estimate that fed
- * the chart above. Each row is one OneRepMaxEntry from the API
- * (the 1RM history table introduced by the
- * estimated-one-rep-max-time-series-table SOW). Filter pills at the
- * top scope to a single exercise so the lifter can see, in isolation,
- * the data points that determined that exercise's current baseline.
+ * Sibling table views of the same window of data: one shows per-workout
+ * 1RM estimates (the points feeding the chart), the other shows the raw
+ * sets logged in those workouts. The view toggle, filter pills, and
+ * filtered-exercise state are shared between them so switching feels
+ * like flipping a tab on a single table, not jumping to a new screen.
  *
- * Reflects the chart's selected timeframe — the rows here are the
- * same rows visualized as dots above, just in tabular form. To see
- * the full 90-day baseline window regardless of the chart timeframe,
- * the endpoint would need to return a separate baseline_history
- * field; left as a follow-up.
+ * Sets are coalesced Strong-style: matching (reps, weight) inside the
+ * same workout-exercise collapse into one row with a count. That's the
+ * shape most lifters mentally hold when they think about a workout.
  */
-function EstimatesTable({
+function TablesSection({
   points,
+  workouts,
   exerciseBaselines,
   exerciseColors,
 }: {
   points: MuscleGroupProgressionPoint[];
+  workouts: Workout[];
   exerciseBaselines: ExerciseBaseline[];
   exerciseColors: Map<string, string>;
 }) {
-  // `null` = no filter, show every exercise. Initial state is null
-  // so the table opens showing all the data the chart shows.
+  const [view, setView] = useState<TableView>("estimates");
+  // `null` = no filter, show every exercise. Shared across views so
+  // toggling preserves what the lifter is looking at.
   const [filterExerciseID, setFilterExerciseID] = useState<string | null>(
     null,
   );
 
-  const rows = useMemo(() => {
+  // Lookup of exercise_id → baseline metadata. exercise_baselines lists
+  // every exercise that contributed to the chart's muscle-group filter,
+  // which is exactly the set of exercises we want to surface in the
+  // Sets view too (exercises that don't target this muscle group are
+  // filtered out via the missing-baseline check below).
+  const baselineByID = useMemo(() => {
+    const m = new Map<string, ExerciseBaseline>();
+    for (const b of exerciseBaselines) m.set(b.exercise_id, b);
+    return m;
+  }, [exerciseBaselines]);
+
+  // Estimates rows — same shape as before, just lifted out of the
+  // table body so the wrapper can render counts/filters consistently.
+  const estimateRows = useMemo(() => {
     const filtered = filterExerciseID
       ? points.filter((p) => p.exercise_id === filterExerciseID)
       : points;
@@ -498,26 +531,67 @@ function EstimatesTable({
     );
   }, [points, filterExerciseID]);
 
-  // Pre-compute the per-exercise count so each filter pill can show
-  // "(N)" without re-scanning points on every render.
-  const countByExercise = useMemo(() => {
+  // Sets rows — built from raw workouts, scoped to this muscle group
+  // via baselineByID, and coalesced by (reps, weight, unit) within each
+  // workout-exercise.
+  const setsRows = useMemo(
+    () => buildSetsRows(workouts, baselineByID),
+    [workouts, baselineByID],
+  );
+  const filteredSetsRows = useMemo(
+    () =>
+      filterExerciseID
+        ? setsRows.filter((r) => r.exercise_id === filterExerciseID)
+        : setsRows,
+    [setsRows, filterExerciseID],
+  );
+
+  // Per-exercise counts for the filter pills. Each view has its own
+  // notion of "how many rows belong to this exercise" — for estimates
+  // it's the number of workouts; for sets it's the number of unique
+  // (reps, weight) combos. Show the count that matches the active view
+  // so the pills always describe what the user will see.
+  const estimateCountByExercise = useMemo(() => {
     const m = new Map<string, number>();
     for (const p of points) {
       m.set(p.exercise_id, (m.get(p.exercise_id) ?? 0) + 1);
     }
     return m;
   }, [points]);
+  const setsCountByExercise = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of setsRows) {
+      m.set(r.exercise_id, (m.get(r.exercise_id) ?? 0) + 1);
+    }
+    return m;
+  }, [setsRows]);
+  const activeCountByExercise =
+    view === "estimates" ? estimateCountByExercise : setsCountByExercise;
+  const activeTotal = view === "estimates" ? points.length : setsRows.length;
+
+  const meta =
+    view === "estimates"
+      ? {
+          title: "Per-workout 1RM estimates",
+          description:
+            "Each row is one workout's data on this exercise, expressed as an estimated one-rep max — the points feeding the chart above.",
+        }
+      : {
+          title: "Sets, reps, weight",
+          description:
+            "Raw sets logged in this window. Sets with matching reps and weight inside the same workout are grouped into one row.",
+        };
 
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-      <div className="mb-3 flex flex-col gap-1">
-        <h2 className="text-sm font-semibold tracking-tight">
-          Per-workout estimates
-        </h2>
-        <p className="text-xs text-[var(--muted)]">
-          Every estimated one rep max in this window. Filter to one
-          exercise to isolate the entries feeding its baseline.
-        </p>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-sm font-semibold tracking-tight">
+            {meta.title}
+          </h2>
+          <p className="text-xs text-[var(--muted)]">{meta.description}</p>
+        </div>
+        <ViewToggle value={view} onChange={setView} />
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1.5">
@@ -525,10 +599,10 @@ function EstimatesTable({
           active={filterExerciseID === null}
           onClick={() => setFilterExerciseID(null)}
         >
-          All ({points.length})
+          All ({activeTotal})
         </FilterPill>
         {exerciseBaselines.map((b) => {
-          const count = countByExercise.get(b.exercise_id) ?? 0;
+          const count = activeCountByExercise.get(b.exercise_id) ?? 0;
           return (
             <FilterPill
               key={b.exercise_id}
@@ -542,68 +616,312 @@ function EstimatesTable({
         })}
       </div>
 
-      {rows.length === 0 ? (
-        <p className="py-6 text-center text-xs text-[var(--muted)]">
-          No estimates for this exercise in the selected window.
-        </p>
+      {view === "estimates" ? (
+        <EstimatesTableBody
+          rows={estimateRows}
+          exerciseColors={exerciseColors}
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-xs">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                <th className="py-2 pr-3 text-left font-medium">Date</th>
-                <th className="py-2 pr-3 text-left font-medium">Exercise</th>
-                <th className="py-2 pr-3 text-right font-medium">Avg 1RM</th>
-                <th className="py-2 pr-3 text-right font-medium">Min</th>
-                <th className="py-2 pr-3 text-right font-medium">Max</th>
-                <th className="py-2 pr-3 text-right font-medium">Sets</th>
-                <th className="py-2 text-right font-medium">% Baseline</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((p) => {
-                const color = exerciseColors.get(p.exercise_id) ?? COLOR_TREND;
-                return (
-                  <tr
-                    key={`${p.workout_id}:${p.exercise_id}`}
-                    className="border-b border-[var(--border)]/60 last:border-b-0"
-                  >
-                    <td className="py-2 pr-3 whitespace-nowrap text-[var(--muted)]">
-                      {formatDate(p.performed_at)}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <span className="inline-flex items-center gap-2">
-                        <span
-                          aria-hidden
-                          className="inline-block h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: color }}
-                        />
-                        <span className="truncate">{p.exercise_name}</span>
-                      </span>
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums">
-                      {formatNumber(p.avg_estimated_1rm)} {p.unit}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
-                      {formatNumber(p.min_estimated_1rm)}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
-                      {formatNumber(p.max_estimated_1rm)}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
-                      {p.set_count}
-                    </td>
-                    <td className="py-2 text-right tabular-nums">
-                      {formatPercent(p.normalized_max)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <SetsTableBody rows={filteredSetsRows} exerciseColors={exerciseColors} />
       )}
     </div>
+  );
+}
+
+function EstimatesTableBody({
+  rows,
+  exerciseColors,
+}: {
+  rows: MuscleGroupProgressionPoint[];
+  exerciseColors: Map<string, string>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="py-6 text-center text-xs text-[var(--muted)]">
+        No estimates for this exercise in the selected window.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[720px] text-xs">
+        <thead>
+          <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
+            <th className="py-2 pr-3 text-left font-medium">Date</th>
+            <th className="py-2 pr-3 text-left font-medium">Exercise</th>
+            <th className="py-2 pr-3 text-right font-medium">Avg 1RM</th>
+            <th className="py-2 pr-3 text-right font-medium">Min</th>
+            <th className="py-2 pr-3 text-right font-medium">Max</th>
+            <th className="py-2 pr-3 text-right font-medium">Sets</th>
+            <th className="py-2 pr-3 text-right font-medium">% Baseline</th>
+            <th className="py-2 text-right font-medium">Workout</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => {
+            const color = exerciseColors.get(p.exercise_id) ?? COLOR_TREND;
+            return (
+              <tr
+                key={`${p.workout_id}:${p.exercise_id}`}
+                className="border-b border-[var(--border)]/60 last:border-b-0"
+              >
+                <td className="py-2 pr-3 whitespace-nowrap text-[var(--muted)]">
+                  {formatDate(p.performed_at)}
+                </td>
+                <td className="py-2 pr-3">
+                  <span className="inline-flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="inline-block h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span className="truncate">{p.exercise_name}</span>
+                  </span>
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums">
+                  {formatNumber(p.avg_estimated_1rm)} {p.unit}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
+                  {formatNumber(p.min_estimated_1rm)}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
+                  {formatNumber(p.max_estimated_1rm)}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-[var(--muted)]">
+                  {p.set_count}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums">
+                  {formatPercent(p.normalized_max)}
+                </td>
+                <td className="py-2 text-right whitespace-nowrap">
+                  <WorkoutLink workoutID={p.workout_id} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * One row in the Sets view: one workout-exercise's set group, collapsed
+ * by (reps, weight, unit). A workout-exercise that did 3×8 @ 50 then
+ * 1×6 @ 50 produces two rows here; doing 3×8 @ 50 + 3×8 @ 55 also
+ * produces two rows. Sets with identical reps/weight in the same
+ * workout-exercise stay collapsed regardless of adjacency.
+ */
+type SetsTableRow = {
+  workout_id: string;
+  exercise_id: string;
+  exercise_name: string;
+  performed_at: string;
+  reps: number;
+  weight: number;
+  unit: "lb" | "kg";
+  set_count: number;
+};
+
+function buildSetsRows(
+  workouts: Workout[],
+  baselineByID: Map<string, ExerciseBaseline>,
+): SetsTableRow[] {
+  const rows: SetsTableRow[] = [];
+  for (const w of workouts) {
+    for (const we of w.exercises) {
+      const baseline = baselineByID.get(we.exercise_id);
+      // Skip exercises that don't contribute to this muscle group —
+      // baselineByID is the authoritative scope for the active filter.
+      if (!baseline) continue;
+      // Map preserves insertion order, so the first occurrence of a
+      // (reps, weight) combo determines where its row sits within
+      // the workout-exercise. The within-group secondary sort below
+      // overrides that to weight-desc for stable presentation.
+      const groups = new Map<
+        string,
+        { reps: number; weight: number; unit: "lb" | "kg"; count: number }
+      >();
+      for (const s of we.sets) {
+        const key = `${s.reps}|${s.weight}|${s.unit}`;
+        const existing = groups.get(key);
+        if (existing) {
+          existing.count++;
+        } else {
+          groups.set(key, {
+            reps: s.reps,
+            weight: s.weight,
+            unit: s.unit,
+            count: 1,
+          });
+        }
+      }
+      for (const g of groups.values()) {
+        rows.push({
+          workout_id: w.id,
+          exercise_id: we.exercise_id,
+          exercise_name: baseline.exercise_name,
+          performed_at: w.performed_at,
+          reps: g.reps,
+          weight: g.weight,
+          unit: g.unit,
+          set_count: g.count,
+        });
+      }
+    }
+  }
+  // Sort: most recent first (matches the chart + estimates view),
+  // then by exercise name alphabetically so multiple exercises on
+  // the same day group together, then by weight descending so the
+  // heaviest sets land at the top of each (workout, exercise) cluster.
+  rows.sort((a, b) => {
+    const t =
+      new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime();
+    if (t !== 0) return t;
+    if (a.exercise_id !== b.exercise_id) {
+      return a.exercise_name.localeCompare(b.exercise_name);
+    }
+    return b.weight - a.weight;
+  });
+  return rows;
+}
+
+function SetsTableBody({
+  rows,
+  exerciseColors,
+}: {
+  rows: SetsTableRow[];
+  exerciseColors: Map<string, string>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="py-6 text-center text-xs text-[var(--muted)]">
+        No sets logged for this exercise in the selected window.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] text-xs">
+        <thead>
+          <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
+            <th className="py-2 pr-3 text-left font-medium">Date</th>
+            <th className="py-2 pr-3 text-left font-medium">Exercise</th>
+            <th className="py-2 pr-3 text-right font-medium">Sets</th>
+            <th className="py-2 pr-3 text-right font-medium">Reps</th>
+            <th className="py-2 pr-3 text-right font-medium">Weight</th>
+            <th className="py-2 text-right font-medium">Workout</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, idx) => {
+            const color = exerciseColors.get(r.exercise_id) ?? COLOR_TREND;
+            return (
+              <tr
+                // (workout, exercise, reps, weight) is unique within
+                // the coalesced row set — idx is the tiebreaker for
+                // the (rare) case where two muscle-groups overlap and
+                // the same combo appears twice in one workout-exercise
+                // through some upstream quirk.
+                key={`${r.workout_id}:${r.exercise_id}:${r.reps}:${r.weight}:${idx}`}
+                className="border-b border-[var(--border)]/60 last:border-b-0"
+              >
+                <td className="py-2 pr-3 whitespace-nowrap text-[var(--muted)]">
+                  {formatDate(r.performed_at)}
+                </td>
+                <td className="py-2 pr-3">
+                  <span className="inline-flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="inline-block h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span className="truncate">{r.exercise_name}</span>
+                  </span>
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums">
+                  {r.set_count}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums">{r.reps}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">
+                  {formatNumber(r.weight)} {r.unit}
+                </td>
+                <td className="py-2 text-right whitespace-nowrap">
+                  <WorkoutLink workoutID={r.workout_id} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: TableView;
+  onChange: (v: TableView) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Table view"
+      className="inline-flex shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs"
+    >
+      <ViewToggleButton
+        active={value === "estimates"}
+        onClick={() => onChange("estimates")}
+      >
+        1RM estimates
+      </ViewToggleButton>
+      <ViewToggleButton
+        active={value === "sets"}
+        onClick={() => onChange("sets")}
+      >
+        Sets × Reps × Weight
+      </ViewToggleButton>
+    </div>
+  );
+}
+
+function ViewToggleButton({
+  children,
+  active,
+  onClick,
+}: {
+  children: ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`rounded-full px-3 py-1 font-medium transition ${
+        active
+          ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+          : "text-[var(--muted)] hover:text-[var(--foreground)]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function WorkoutLink({ workoutID }: { workoutID: string }) {
+  return (
+    <Link
+      href={`/workouts/${workoutID}`}
+      aria-label="View workout"
+      className="text-xs text-[var(--accent)] hover:underline"
+    >
+      View →
+    </Link>
   );
 }
 
