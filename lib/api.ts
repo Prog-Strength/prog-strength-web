@@ -196,6 +196,84 @@ export async function listPersonalRecords(
 }
 
 /**
+ * One entry in the user's headline-exercise selection — the per-user
+ * curated set of exercises surfaced on the Personal Records page.
+ * `is_default` indicates whether the slug is also in the global
+ * curated default list, so the modal can show "(default)" annotations
+ * without a second fetch. See
+ * prog-strength-docs/sows/custom-headline-lifts.md.
+ */
+export type HeadlineExercise = {
+  exercise_id: string;
+  exercise_name: string;
+  position: number;
+  is_default: boolean;
+};
+
+/** One entry in the curated default headline-exercise list. */
+export type DefaultHeadlineExercise = {
+  exercise_id: string;
+  exercise_name: string;
+};
+
+/**
+ * GET /me/headline-exercises. Returns the authed user's selection in
+ * display order; falls back server-side to the curated defaults when
+ * the user has no rows yet. Used by the customize modal to pre-check
+ * the right boxes when it opens.
+ */
+export async function listMyHeadlineExercises(
+  token: string,
+): Promise<HeadlineExercise[]> {
+  const resp = await fetch(`${config.apiUrl}/me/headline-exercises`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<HeadlineExercise[]>(resp, []);
+}
+
+/**
+ * PUT /me/headline-exercises. Replaces the user's selection wholesale
+ * — the body is the complete ordered set, not a partial diff. The
+ * server returns the saved list in the same shape as the GET so the
+ * caller can splice it back into local state without a refetch.
+ *
+ * Server-side validation: at least one slug, at most 12, no
+ * duplicates, every slug must exist in the exercise catalog. Failures
+ * surface as the API's standard `error` envelope; we throw with that
+ * message so callers can render it inline in the modal.
+ */
+export async function putMyHeadlineExercises(
+  token: string,
+  exerciseIDs: string[],
+): Promise<HeadlineExercise[]> {
+  const resp = await fetch(`${config.apiUrl}/me/headline-exercises`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ exercise_ids: exerciseIDs }),
+  });
+  return unwrap<HeadlineExercise[]>(resp, []);
+}
+
+/**
+ * GET /headline-exercises/defaults. Returns the curated default list
+ * — the same one new users land on before they customize. The modal
+ * uses this to annotate "(default)" badges across the full exercise
+ * catalog and to implement "Reset to defaults" without baking slugs
+ * into the frontend.
+ */
+export async function listHeadlineExerciseDefaults(
+  token: string,
+): Promise<DefaultHeadlineExercise[]> {
+  const resp = await fetch(`${config.apiUrl}/headline-exercises/defaults`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<DefaultHeadlineExercise[]>(resp, []);
+}
+
+/**
  * Two endpoints of a least-squares trendline, evaluated at the query's
  * `since` and `until`. The frontend connects them with a straight line;
  * the regression math lives on the server.

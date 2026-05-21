@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
@@ -8,6 +8,7 @@ import {
   listPersonalRecords,
   type PersonalRecord,
 } from "@/lib/api";
+import { HeadlineExercisesModal } from "@/components/headline-exercises-modal";
 
 /**
  * Personal Records — the "trophy case" view.
@@ -29,8 +30,14 @@ export default function PersonalRecordsPage() {
   const router = useRouter();
   const [records, setRecords] = useState<PersonalRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  useEffect(() => {
+  // Extracted as a callback so the customize modal can re-fire it on
+  // save — the new selection changes which cards appear here. Reads
+  // the token at call time rather than holding it in component state,
+  // which would trigger the React 19 "no sync setState in effect"
+  // lint rule when the initial-load effect tried to populate it.
+  const refetch = useCallback(() => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -48,12 +55,25 @@ export default function PersonalRecordsPage() {
       });
   }, [router]);
 
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">
-          Personal Records
-        </h1>
+        <div className="flex items-baseline justify-between gap-3">
+          <h1 className="text-lg font-semibold tracking-tight">
+            Personal Records
+          </h1>
+          <button
+            type="button"
+            onClick={() => setCustomizeOpen(true)}
+            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium transition hover:text-[var(--foreground)]"
+          >
+            Customize
+          </button>
+        </div>
         <p className="text-xs text-[var(--muted)]">
           Your heaviest set on each headline lift, alongside your current
           estimated 1RM for that exercise. A large gap is a cue to attempt
@@ -90,6 +110,17 @@ export default function PersonalRecordsPage() {
           )}
         </div>
       </div>
+
+      {customizeOpen && (
+        <HeadlineExercisesModal
+          token={getToken() ?? ""}
+          onSaved={() => {
+            setCustomizeOpen(false);
+            refetch();
+          }}
+          onClose={() => setCustomizeOpen(false)}
+        />
+      )}
     </main>
   );
 }
