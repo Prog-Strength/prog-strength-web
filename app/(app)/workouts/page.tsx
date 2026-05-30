@@ -15,6 +15,7 @@ import {
   WorkoutDetails,
   hasMeaningfulName,
 } from "@/components/workout-details";
+import { WorkoutDurationChart } from "@/components/workout-duration-chart";
 
 /**
  * Workouts overview. Lists the user's sessions for the selected
@@ -37,15 +38,22 @@ const TIMEFRAMES: { id: Timeframe; label: string; days: number | null }[] = [
 ];
 
 const PAGE_SIZE = 25;
+// Single fetch budget per timeframe. Sized to cover ~1 year for a
+// heavy lifter (~3–5 sessions/week × 52 weeks ≈ 200–260) without
+// pagination. The chart caps at this number, the list pages through
+// what's returned, and a truncation note appears when the cap was
+// actually hit so the user understands what's been omitted.
+const FETCH_LIMIT = 250;
 
 export default function WorkoutsPage() {
   const router = useRouter();
+  // Single source of truth: every workout in the active timeframe (up
+  // to FETCH_LIMIT). Both the chart (full array, weekly aggregation)
+  // and the paginated list (sliced 25 at a time) read from this.
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>("30d");
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
   const [editing, setEditing] = useState<Workout | null>(null);
   // Tracks which rows have their readonly details panel open. Click on
   // the row body toggles; click on the pencil opens the edit modal.
@@ -59,9 +67,10 @@ export default function WorkoutsPage() {
       .catch((err: Error) => setError(err.message));
   }, []);
 
-  // Refetch the workouts page on every timeframe or page change.
-  // Keeping the previous data in state during the in-flight request
-  // avoids a flash of "Loading…" when paging.
+  // One fetch per timeframe change. The list paginates over the
+  // returned array client-side rather than firing a new request per
+  // page — much smaller blast radius on /workouts and the chart and
+  // the list see the same data so deletes / edits stay consistent.
   useEffect(() => {
     const token = getToken();
     if (!token) {
@@ -73,14 +82,9 @@ export default function WorkoutsPage() {
       days !== null && days !== undefined
         ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
         : undefined;
-    const offset = (page - 1) * PAGE_SIZE;
 
-    listWorkouts(token, { since, limit: PAGE_SIZE, offset })
-      .then((p) => {
-        setWorkouts(p.items);
-        setTotal(p.total);
-        setHasMore(p.has_more);
-      })
+    listWorkouts(token, { since, limit: FETCH_LIMIT })
+      .then((p) => setWorkouts(p.items))
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
           clearToken();
@@ -89,7 +93,7 @@ export default function WorkoutsPage() {
         }
         setError(err.message);
       });
-  }, [router, timeframe, page]);
+  }, [router, timeframe]);
 
   // Reset to page 1 whenever the timeframe changes — the offset from
   // the old timeframe almost certainly doesn't address the same data
@@ -99,13 +103,24 @@ export default function WorkoutsPage() {
     setPage(1);
   };
 
-  // Group by Monday-anchored week so each section header can summarize
-  // the week's total time and activity count. The API returns rows
-  // most-recent first; Map preserves insertion order so week sections
-  // come out newest-to-oldest.
+  // Slice for the visible page. Memoized so changing `page` doesn't
+  // create new arrays for every other dependent computation.
+  const visibleWorkouts = useMemo(() => {
+    if (!workouts) return null;
+    const offset = (page - 1) * PAGE_SIZE;
+    return workouts.slice(offset, offset + PAGE_SIZE);
+  }, [workouts, page]);
+
+  const total = workouts?.length ?? 0;
+  const hasMore = workouts ? page * PAGE_SIZE < workouts.length : false;
+  const truncated = workouts ? workouts.length >= FETCH_LIMIT : false;
+
+  // Group the *visible page* by week, not the full timeframe. The chart
+  // shows the full-timeframe summary; the list's per-week headers
+  // contextualize what's on screen.
   const weekGroups = useMemo(
-    () => (workouts ? groupByWeek(workouts) : null),
-    [workouts],
+    () => (visibleWorkouts ? groupByWeek(visibleWorkouts) : null),
+    [visibleWorkouts],
   );
 
   const exerciseMap = useMemo(
@@ -145,13 +160,15 @@ export default function WorkoutsPage() {
     try {
       await deleteWorkout(token, workout.id);
       setWorkouts((ws) => (ws ? ws.filter((w) => w.id !== workout.id) : ws));
-      setTotal((t) => Math.max(0, t - 1));
       // If the current page just emptied out (we deleted the only row
-      // and we're not on page 1), step back so the user isn't stranded
-      // staring at a blank page.
+      // on it and we're not on page 1), step back so the user isn't
+      // stranded staring at a blank page. Computed against the
+      // post-delete count, which is `current - 1`.
       setPage((p) => {
-        const remaining = (workouts?.length ?? 1) - 1;
-        return p > 1 && remaining === 0 ? p - 1 : p;
+        if (p <= 1) return p;
+        const remainingTotal = (workouts?.length ?? 1) - 1;
+        const pagesAfter = Math.ceil(remainingTotal / PAGE_SIZE);
+        return Math.min(p, Math.max(1, pagesAfter));
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
@@ -184,7 +201,16 @@ export default function WorkoutsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto flex max-w-3xl flex-col gap-6">
+          <WorkoutDurationChart
+            workouts={workouts}
+            days={
+              TIMEFRAMES.find((t) => t.id === timeframe)?.days ?? null
+            }
+            truncated={truncated}
+            fetchLimit={FETCH_LIMIT}
+          />
+
           {error && (
             <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
               {error}
@@ -220,11 +246,11 @@ export default function WorkoutsPage() {
             </div>
           )}
 
-          {workouts && total > 0 && (
+          {visibleWorkouts && total > 0 && (
             <PaginationFooter
               page={page}
               pageSize={PAGE_SIZE}
-              pageCount={workouts.length}
+              pageCount={visibleWorkouts.length}
               total={total}
               hasMore={hasMore}
               onPrev={() => setPage((p) => Math.max(1, p - 1))}
