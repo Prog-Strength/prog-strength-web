@@ -9,10 +9,23 @@ import {
   listNutritionLog,
   listPantryItems,
   listRecipes,
+  type MealType,
   type NutritionLogEntry,
   type PantryItem,
   type Recipe,
 } from "@/lib/api";
+
+// Section order on the page. Pinning here (rather than sorting by
+// section averages of consumed_at) means an empty Lunch still
+// appears between Breakfast and Dinner, which is the readable
+// shape users expect.
+const MEAL_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
+const MEAL_LABELS: Record<MealType, string> = {
+  breakfast: "Breakfast",
+  lunch: "Lunch",
+  dinner: "Dinner",
+  snack: "Snacks",
+};
 
 /**
  * Nutrition — today's log + macro widget for a navigable date.
@@ -102,6 +115,7 @@ export default function NutritionPage() {
   function handleLog(
     source: { kind: "pantry" | "recipe"; id: string },
     quantity: number,
+    meal: MealType,
   ) {
     const token = getToken();
     if (!token) {
@@ -120,6 +134,7 @@ export default function NutritionPage() {
         ? { pantry_item_id: source.id }
         : { recipe_id: source.id }),
       quantity,
+      meal,
       consumed_at: consumedAt.toISOString(),
     })
       .then((entry) => {
@@ -178,41 +193,18 @@ export default function NutritionPage() {
             />
           </section>
 
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold tracking-tight">
-              Log entries
-            </h2>
-            {entries === null && (
-              <p className="text-sm text-[var(--muted)]">Loading…</p>
-            )}
-            {entries && entries.length === 0 && (
-              <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
-                Nothing logged on this day yet.
-              </p>
-            )}
-            {entries && entries.length > 0 && (
-              <ul className="flex flex-col gap-2">
-                {entries.map((e) => {
-                  const name = e.pantry_item_id
-                    ? (pantryByID.get(e.pantry_item_id)?.name ?? "Unknown item")
-                    : e.recipe_id
-                      ? (recipeByID.get(e.recipe_id)?.name ?? "Unknown recipe")
-                      : "Untitled entry";
-                  return (
-                    <li key={e.id}>
-                      <LogEntryRow
-                        entry={e}
-                        itemName={name}
-                        isRecipe={!!e.recipe_id}
-                        busy={rowBusyID === e.id}
-                        onDelete={() => handleDelete(e.id)}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
+          {entries === null && (
+            <p className="text-sm text-[var(--muted)]">Loading…</p>
+          )}
+          {entries && (
+            <MealSections
+              entries={entries}
+              pantryByID={pantryByID}
+              recipeByID={recipeByID}
+              rowBusyID={rowBusyID}
+              onDelete={handleDelete}
+            />
+          )}
         </div>
       </div>
     </main>
@@ -352,6 +344,7 @@ function QuickAdd({
   onLog: (
     source: { kind: "pantry" | "recipe"; id: string },
     quantity: number,
+    meal: MealType,
   ) => void;
 }) {
   // Picker value is a "kind:id" string so a single <select> can host
@@ -359,6 +352,12 @@ function QuickAdd({
   // shape at log time.
   const [selection, setSelection] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("1");
+  // Meal default tracks the user's local time of day on mount.
+  // After they submit, we leave the meal where they last left it
+  // (rather than re-inferring) so a string of breakfast entries
+  // doesn't suddenly snap to "lunch" because they crossed an
+  // imaginary boundary mid-logging.
+  const [meal, setMeal] = useState<MealType>(() => defaultMealForLocalHour(new Date()));
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -366,9 +365,10 @@ function QuickAdd({
     if (!selection || !Number.isFinite(q) || q <= 0) return;
     const [kind, id] = selection.split(":", 2);
     if ((kind !== "pantry" && kind !== "recipe") || !id) return;
-    onLog({ kind, id }, q);
-    // Keep selection so logging the same thing twice in a row is fast;
-    // reset quantity to 1 as the friction-minimizing default.
+    onLog({ kind, id }, q, meal);
+    // Keep selection + meal so logging the same thing twice in a
+    // row is fast; reset quantity to 1 as the friction-minimizing
+    // default.
     setQuantity("1");
   }
 
@@ -421,6 +421,23 @@ function QuickAdd({
         </select>
       </label>
       <label className="flex w-full flex-col gap-1 text-xs sm:w-32">
+        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Meal
+        </span>
+        <select
+          value={meal}
+          onChange={(e) => setMeal(e.target.value as MealType)}
+          disabled={busy}
+          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
+        >
+          {MEAL_ORDER.map((m) => (
+            <option key={m} value={m}>
+              {MEAL_LABELS[m]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex w-full flex-col gap-1 text-xs sm:w-24">
         <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
           Servings
         </span>
@@ -495,7 +512,148 @@ function LogEntryRow({
   );
 }
 
+// --- Meal sections -------------------------------------------------------
+
+function MealSections({
+  entries,
+  pantryByID,
+  recipeByID,
+  rowBusyID,
+  onDelete,
+}: {
+  entries: NutritionLogEntry[];
+  pantryByID: Map<string, PantryItem>;
+  recipeByID: Map<string, Recipe>;
+  rowBusyID: string | null;
+  onDelete: (id: string) => void;
+}) {
+  // Bucket the entries by meal up front. Within a bucket entries
+  // stay in the parent's order (consumed_at DESC from the API),
+  // which reads as "freshest first" inside each section.
+  const byMeal = useMemo(() => {
+    const m: Record<MealType, NutritionLogEntry[]> = {
+      breakfast: [],
+      lunch: [],
+      dinner: [],
+      snack: [],
+    };
+    for (const e of entries) m[e.meal].push(e);
+    return m;
+  }, [entries]);
+
+  if (entries.length === 0) {
+    return (
+      <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
+        Nothing logged on this day yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {MEAL_ORDER.map((m) => (
+        <MealSection
+          key={m}
+          meal={m}
+          entries={byMeal[m]}
+          pantryByID={pantryByID}
+          recipeByID={recipeByID}
+          rowBusyID={rowBusyID}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MealSection({
+  meal,
+  entries,
+  pantryByID,
+  recipeByID,
+  rowBusyID,
+  onDelete,
+}: {
+  meal: MealType;
+  entries: NutritionLogEntry[];
+  pantryByID: Map<string, PantryItem>;
+  recipeByID: Map<string, Recipe>;
+  rowBusyID: string | null;
+  onDelete: (id: string) => void;
+}) {
+  const subtotal = useMemo(() => {
+    const t = { calories: 0, protein_g: 0, fat_g: 0, carbs_g: 0 };
+    for (const e of entries) {
+      t.calories += e.calories;
+      t.protein_g += e.protein_g;
+      t.fat_g += e.fat_g;
+      t.carbs_g += e.carbs_g;
+    }
+    return t;
+  }, [entries]);
+
+  // Empty sections still render so the user has a visual cue for
+  // meals they haven't logged yet — "Lunch (empty)" reads as a
+  // reminder, where collapsing the section would just hide the gap.
+  return (
+    <section className="flex flex-col gap-2">
+      <header className="flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold tracking-tight">
+          {MEAL_LABELS[meal]}
+        </h2>
+        <p className="text-xs text-[var(--muted)] tabular-nums">
+          {entries.length === 0 ? (
+            <span className="italic">No entries</span>
+          ) : (
+            <>
+              {formatNumber(subtotal.calories)} cal · P{" "}
+              {formatNumber(subtotal.protein_g)}g · F{" "}
+              {formatNumber(subtotal.fat_g)}g · C{" "}
+              {formatNumber(subtotal.carbs_g)}g
+            </>
+          )}
+        </p>
+      </header>
+      {entries.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {entries.map((e) => {
+            const name = e.pantry_item_id
+              ? (pantryByID.get(e.pantry_item_id)?.name ?? "Unknown item")
+              : e.recipe_id
+                ? (recipeByID.get(e.recipe_id)?.name ?? "Unknown recipe")
+                : "Untitled entry";
+            return (
+              <li key={e.id}>
+                <LogEntryRow
+                  entry={e}
+                  itemName={name}
+                  isRecipe={!!e.recipe_id}
+                  busy={rowBusyID === e.id}
+                  onDelete={() => onDelete(e.id)}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 // --- helpers --------------------------------------------------------------
+
+// defaultMealForLocalHour picks a sensible meal based on the user's
+// local time. Loose ranges — covers the bulk case, the picker is
+// always overridable. Outside the meal windows we default to snack
+// because off-meal foods (coffee, fruit, a protein bar) are usually
+// what's logged in those hours.
+function defaultMealForLocalHour(d: Date): MealType {
+  const h = d.getHours();
+  if (h >= 4 && h < 11) return "breakfast";
+  if (h >= 11 && h < 15) return "lunch";
+  if (h >= 17 && h < 22) return "dinner";
+  return "snack";
+}
 
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);

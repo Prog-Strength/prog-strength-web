@@ -482,10 +482,18 @@ export type PantryItemPayload = {
 };
 
 /**
- * One consumption event. Phase 1 always has pantry_item_id set;
- * recipe_id stays null until the recipes domain ships. Macros are
- * denormalized at log time so historical totals are immutable under
- * future pantry-item edits.
+ * Which meal bucket a nutrition log entry rolls into on the
+ * /nutrition UI. Hard enum mirrored on the API side; new values
+ * require schema CHECK + handler changes there first.
+ */
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+/**
+ * One consumption event. Macros are denormalized at log time so
+ * historical totals are immutable under future pantry-item edits.
+ * Earlier phases set only pantry_item_id; later work lifted that to
+ * also support recipe_id, and the meal bucket landed alongside the
+ * per-meal section UI.
  */
 export type NutritionLogEntry = {
   id: string;
@@ -497,24 +505,28 @@ export type NutritionLogEntry = {
   protein_g: number;
   fat_g: number;
   carbs_g: number;
+  meal: MealType;
   created_at: string;
 };
 
 /**
  * Payload for creating a log entry. Exactly one of `pantry_item_id`
- * and `recipe_id` must be set — server returns 400 otherwise.
+ * and `recipe_id` must be set — server returns 400 otherwise. `meal`
+ * is required.
  */
 export type CreateLogEntryPayload = {
   pantry_item_id?: string;
   recipe_id?: string;
   quantity: number;
+  meal: MealType;
   consumed_at?: string; // RFC3339; server defaults to now
 };
 
-/** Payload for editing a log entry. */
+/** Payload for editing a log entry. Omit a field to leave it unchanged. */
 export type UpdateLogEntryPayload = {
   quantity?: number;
   consumed_at?: string;
+  meal?: MealType;
 };
 
 /** Per-day aggregate from GET /nutrition-log/daily. */
