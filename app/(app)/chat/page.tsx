@@ -1,12 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { clearToken, getToken } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { parseSSE } from "@/lib/stream";
+import {
+  appendChatTurn,
+  createChatSession,
+  getChatSession,
+  patchChatSessionTitle,
+  type ChatMessage as PersistedChatMessage,
+} from "@/lib/api";
+import { generateChatTitle } from "@/lib/agent";
 
 /**
  * A tool the agent invoked during a single assistant turn. State
@@ -32,23 +41,86 @@ type Message = {
   model?: string;
 };
 
+/**
+ * Build a fresh persisted chat session on the API side. Best-effort:
+ * a failure here surfaces as a UI error but the streaming chat itself
+ * keeps working — appendChatTurn will fail downstream if so, which
+ * is the right place to surface it.
+ */
+async function mintSession(token: string, id: string): Promise<void> {
+  await createChatSession(token, id);
+}
+
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlSessionId = searchParams.get("session");
+
+  // The active session id. Lifetime: set once per page-mount on first
+  // useEffect tick — either from the URL (resume) or from a freshly
+  // minted UUID (new chat). Re-mounting the page (e.g. New chat button)
+  // resets this via a router push that the effect picks up.
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  // sessionReady flips to true once mintSession or getChatSession
+  // resolves; the input is gated on it so a user can't `send()` before
+  // the server-side session row exists (which would 404 the append).
+  const [sessionReady, setSessionReady] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Session ID groups every turn from this chat page mount into one
-  // conversation in the agent's telemetry. Generated once via the
-  // useState lazy initializer so it survives re-renders but resets
-  // on page refresh — that's the "new conversation" boundary today,
-  // until a dedicated "New chat" button ships.
-  //
-  // Frontend is the canonical generator; the agent server falls back
-  // to its own UUID only when this field is missing (older clients
-  // or scripted callers).
-  const [sessionId] = useState(() => crypto.randomUUID());
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // Set up the session on every mount. Resolves either the URL param
+  // (existing session → rehydrate) or generates a new UUID (new
+  // session → mint server-side). Race-safe via the abort guard so a
+  // quick back-to-back New Chat doesn't apply a stale fetch's result.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    let cancelled = false;
+
+    const run = async () => {
+      // Resets live inside the async body (not synchronously in the
+      // effect) so the React rules-of-hooks lint rule against
+      // sync setState in effects stays satisfied — the awaits
+      // below force these updates onto a microtask tick.
+      setSessionReady(false);
+      setMessages([]);
+      setError(null);
+      try {
+        if (urlSessionId) {
+          const session = await getChatSession(token, urlSessionId);
+          if (cancelled) return;
+          setSessionId(session.id);
+          setMessages(session.messages.map(persistedToUI));
+          setSessionReady(true);
+        } else {
+          const id = crypto.randomUUID();
+          await mintSession(token, id);
+          if (cancelled) return;
+          setSessionId(id);
+          setSessionReady(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(msg);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [urlSessionId, router]);
 
   // Auth-gating lives in the (app) layout; this page assumes a token
   // exists. Auto-scroll on every message-list change — standard chat UX.
@@ -60,7 +132,7 @@ export default function ChatPage() {
 
   const send = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || streaming) return;
+    if (!trimmed || streaming || !sessionReady || !sessionId) return;
 
     const token = getToken();
     if (!token) {
@@ -80,6 +152,14 @@ export default function ChatPage() {
     setInput("");
     setStreaming(true);
 
+    // Track whether this is the first turn of the session so we
+    // know to fire the title-generation flow after the append. The
+    // pre-append messages array (before this turn) defines "first".
+    const isFirstTurn = messages.length === 0;
+
+    let assistantText = "";
+    let chosenModel: string | undefined;
+    const toolsLog: ToolCall[] = [];
     try {
       const resp = await fetch(`${config.agentUrl}/chat`, {
         method: "POST",
@@ -103,7 +183,6 @@ export default function ChatPage() {
         throw new Error(`agent returned ${resp.status}: ${text.slice(0, 200)}`);
       }
 
-      let assistantText = "";
       for await (const ev of parseSSE(resp.body)) {
         if (ev.type === "text_delta") {
           assistantText += ev.text;
@@ -113,6 +192,7 @@ export default function ChatPage() {
             replaceLast(prev, (last) => ({ ...last, content: assistantText })),
           );
         } else if (ev.type === "tool_use_start") {
+          toolsLog.push({ name: ev.name, state: "running" });
           // Append a "running" tool to the in-progress assistant
           // message. Persisting tools on the message (rather than a
           // separate activeTools state) keeps them visible after the
@@ -131,17 +211,25 @@ export default function ChatPage() {
           // Flip the matching running tool to ok/error. Match on name
           // + state so parallel tool calls with the same name resolve
           // in order (the in-flight one transitions; later ones wait).
+          const finalState: "ok" | "error" = ev.is_error ? "error" : "ok";
+          for (let i = toolsLog.length - 1; i >= 0; i--) {
+            if (toolsLog[i].name === ev.name && toolsLog[i].state === "running") {
+              toolsLog[i] = { ...toolsLog[i], state: finalState };
+              break;
+            }
+          }
           setMessages((prev) =>
             replaceLast(prev, (last) => ({
               ...last,
               tools: (last.tools ?? []).map((t) =>
                 t.name === ev.name && t.state === "running"
-                  ? { ...t, state: ev.is_error ? "error" : "ok" }
+                  ? { ...t, state: finalState }
                   : t,
               ),
             })),
           );
         } else if (ev.type === "model_chosen") {
+          chosenModel = ev.model;
           // Stamp the chosen model onto the in-progress assistant
           // message so the UI can render "via Haiku" / "via Sonnet"
           // and the label persists in conversation history.
@@ -153,6 +241,37 @@ export default function ChatPage() {
         }
         // `done` event needs no UI side-effect; the loop ends when the
         // server closes the body.
+      }
+
+      // Stream completed successfully — persist the turn. The user
+      // message stays visible regardless of this write; a failure
+      // here just means the session's history will lack one turn.
+      if (assistantText) {
+        const toolsJSON = toolsLog.length > 0 ? JSON.stringify(toolsLog) : undefined;
+        try {
+          await appendChatTurn(token, sessionId, {
+            user: { content: trimmed },
+            assistant: {
+              content: assistantText,
+              model: chosenModel,
+              tools_json: toolsJSON,
+            },
+          });
+        } catch (err) {
+          // Persistence failure is non-fatal — surface inline but
+          // don't roll back the messages the user already saw.
+          const msg = err instanceof Error ? err.message : String(err);
+          setError(`failed to save turn: ${msg}`);
+        }
+
+        if (isFirstTurn) {
+          // Background title generation. We deliberately do NOT
+          // await this so the user can keep chatting; the title
+          // appears in the sidebar/history list whenever the PATCH
+          // lands. Local fallback mirrors the agent's so the stored
+          // title is sane even if the agent /title endpoint fails.
+          void titleAndPatch(token, sessionId, trimmed, assistantText);
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -177,7 +296,7 @@ export default function ChatPage() {
     } finally {
       setStreaming(false);
     }
-  }, [input, streaming, messages, router, sessionId]);
+  }, [input, streaming, messages, router, sessionId, sessionReady]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter inserts a newline. Standard chat UX.
@@ -187,8 +306,33 @@ export default function ChatPage() {
     }
   };
 
+  const startNewChat = () => {
+    // Pushing /chat without ?session triggers the mount effect's
+    // new-session branch. router.push (not replace) so the user can
+    // hit Back to return to the previous conversation.
+    router.push("/chat");
+  };
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
+      <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-6 py-3">
+        <h1 className="text-sm font-semibold tracking-tight">Chat</h1>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={startNewChat}
+            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium transition hover:text-[var(--foreground)]"
+          >
+            + New chat
+          </button>
+          <Link
+            href="/chat/history"
+            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium transition hover:text-[var(--foreground)]"
+          >
+            History
+          </Link>
+        </div>
+      </header>
       <div
         ref={scrollerRef}
         className="flex-1 overflow-y-auto px-6 py-6"
@@ -231,15 +375,17 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message Prog Strength…"
+            placeholder={
+              sessionReady ? "Message Prog Strength…" : "Starting session…"
+            }
             rows={1}
             className="min-h-[44px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
-            disabled={streaming}
+            disabled={streaming || !sessionReady}
           />
           <button
             type="button"
             onClick={send}
-            disabled={streaming || input.trim().length === 0}
+            disabled={streaming || !sessionReady || input.trim().length === 0}
             className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
           >
             {streaming ? "…" : "Send"}
@@ -248,6 +394,75 @@ export default function ChatPage() {
       </footer>
     </main>
   );
+}
+
+// --- session helpers --------------------------------------------------
+
+/**
+ * Background title generation. Asks the agent's /title for a friendly
+ * 3–6 word summary, then PATCHes the API. On any failure falls back
+ * to a 60-char slice of the first user message so the session always
+ * ends up with a non-empty title. All failures are swallowed — the UI
+ * shouldn't bother the user with title-generation hiccups.
+ */
+async function titleAndPatch(
+  token: string,
+  sessionId: string,
+  userText: string,
+  assistantText: string,
+): Promise<void> {
+  let title = fallbackTitle(userText);
+  try {
+    const generated = await generateChatTitle(token, [
+      { role: "user", content: userText },
+      { role: "assistant", content: assistantText },
+    ]);
+    if (generated) title = generated;
+  } catch {
+    // swallow — fallback is already in `title`
+  }
+  try {
+    await patchChatSessionTitle(token, sessionId, title);
+  } catch {
+    // swallow — the session is usable without a title
+  }
+}
+
+/**
+ * Local fallback when the agent's /title call fails. Slices the user's
+ * first message to 60 chars; defaults to "New Chat" if the message is
+ * blank after trimming. Mirrors the agent's own fallback shape.
+ */
+function fallbackTitle(userText: string): string {
+  const trimmed = userText.trim();
+  if (!trimmed) return "New Chat";
+  return trimmed.slice(0, 60).trim() || "New Chat";
+}
+
+/**
+ * Persisted-message → UI-message converter. The API stores message
+ * content as a plain string + optional model + optional tools JSON.
+ * The UI's Message shape carries those same fields with the tools
+ * parsed back into the ToolCall array the bubble renders.
+ */
+function persistedToUI(m: PersistedChatMessage): Message {
+  const ui: Message = {
+    role: m.role,
+    content: m.content,
+  };
+  if (m.model) ui.model = m.model;
+  if (m.tools_json) {
+    try {
+      const parsed = JSON.parse(m.tools_json);
+      if (Array.isArray(parsed)) {
+        ui.tools = parsed as ToolCall[];
+      }
+    } catch {
+      // Bad JSON in the column is a corruption signal; render the
+      // message without tools rather than dropping the whole turn.
+    }
+  }
+  return ui;
 }
 
 function MessageBubble({

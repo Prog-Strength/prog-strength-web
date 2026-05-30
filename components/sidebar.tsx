@@ -10,10 +10,18 @@ type NavItem = {
   href: string;
   label: string;
   icon: ReactNode;
+  // When true, only highlight on an exact pathname match. The default
+  // prefix-match behavior lights up the entry for nested routes (e.g.
+  // /workouts/{id}), which is right for routes that own subpages but
+  // wrong for parent entries that have a SIBLING entry below them in
+  // NAV (e.g. "/chat" vs "/chat/history" — without exact, both would
+  // glow on /chat/history).
+  exact?: boolean;
 };
 
 const NAV: NavItem[] = [
-  { href: "/chat", label: "Chat", icon: <ChatIcon /> },
+  { href: "/chat", label: "Chat", icon: <ChatIcon />, exact: true },
+  { href: "/chat/history", label: "Chat history", icon: <HistoryIcon /> },
   { href: "/workouts", label: "Workouts", icon: <DumbbellIcon /> },
   { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
@@ -95,8 +103,9 @@ export function Sidebar() {
 
       <nav className="flex flex-1 flex-col gap-1 px-2 py-3">
         {NAV.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(item.href + "/");
+          const active = item.exact
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}
@@ -157,6 +166,28 @@ function ChatIcon() {
       aria-hidden="true"
     >
       <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  // Clock face with a counterclockwise arrow at the top-left — the
+  // common "history / past activity" idiom across most icon libraries.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
+      <path d="M12 7v5l3 2" />
     </svg>
   );
 }
