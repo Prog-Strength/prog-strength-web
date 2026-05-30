@@ -711,6 +711,82 @@ export async function getDailyMacros(
   return unwrap<DailyMacros[]>(resp, []);
 }
 
+// --- Bodyweight ---------------------------------------------------
+
+/**
+ * One scale reading. Unit is denormalized per row so a user changing
+ * their preferred unit doesn't reinterpret history. See
+ * prog-strength-docs/sows/daily-nutrition-log.md (Phase 3).
+ */
+export type BodyweightEntry = {
+  id: string;
+  weight: number;
+  unit: "lb" | "kg";
+  measured_at: string; // RFC3339
+  created_at: string;
+};
+
+/** Payload for creating a bodyweight entry. */
+export type CreateBodyweightPayload = {
+  weight: number;
+  unit?: "lb" | "kg"; // server defaults to the user's preferred unit
+  measured_at?: string; // RFC3339; server defaults to now
+};
+
+export async function listBodyweight(
+  token: string,
+  options: { since?: string; until?: string } = {},
+): Promise<BodyweightEntry[]> {
+  const params = new URLSearchParams();
+  if (options.since) params.set("since", options.since);
+  if (options.until) params.set("until", options.until);
+  const qs = params.toString();
+  const resp = await fetch(
+    `${config.apiUrl}/bodyweight${qs ? `?${qs}` : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return unwrap<BodyweightEntry[]>(resp, []);
+}
+
+export async function createBodyweightEntry(
+  token: string,
+  payload: CreateBodyweightPayload,
+): Promise<BodyweightEntry> {
+  const resp = await fetch(`${config.apiUrl}/bodyweight`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<BodyweightEntry | null>(resp, null);
+  if (!created) throw new Error("API did not return the created bodyweight entry");
+  return created;
+}
+
+export async function deleteBodyweightEntry(
+  token: string,
+  id: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/bodyweight/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
 // --- Recipes ------------------------------------------------------
 
 /**
