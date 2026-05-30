@@ -41,70 +41,71 @@ type Message = {
   model?: string;
 };
 
-/**
- * Build a fresh persisted chat session on the API side. Best-effort:
- * a failure here surfaces as a UI error but the streaming chat itself
- * keeps working — appendChatTurn will fail downstream if so, which
- * is the right place to surface it.
- */
-async function mintSession(token: string, id: string): Promise<void> {
-  await createChatSession(token, id);
-}
-
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlSessionId = searchParams.get("session");
 
-  // The active session id. Lifetime: set once per page-mount on first
-  // useEffect tick — either from the URL (resume) or from a freshly
-  // minted UUID (new chat). Re-mounting the page (e.g. New chat button)
-  // resets this via a router push that the effect picks up.
+  // The active session id. Set immediately on mount: either from the
+  // URL (resume) or a fresh client-minted UUID (new chat). For the
+  // new-chat path the server-side row is created lazily inside
+  // send() — eager creation would litter the user's history with
+  // empty sessions every time they tap the chat surface without
+  // actually sending a message.
   const [sessionId, setSessionId] = useState<string | null>(null);
-  // sessionReady flips to true once mintSession or getChatSession
-  // resolves; the input is gated on it so a user can't `send()` before
-  // the server-side session row exists (which would 404 the append).
-  const [sessionReady, setSessionReady] = useState(false);
+  // Whether the API has the chat_sessions row for this id. True
+  // after a successful resume GET or after the lazy POST inside
+  // send(). Drives whether send() needs to call createChatSession
+  // before appending the first turn.
+  const [sessionPersisted, setSessionPersisted] = useState(false);
+  // Loading is only meaningful for the resume path — we have to
+  // wait for the GET before we know what messages to show. The
+  // composer is gated on `!loading` so a user can't send into a
+  // session whose history hasn't loaded yet (the new turn would
+  // append to position N but the rehydrated history would show
+  // position 0..N-1 mid-flight).
+  const [loading, setLoading] = useState<boolean>(!!urlSessionId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  // Set up the session on every mount. Resolves either the URL param
-  // (existing session → rehydrate) or generates a new UUID (new
-  // session → mint server-side). Race-safe via the abort guard so a
-  // quick back-to-back New Chat doesn't apply a stale fetch's result.
+  // Bootstrap the session on every mount. Two paths:
+  //   - URL has ?session=<id>: GET to rehydrate (history + persisted
+  //     flag flips). Aborted via `cancelled` if the user races
+  //     forward to a New Chat before the GET resolves.
+  //   - URL is bare: mint a UUID locally and set it; no API call.
+  //     The row gets created inside send() on the first real turn.
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
     let cancelled = false;
-
     const run = async () => {
-      // Resets live inside the async body (not synchronously in the
-      // effect) so the React rules-of-hooks lint rule against
-      // sync setState in effects stays satisfied — the awaits
+      // Reset inside the async body so React's rules-of-hooks lint
+      // against sync setState in effects stays satisfied — awaits
       // below force these updates onto a microtask tick.
-      setSessionReady(false);
       setMessages([]);
       setError(null);
+      setSessionPersisted(false);
+      setLoading(!!urlSessionId);
+
+      if (!urlSessionId) {
+        const id = crypto.randomUUID();
+        if (cancelled) return;
+        setSessionId(id);
+        return;
+      }
+
       try {
-        if (urlSessionId) {
-          const session = await getChatSession(token, urlSessionId);
-          if (cancelled) return;
-          setSessionId(session.id);
-          setMessages(session.messages.map(persistedToUI));
-          setSessionReady(true);
-        } else {
-          const id = crypto.randomUUID();
-          await mintSession(token, id);
-          if (cancelled) return;
-          setSessionId(id);
-          setSessionReady(true);
+        const token = getToken();
+        if (!token) {
+          router.replace("/login");
+          return;
         }
+        const session = await getChatSession(token, urlSessionId);
+        if (cancelled) return;
+        setSessionId(session.id);
+        setMessages(session.messages.map(persistedToUI));
+        setSessionPersisted(true);
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
@@ -114,6 +115,8 @@ export default function ChatPage() {
           return;
         }
         setError(msg);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
     run();
@@ -132,7 +135,7 @@ export default function ChatPage() {
 
   const send = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || streaming || !sessionReady || !sessionId) return;
+    if (!trimmed || streaming || loading || !sessionId) return;
 
     const token = getToken();
     if (!token) {
@@ -141,6 +144,29 @@ export default function ChatPage() {
     }
 
     setError(null);
+
+    // Lazy-create the session row server-side if we haven't yet —
+    // this is the first turn of a fresh chat. Done BEFORE the
+    // optimistic UI update so an early failure here doesn't leave
+    // the user staring at their own message with no way to recover.
+    if (!sessionPersisted) {
+      try {
+        await createChatSession(token, sessionId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(msg);
+        return;
+      }
+      // Eviction may have run during create — refetching the
+      // history list isn't this surface's job, but flip the flag
+      // so subsequent turns don't re-POST.
+      setSessionPersisted(true);
+    }
 
     // Optimistic update: append the user's message and a placeholder
     // assistant message we'll fill as deltas arrive. Setting both at
@@ -296,7 +322,7 @@ export default function ChatPage() {
     } finally {
       setStreaming(false);
     }
-  }, [input, streaming, messages, router, sessionId, sessionReady]);
+  }, [input, streaming, messages, router, sessionId, sessionPersisted, loading]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter inserts a newline. Standard chat UX.
@@ -376,16 +402,18 @@ export default function ChatPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              sessionReady ? "Message Prog Strength…" : "Starting session…"
+              loading ? "Loading…" : "Message Prog Strength…"
             }
             rows={1}
             className="min-h-[44px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
-            disabled={streaming || !sessionReady}
+            disabled={streaming || loading || !sessionId}
           />
           <button
             type="button"
             onClick={send}
-            disabled={streaming || !sessionReady || input.trim().length === 0}
+            disabled={
+              streaming || loading || !sessionId || input.trim().length === 0
+            }
             className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
           >
             {streaming ? "…" : "Send"}
