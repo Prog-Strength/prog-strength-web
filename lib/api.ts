@@ -449,6 +449,264 @@ export async function updateWorkout(
   return updated;
 }
 
+// --- Nutrition (pantry + log) -------------------------------------
+
+/**
+ * One user-saved food entry. Macros are per serving; "5 eggs" is
+ * represented as a log entry with quantity=5 against an item whose
+ * serving_size=1 and serving_unit="egg". See
+ * prog-strength-docs/sows/daily-nutrition-log.md.
+ */
+export type PantryItem = {
+  id: string;
+  name: string;
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  serving_size: number;
+  serving_unit: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Payload for creating or updating a pantry item. */
+export type PantryItemPayload = {
+  name: string;
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  serving_size: number;
+  serving_unit: string;
+};
+
+/**
+ * One consumption event. Phase 1 always has pantry_item_id set;
+ * recipe_id stays null until the recipes domain ships. Macros are
+ * denormalized at log time so historical totals are immutable under
+ * future pantry-item edits.
+ */
+export type NutritionLogEntry = {
+  id: string;
+  consumed_at: string;
+  pantry_item_id?: string | null;
+  recipe_id?: string | null;
+  quantity: number;
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  created_at: string;
+};
+
+/** Payload for creating a log entry. Phase 1 only sends pantry_item_id. */
+export type CreateLogEntryPayload = {
+  pantry_item_id: string;
+  quantity: number;
+  consumed_at?: string; // RFC3339; server defaults to now
+};
+
+/** Payload for editing a log entry. */
+export type UpdateLogEntryPayload = {
+  quantity?: number;
+  consumed_at?: string;
+};
+
+/** Per-day aggregate from GET /nutrition-log/daily. */
+export type DailyMacros = {
+  date: string; // YYYY-MM-DD UTC
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  entry_count: number;
+};
+
+export async function listPantryItems(
+  token: string,
+  query?: string,
+): Promise<PantryItem[]> {
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  const qs = params.toString();
+  const resp = await fetch(
+    `${config.apiUrl}/pantry-items${qs ? `?${qs}` : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return unwrap<PantryItem[]>(resp, []);
+}
+
+export async function getPantryItem(
+  token: string,
+  id: string,
+): Promise<PantryItem> {
+  const resp = await fetch(
+    `${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const got = await unwrap<PantryItem | null>(resp, null);
+  if (!got) throw new Error("pantry item not found");
+  return got;
+}
+
+export async function createPantryItem(
+  token: string,
+  payload: PantryItemPayload,
+): Promise<PantryItem> {
+  const resp = await fetch(`${config.apiUrl}/pantry-items`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<PantryItem | null>(resp, null);
+  if (!created) throw new Error("API did not return the created pantry item");
+  return created;
+}
+
+export async function updatePantryItem(
+  token: string,
+  id: string,
+  payload: PantryItemPayload,
+): Promise<PantryItem> {
+  const resp = await fetch(
+    `${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  const updated = await unwrap<PantryItem | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated pantry item");
+  return updated;
+}
+
+export async function deletePantryItem(
+  token: string,
+  id: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * GET /nutrition-log. Optional since/until are RFC3339 UTC bounds on
+ * `consumed_at`. Returns most-recent-first.
+ */
+export async function listNutritionLog(
+  token: string,
+  options: { since?: string; until?: string } = {},
+): Promise<NutritionLogEntry[]> {
+  const params = new URLSearchParams();
+  if (options.since) params.set("since", options.since);
+  if (options.until) params.set("until", options.until);
+  const qs = params.toString();
+  const resp = await fetch(
+    `${config.apiUrl}/nutrition-log${qs ? `?${qs}` : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return unwrap<NutritionLogEntry[]>(resp, []);
+}
+
+export async function createNutritionLogEntry(
+  token: string,
+  payload: CreateLogEntryPayload,
+): Promise<NutritionLogEntry> {
+  const resp = await fetch(`${config.apiUrl}/nutrition-log`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<NutritionLogEntry | null>(resp, null);
+  if (!created) throw new Error("API did not return the created log entry");
+  return created;
+}
+
+export async function updateNutritionLogEntry(
+  token: string,
+  id: string,
+  payload: UpdateLogEntryPayload,
+): Promise<NutritionLogEntry> {
+  const resp = await fetch(
+    `${config.apiUrl}/nutrition-log/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  const updated = await unwrap<NutritionLogEntry | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated log entry");
+  return updated;
+}
+
+export async function deleteNutritionLogEntry(
+  token: string,
+  id: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/nutrition-log/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * GET /nutrition-log/daily. Returns one row per UTC calendar date in
+ * the [since, until) range that has at least one entry. Empty days
+ * are omitted; the frontend's daily widget treats that as zeros.
+ */
+export async function getDailyMacros(
+  token: string,
+  since: string,
+  until: string,
+): Promise<DailyMacros[]> {
+  const params = new URLSearchParams({ since, until });
+  const resp = await fetch(
+    `${config.apiUrl}/nutrition-log/daily?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return unwrap<DailyMacros[]>(resp, []);
+}
+
 /**
  * Common envelope unwrapper. The API wraps every success response in
  * `{service, message, data}`; the caller only cares about `data`.

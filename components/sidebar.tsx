@@ -17,6 +17,12 @@ const NAV: NavItem[] = [
   { href: "/workouts", label: "Workouts", icon: <DumbbellIcon /> },
   { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
+  // Nutrition + Pantry are the food-side raw-data + reference pair,
+  // analogous to Workouts + Exercises on the lifting side. Slot them
+  // together so the mental model is "raw log, then the catalog the
+  // log references" — same pattern users already know.
+  { href: "/nutrition", label: "Nutrition", icon: <PlateIcon /> },
+  { href: "/pantry", label: "Pantry", icon: <JarIcon /> },
   // Progress = analysis layered on top of the logged data — slots
   // after the raw-data views (Workouts/Calendar) and the reference
   // catalog (Exercises) since it depends on all three conceptually.
@@ -259,6 +265,52 @@ function TrophyIcon() {
       <path d="M12 14v3" />
       <path d="M9 21h6" />
       <path d="M10 17h4l-1 4h-2l-1-4z" />
+    </svg>
+  );
+}
+
+function PlateIcon() {
+  // Plate with fork + knife — reads as "meal / nutrition" without
+  // an emoji. Concentric circles for the plate, two straight lines
+  // flanking it for the utensils.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M4 4v6" />
+      <path d="M20 4v6" />
+    </svg>
+  );
+}
+
+function JarIcon() {
+  // Mason jar — a small rectangle (lid) atop a slightly-rounded
+  // larger rectangle (body). Reads as "pantry / saved goods."
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7 4h10v3H7z" />
+      <path d="M6 9h12v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V9z" />
+      <path d="M9 13h6" />
     </svg>
   );
 }
