@@ -38,12 +38,14 @@ const TIMEFRAMES: { id: Timeframe; label: string; days: number | null }[] = [
 ];
 
 const PAGE_SIZE = 25;
-// Single fetch budget per timeframe. Sized to cover ~1 year for a
-// heavy lifter (~3–5 sessions/week × 52 weeks ≈ 200–260) without
-// pagination. The chart caps at this number, the list pages through
-// what's returned, and a truncation note appears when the cap was
-// actually hit so the user understands what's been omitted.
-const FETCH_LIMIT = 250;
+// Single fetch budget per timeframe. Capped at 100 because that's the
+// API's hard limit (see workout.handler.parseWorkoutListOptions). At
+// 3–5 sessions/week that's ~5 months of training, which covers the
+// 7d/30d/90d timeframes comfortably; the "all" timeframe truncates at
+// 100 and the chart shows a "Showing the most recent 100 sessions"
+// note so the user sees what's been cut. Raise on both sides
+// together if/when single-user volume exceeds this.
+const FETCH_LIMIT = 100;
 
 export default function WorkoutsPage() {
   const router = useRouter();
