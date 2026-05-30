@@ -8,8 +8,10 @@ import {
   deleteNutritionLogEntry,
   listNutritionLog,
   listPantryItems,
+  listRecipes,
   type NutritionLogEntry,
   type PantryItem,
+  type Recipe,
 } from "@/lib/api";
 
 /**
@@ -30,6 +32,7 @@ export default function NutritionPage() {
   const [date, setDate] = useState<Date>(() => startOfLocalDay(new Date()));
   const [entries, setEntries] = useState<NutritionLogEntry[] | null>(null);
   const [pantry, setPantry] = useState<PantryItem[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -47,10 +50,12 @@ export default function NutritionPage() {
       Promise.all([
         listNutritionLog(token, { since, until }),
         listPantryItems(token),
+        listRecipes(token),
       ])
-        .then(([logs, pantryItems]) => {
+        .then(([logs, pantryItems, recipeList]) => {
           setEntries(logs);
           setPantry(pantryItems);
+          setRecipes(recipeList);
         })
         .catch((err: Error) => {
           if (err.message.toLowerCase().includes("401")) {
@@ -69,12 +74,19 @@ export default function NutritionPage() {
   }, [date, refetch]);
 
   // Pantry-item lookup for entry row rendering — entries carry a
-  // pantry_item_id but no name (denormalized macros only). Map it.
+  // pantry_item_id (or recipe_id) but no name; denormalized macros are
+  // the only thing on the entry row itself. Same shape for the
+  // recipe lookup below.
   const pantryByID = useMemo(() => {
     const m = new Map<string, PantryItem>();
     for (const p of pantry) m.set(p.id, p);
     return m;
   }, [pantry]);
+  const recipeByID = useMemo(() => {
+    const m = new Map<string, Recipe>();
+    for (const r of recipes) m.set(r.id, r);
+    return m;
+  }, [recipes]);
 
   const totals = useMemo(() => {
     const out = { calories: 0, protein_g: 0, fat_g: 0, carbs_g: 0 };
@@ -87,7 +99,10 @@ export default function NutritionPage() {
     return out;
   }, [entries]);
 
-  function handleLog(pantryItemID: string, quantity: number) {
+  function handleLog(
+    source: { kind: "pantry" | "recipe"; id: string },
+    quantity: number,
+  ) {
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -101,7 +116,9 @@ export default function NutritionPage() {
     const isToday = sameLocalDay(date, new Date());
     const consumedAt = isToday ? new Date() : new Date(date.getTime() + 12 * 60 * 60 * 1000);
     createNutritionLogEntry(token, {
-      pantry_item_id: pantryItemID,
+      ...(source.kind === "pantry"
+        ? { pantry_item_id: source.id }
+        : { recipe_id: source.id }),
       quantity,
       consumed_at: consumedAt.toISOString(),
     })
@@ -154,6 +171,7 @@ export default function NutritionPage() {
             <h2 className="text-sm font-semibold tracking-tight">Quick-add</h2>
             <QuickAdd
               pantry={pantry}
+              recipes={recipes}
               busy={logBusy}
               error={logError}
               onLog={handleLog}
@@ -174,20 +192,24 @@ export default function NutritionPage() {
             )}
             {entries && entries.length > 0 && (
               <ul className="flex flex-col gap-2">
-                {entries.map((e) => (
-                  <li key={e.id}>
-                    <LogEntryRow
-                      entry={e}
-                      itemName={
-                        e.pantry_item_id
-                          ? (pantryByID.get(e.pantry_item_id)?.name ?? "Unknown item")
-                          : "Recipe entry"
-                      }
-                      busy={rowBusyID === e.id}
-                      onDelete={() => handleDelete(e.id)}
-                    />
-                  </li>
-                ))}
+                {entries.map((e) => {
+                  const name = e.pantry_item_id
+                    ? (pantryByID.get(e.pantry_item_id)?.name ?? "Unknown item")
+                    : e.recipe_id
+                      ? (recipeByID.get(e.recipe_id)?.name ?? "Unknown recipe")
+                      : "Untitled entry";
+                  return (
+                    <li key={e.id}>
+                      <LogEntryRow
+                        entry={e}
+                        itemName={name}
+                        isRecipe={!!e.recipe_id}
+                        busy={rowBusyID === e.id}
+                        onDelete={() => handleDelete(e.id)}
+                      />
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -318,29 +340,39 @@ function MacroTile({
 
 function QuickAdd({
   pantry,
+  recipes,
   busy,
   error,
   onLog,
 }: {
   pantry: PantryItem[];
+  recipes: Recipe[];
   busy: boolean;
   error: string | null;
-  onLog: (pantryItemID: string, quantity: number) => void;
+  onLog: (
+    source: { kind: "pantry" | "recipe"; id: string },
+    quantity: number,
+  ) => void;
 }) {
-  const [itemID, setItemID] = useState<string>("");
+  // Picker value is a "kind:id" string so a single <select> can host
+  // both pantry items and recipes. Parsed back into the discriminated
+  // shape at log time.
+  const [selection, setSelection] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("1");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const q = Number(quantity);
-    if (!itemID || !Number.isFinite(q) || q <= 0) return;
-    onLog(itemID, q);
-    // Keep itemID so logging multiple of the same item is fast;
+    if (!selection || !Number.isFinite(q) || q <= 0) return;
+    const [kind, id] = selection.split(":", 2);
+    if ((kind !== "pantry" && kind !== "recipe") || !id) return;
+    onLog({ kind, id }, q);
+    // Keep selection so logging the same thing twice in a row is fast;
     // reset quantity to 1 as the friction-minimizing default.
     setQuantity("1");
   }
 
-  if (pantry.length === 0) {
+  if (pantry.length === 0 && recipes.length === 0) {
     return (
       <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
         Add a pantry item first.{" "}
@@ -358,21 +390,34 @@ function QuickAdd({
     >
       <label className="flex flex-1 flex-col gap-1 text-xs">
         <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Item
+          Item or recipe
         </span>
         <select
-          value={itemID}
-          onChange={(e) => setItemID(e.target.value)}
+          value={selection}
+          onChange={(e) => setSelection(e.target.value)}
           disabled={busy}
           className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
         >
-          <option value="">Pick an item…</option>
-          {pantry.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({formatNumber(p.calories)} cal/{formatNumber(p.serving_size)}{" "}
-              {p.serving_unit})
-            </option>
-          ))}
+          <option value="">Pick something…</option>
+          {recipes.length > 0 && (
+            <optgroup label="Recipes">
+              {recipes.map((r) => (
+                <option key={`recipe:${r.id}`} value={`recipe:${r.id}`}>
+                  {r.name} ({formatNumber(r.macros.calories)} cal / batch)
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {pantry.length > 0 && (
+            <optgroup label="Pantry items">
+              {pantry.map((p) => (
+                <option key={`pantry:${p.id}`} value={`pantry:${p.id}`}>
+                  {p.name} ({formatNumber(p.calories)} cal/
+                  {formatNumber(p.serving_size)} {p.serving_unit})
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
       </label>
       <label className="flex w-full flex-col gap-1 text-xs sm:w-32">
@@ -391,7 +436,7 @@ function QuickAdd({
       </label>
       <button
         type="submit"
-        disabled={busy || !itemID}
+        disabled={busy || !selection}
         className="rounded-md bg-[var(--accent)] px-4 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
       >
         {busy ? "Logging…" : "Log"}
@@ -406,11 +451,13 @@ function QuickAdd({
 function LogEntryRow({
   entry,
   itemName,
+  isRecipe,
   busy,
   onDelete,
 }: {
   entry: NutritionLogEntry;
   itemName: string;
+  isRecipe: boolean;
   busy: boolean;
   onDelete: () => void;
 }) {
@@ -421,6 +468,11 @@ function LogEntryRow({
           {itemName}{" "}
           <span className="text-xs text-[var(--muted)] tabular-nums">
             × {formatNumber(entry.quantity)}
+            {isRecipe && (
+              <span className="ml-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                recipe
+              </span>
+            )}
           </span>
         </p>
         <p className="text-xs text-[var(--muted)] tabular-nums">

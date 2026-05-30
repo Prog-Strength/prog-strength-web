@@ -500,9 +500,13 @@ export type NutritionLogEntry = {
   created_at: string;
 };
 
-/** Payload for creating a log entry. Phase 1 only sends pantry_item_id. */
+/**
+ * Payload for creating a log entry. Exactly one of `pantry_item_id`
+ * and `recipe_id` must be set — server returns 400 otherwise.
+ */
 export type CreateLogEntryPayload = {
-  pantry_item_id: string;
+  pantry_item_id?: string;
+  recipe_id?: string;
   quantity: number;
   consumed_at?: string; // RFC3339; server defaults to now
 };
@@ -705,6 +709,128 @@ export async function getDailyMacros(
     { headers: { Authorization: `Bearer ${token}` } },
   );
   return unwrap<DailyMacros[]>(resp, []);
+}
+
+// --- Recipes ------------------------------------------------------
+
+/**
+ * One pantry-item component inside a recipe. Quantity is the number
+ * of pantry-item servings in one batch of the recipe.
+ */
+export type RecipeComponent = {
+  id: string;
+  pantry_item_id: string;
+  quantity: number;
+  position: number;
+};
+
+/** Derived macros for one batch of a recipe. */
+export type RecipeMacros = {
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+};
+
+/**
+ * A user-saved recipe — a named bag of pantry-item components with
+ * derived macros for one batch. Recipe macros are NOT stored on the
+ * recipe row; the API computes them on every read by joining
+ * `recipe_items` to `pantry_items`. This means editing a component
+ * pantry item updates the recipe's apparent macros — but log entries
+ * already created against the recipe stay frozen at their original
+ * macros (denormalized at log time).
+ */
+export type Recipe = {
+  id: string;
+  name: string;
+  components: RecipeComponent[];
+  macros: RecipeMacros;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Payload for creating or updating a recipe. */
+export type RecipePayload = {
+  name: string;
+  components: { pantry_item_id: string; quantity: number }[];
+};
+
+export async function listRecipes(token: string): Promise<Recipe[]> {
+  const resp = await fetch(`${config.apiUrl}/recipes`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<Recipe[]>(resp, []);
+}
+
+export async function getRecipe(token: string, id: string): Promise<Recipe> {
+  const resp = await fetch(
+    `${config.apiUrl}/recipes/${encodeURIComponent(id)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const got = await unwrap<Recipe | null>(resp, null);
+  if (!got) throw new Error("recipe not found");
+  return got;
+}
+
+export async function createRecipe(
+  token: string,
+  payload: RecipePayload,
+): Promise<Recipe> {
+  const resp = await fetch(`${config.apiUrl}/recipes`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<Recipe | null>(resp, null);
+  if (!created) throw new Error("API did not return the created recipe");
+  return created;
+}
+
+export async function updateRecipe(
+  token: string,
+  id: string,
+  payload: RecipePayload,
+): Promise<Recipe> {
+  const resp = await fetch(
+    `${config.apiUrl}/recipes/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  const updated = await unwrap<Recipe | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated recipe");
+  return updated;
+}
+
+export async function deleteRecipe(
+  token: string,
+  id: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/recipes/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
 }
 
 /**
