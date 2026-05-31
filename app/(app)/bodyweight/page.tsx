@@ -21,20 +21,31 @@ import {
 } from "@/lib/api";
 
 /**
- * Bodyweight — multi-per-day-aware view with time-range tabs, summary
- * stat tiles, a daily-average trend chart, and a paginated entries
- * table. See prog-strength-docs/sows/bodyweight-multi-per-day.md.
+ * Bodyweight — chart-first layout with the daily-average trend line as
+ * the focal point. The log form lives behind a pencil-icon "Log"
+ * button next to the entries table, matching the nutrition page's
+ * "+ Quick Add" pattern so the page surface stays calm until the
+ * user explicitly opts into logging.
  *
- * Single GET /bodyweight on mount. Everything below — range
- * filtering, daily aggregation, stat computation, table pagination —
- * happens client-side off the one fetched list. A user weighing
- * twice a day for five years is ~3,650 rows / ~365 KB JSON, which
- * is genuinely cheaper than the engineering overhead of any
- * server-side filter or pagination.
+ * Page flow top → bottom:
+ *   - Time-range tabs (with the border-b doubling as the separator)
+ *   - Chart card: graph at the top, stat tiles tucked inside the
+ *     same box below the chart so the two are visually one unit
+ *   - Pencil-Log toolbar + separator line
+ *   - Paginated entries table
+ *
+ * See prog-strength-docs/sows/bodyweight-multi-per-day.md.
  */
 
 const UNIT_PREFERENCE_KEY = "ps_bodyweight_unit";
 const PAGE_SIZE = 20;
+
+// Recharts series colors. Picked for clear hue contrast so the
+// scatter (raw readings) doesn't blur into the line (daily-avg
+// trend). Blue stays the "primary signal" reading for the trend,
+// amber is the "secondary detail" reading for the raw scatter.
+const COLOR_AVG = "#3b82f6"; // blue-500 — trend line
+const COLOR_RAW = "#fcd34d"; // amber-300 — raw readings scatter
 
 type RangeKey = "30" | "60" | "90" | "all";
 const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
@@ -53,6 +64,7 @@ export default function BodyweightPage() {
   const [rowBusyID, setRowBusyID] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30");
   const [page, setPage] = useState(1);
+  const [showLog, setShowLog] = useState(false);
 
   const refetch = useCallback(() => {
     const token = getToken();
@@ -76,19 +88,11 @@ export default function BodyweightPage() {
     refetch();
   }, [refetch]);
 
-  // Display unit: most-recent entry's unit, fallback to "lb" when no
-  // readings exist. Stat tiles + chart convert other-unit rows to
-  // this for consistent display; the table preserves original units
-  // so users who occasionally log in the other unit can still see
-  // exactly what they logged.
   const displayUnit: "lb" | "kg" = useMemo(() => {
     if (!entries || entries.length === 0) return "lb";
     return entries[0].unit;
   }, [entries]);
 
-  // Filter by selected range, sorted desc by measured_at. The API
-  // already returns desc, but we re-sort defensively in case future
-  // API changes loosen that contract.
   const entriesInRange = useMemo(() => {
     if (!entries) return [];
     const sorted = [...entries].sort(
@@ -97,9 +101,6 @@ export default function BodyweightPage() {
     );
     const rangeDef = RANGES.find((r) => r.key === range);
     if (!rangeDef || rangeDef.days === null) return sorted;
-    // Cutoff = days back from NOW, not back from the most-recent
-    // measurement. Gaps in logging show as gaps in the chart rather
-    // than the window sliding earlier in time.
     const cutoffMs = Date.now() - rangeDef.days * 24 * 60 * 60 * 1000;
     return sorted.filter(
       (e) => new Date(e.measured_at).getTime() >= cutoffMs,
@@ -115,29 +116,32 @@ export default function BodyweightPage() {
     return entriesInRange.slice(start, start + PAGE_SIZE);
   }, [entriesInRange, page]);
 
-  // Reset to page 1 when the range changes — keeping the current
-  // page can land users on a now-empty page (e.g., switching from
-  // "All" with 200 entries on page 5 down to "30 days" with only
-  // 40 entries / 2 pages).
   useEffect(() => {
     setPage(1);
   }, [range]);
 
+  // Returns a Promise so the modal can await + close itself on
+  // success. Same pattern the nutrition page uses for QuickAddModal.
   function handleCreate(payload: {
     weight: number;
     unit: "lb" | "kg";
     measured_at?: string;
-  }) {
+  }): Promise<void> {
     const token = getToken();
     if (!token) {
       router.replace("/login");
-      return;
+      return Promise.reject(new Error("not signed in"));
     }
     setCreateBusy(true);
     setCreateError(null);
-    createBodyweightEntry(token, payload)
-      .then(() => refetch())
-      .catch((err: Error) => setCreateError(err.message))
+    return createBodyweightEntry(token, payload)
+      .then(() => {
+        refetch();
+      })
+      .catch((err: Error) => {
+        setCreateError(err.message);
+        throw err;
+      })
       .finally(() => setCreateBusy(false));
   }
 
@@ -178,33 +182,27 @@ export default function BodyweightPage() {
 
           <TimeRangeTabs value={range} onChange={setRange} />
 
-          <StatTiles
-            entries={entriesInRange}
-            displayUnit={displayUnit}
-          />
+          <ChartCard entries={entriesInRange} displayUnit={displayUnit} />
 
-          <Chart entries={entriesInRange} displayUnit={displayUnit} />
+          <section className="flex flex-col gap-3">
+            {/* Toolbar mirroring the nutrition page: ghost pencil-Log
+                button above a white separator line, sitting directly
+                above the entries table. */}
+            <div className="flex items-center gap-5 border-b border-[var(--border)] pb-3">
+              <ToolbarButton
+                onClick={() => setShowLog(true)}
+                icon={<PencilIcon />}
+                label="Log"
+              />
+            </div>
 
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold tracking-tight">
-              Log a reading
-            </h2>
-            <EntryForm
-              busy={createBusy}
-              error={createError}
-              onSubmit={handleCreate}
-            />
-          </section>
-
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold tracking-tight">Entries</h2>
             {entries === null && (
               <p className="text-sm text-[var(--muted)]">Loading…</p>
             )}
             {entries && entriesInRange.length === 0 && (
               <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
                 {entries.length === 0
-                  ? "No readings yet. Log your morning weight above and come back tomorrow."
+                  ? "No readings yet. Tap Log to add your first reading."
                   : "No readings in this range — try widening the time range above."}
               </p>
             )}
@@ -222,6 +220,16 @@ export default function BodyweightPage() {
           </section>
         </div>
       </div>
+
+      {showLog && (
+        <BodyweightLogModal
+          busy={createBusy}
+          error={createError}
+          initialUnit={displayUnit}
+          onSubmit={handleCreate}
+          onClose={() => setShowLog(false)}
+        />
+      )}
     </main>
   );
 }
@@ -235,11 +243,6 @@ function TimeRangeTabs({
   value: RangeKey;
   onChange: (v: RangeKey) => void;
 }) {
-  // Border-b on the parent doubles as the "white separator" the SOW
-  // describes — same pattern the nutrition page toolbar uses for the
-  // line between toolbar and the daily log. Active tab gets the
-  // pressed-button treatment (accent fill, inset shadow,
-  // translate-y-px) matching the date-tile-strip's selected state.
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
       {RANGES.map((r) => {
@@ -262,112 +265,21 @@ function TimeRangeTabs({
   );
 }
 
-// --- Stat tiles ---------------------------------------------------
+// --- Chart card ----------------------------------------------------
 
-function StatTiles({
+/**
+ * Single card holding the chart, its legend, and the stat tiles. The
+ * tiles sit inside the same `bg-[var(--surface)]` box so the visual
+ * hierarchy reads as "the chart and its summary numbers are one
+ * unit" rather than two adjacent rows.
+ */
+function ChartCard({
   entries,
   displayUnit,
 }: {
   entries: BodyweightEntry[];
   displayUnit: "lb" | "kg";
 }) {
-  const stats = useMemo(
-    () => computeStats(entries, displayUnit),
-    [entries, displayUnit],
-  );
-
-  return (
-    <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <StatTile
-        label="Average"
-        value={
-          stats.avg !== null
-            ? `${formatNumber(stats.avg)} ${displayUnit}`
-            : "—"
-        }
-        sublabel={
-          stats.count > 0
-            ? `${stats.count} reading${stats.count === 1 ? "" : "s"}`
-            : "No readings"
-        }
-      />
-      <StatTile
-        label="Min"
-        value={
-          stats.min !== null
-            ? `${formatNumber(stats.min.weight)} ${displayUnit}`
-            : "—"
-        }
-        sublabel={
-          stats.min !== null ? formatShortDate(stats.min.date) : "—"
-        }
-      />
-      <StatTile
-        label="Max"
-        value={
-          stats.max !== null
-            ? `${formatNumber(stats.max.weight)} ${displayUnit}`
-            : "—"
-        }
-        sublabel={
-          stats.max !== null ? formatShortDate(stats.max.date) : "—"
-        }
-      />
-      <StatTile
-        label="Delta"
-        value={
-          stats.delta !== null
-            ? `${stats.delta >= 0 ? "+" : ""}${formatNumber(stats.delta)} ${displayUnit}`
-            : "—"
-        }
-        sublabel={
-          stats.deltaPercent !== null
-            ? `${stats.deltaPercent >= 0 ? "+" : ""}${formatNumber(stats.deltaPercent)}%`
-            : "Need 2+ days"
-        }
-      />
-    </section>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  sublabel,
-}: {
-  label: string;
-  value: string;
-  sublabel: string;
-}) {
-  return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-      <p className="text-2xl font-semibold tracking-tight tabular-nums">
-        {value}
-      </p>
-      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-        {label}
-      </p>
-      <p className="mt-1 text-[10px] text-[var(--muted)]">{sublabel}</p>
-    </div>
-  );
-}
-
-// --- Chart --------------------------------------------------------
-
-function Chart({
-  entries,
-  displayUnit,
-}: {
-  entries: BodyweightEntry[];
-  displayUnit: "lb" | "kg";
-}) {
-  // Two series share the X axis ("t" = ms-since-epoch):
-  //   - Scatter: every raw measurement at its actual measured_at
-  //     time. Lighter opacity so same-day spread reads as context
-  //     for the trend, not as noise competing with it.
-  //   - Line: daily averages. Group by local-day, take the mean,
-  //     plot at noon of that day so the line sits visually centered
-  //     through the morning + evening scatter points around it.
   const { rawPoints, avgPoints } = useMemo(() => {
     const raw = entries.map((e) => ({
       t: new Date(e.measured_at).getTime(),
@@ -395,6 +307,11 @@ function Chart({
     return { rawPoints: raw, avgPoints: avg };
   }, [entries, displayUnit]);
 
+  const stats = useMemo(
+    () => computeStats(entries, displayUnit),
+    [entries, displayUnit],
+  );
+
   if (entries.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">
@@ -404,7 +321,7 @@ function Chart({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="h-[320px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart margin={{ top: 12, right: 16, bottom: 8, left: 0 }}>
@@ -465,8 +382,7 @@ function Chart({
               name="weight"
               data={rawPoints}
               dataKey="weight"
-              fill="#3b82f6"
-              fillOpacity={0.4}
+              fill={COLOR_RAW}
               isAnimationActive={false}
             />
             <Line
@@ -474,18 +390,98 @@ function Chart({
               data={avgPoints}
               type="monotone"
               dataKey="avg"
-              stroke="#3b82f6"
+              stroke={COLOR_AVG}
               strokeWidth={2}
-              dot={{ fill: "#3b82f6", r: 3 }}
+              dot={{ fill: COLOR_AVG, r: 3 }}
               isAnimationActive={false}
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[var(--muted)]">
-        <Legend color="#3b82f6" label={`Daily avg (${displayUnit})`} />
-        <Legend color="#3b82f6" label="Reading" scatter />
+      <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--muted)]">
+        <Legend color={COLOR_AVG} label={`Daily avg (${displayUnit})`} />
+        <Legend color={COLOR_RAW} label="Reading" scatter />
       </div>
+
+      {/* Stat tiles wrapped inside the same card. Sits directly under
+          the chart + legend so the four numbers read as a summary of
+          the visualization above. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile
+          label="Average"
+          value={
+            stats.avg !== null
+              ? `${formatNumber(stats.avg)} ${displayUnit}`
+              : "—"
+          }
+          sublabel={
+            stats.count > 0
+              ? `${stats.count} reading${stats.count === 1 ? "" : "s"}`
+              : "No readings"
+          }
+        />
+        <StatTile
+          label="Min"
+          value={
+            stats.min !== null
+              ? `${formatNumber(stats.min.weight)} ${displayUnit}`
+              : "—"
+          }
+          sublabel={
+            stats.min !== null ? formatShortDate(stats.min.date) : "—"
+          }
+        />
+        <StatTile
+          label="Max"
+          value={
+            stats.max !== null
+              ? `${formatNumber(stats.max.weight)} ${displayUnit}`
+              : "—"
+          }
+          sublabel={
+            stats.max !== null ? formatShortDate(stats.max.date) : "—"
+          }
+        />
+        <StatTile
+          label="Delta"
+          value={
+            stats.delta !== null
+              ? `${stats.delta >= 0 ? "+" : ""}${formatNumber(stats.delta)} ${displayUnit}`
+              : "—"
+          }
+          sublabel={
+            stats.deltaPercent !== null
+              ? `${stats.deltaPercent >= 0 ? "+" : ""}${formatNumber(stats.deltaPercent)}%`
+              : "Need 2+ days"
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  sublabel,
+}: {
+  label: string;
+  value: string;
+  sublabel: string;
+}) {
+  // Tiles inside the chart card use a slightly different background
+  // (page background vs surface) to inset them visually against the
+  // chart's surface background — same depth-by-contrast trick the
+  // nutrition meal sections use for entry rows.
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2">
+      <p className="text-xl font-semibold tracking-tight tabular-nums">
+        {value}
+      </p>
+      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+        {label}
+      </p>
+      <p className="mt-0.5 text-[10px] text-[var(--muted)]">{sublabel}</p>
     </div>
   );
 }
@@ -505,7 +501,7 @@ function Legend({
         <span
           aria-hidden
           className="inline-block h-2 w-2 rounded-full"
-          style={{ backgroundColor: color, opacity: 0.4 }}
+          style={{ backgroundColor: color }}
         />
       ) : (
         <span
@@ -516,6 +512,51 @@ function Legend({
       )}
       {label}
     </span>
+  );
+}
+
+// --- Toolbar bits --------------------------------------------------
+
+// Ghost button, white-on-dark, matches the nutrition page's
+// ToolbarButton verbatim. Duplicated here rather than extracted to a
+// shared module so each page's local toolbar bits stay self-contained
+// — extract when there's a third consumer.
+function ToolbarButton({
+  onClick,
+  icon,
+  label,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
   );
 }
 
@@ -654,32 +695,40 @@ function PaginationBtn({
   );
 }
 
-// --- Entry form (unchanged from prior shape) ----------------------
+// --- Log modal ----------------------------------------------------
 
-function EntryForm({
+/**
+ * Modal wrapper around the bodyweight log form. Same modal shell the
+ * nutrition QuickAddModal and macro-goals-modal use (centered card,
+ * backdrop, escape-to-close, body scroll lock). Returns Promise from
+ * `onSubmit` so the modal can dismiss itself on success.
+ */
+function BodyweightLogModal({
   busy,
   error,
+  initialUnit,
   onSubmit,
+  onClose,
 }: {
   busy: boolean;
   error: string | null;
+  initialUnit: "lb" | "kg";
   onSubmit: (payload: {
     weight: number;
     unit: "lb" | "kg";
     measured_at?: string;
-  }) => void;
+  }) => Promise<void>;
+  onClose: () => void;
 }) {
   const [weight, setWeight] = useState("");
   // Persist the unit choice across visits so users who measure in kg
-  // don't have to flip the toggle every morning. localStorage-only;
-  // not auth-sensitive enough to deserve a server round trip. Read
-  // via the lazy useState initializer so the value is in place on
-  // first render and React 19's "no sync setState in effect" rule
-  // doesn't trip.
+  // don't have to flip the toggle every morning. Seed from
+  // initialUnit (most-recent reading's unit from the page) when the
+  // localStorage value isn't set yet.
   const [unit, setUnit] = useState<"lb" | "kg">(() => {
-    if (typeof window === "undefined") return "lb";
+    if (typeof window === "undefined") return initialUnit;
     const stored = window.localStorage.getItem(UNIT_PREFERENCE_KEY);
-    return stored === "kg" || stored === "lb" ? stored : "lb";
+    return stored === "kg" || stored === "lb" ? stored : initialUnit;
   });
   const [measuredAtLocal, setMeasuredAtLocal] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -690,7 +739,23 @@ function EntryForm({
     }
   }, [unit]);
 
-  function submit(e: React.FormEvent) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose, busy]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLocalError(null);
     const w = Number(weight);
@@ -707,72 +772,129 @@ function EntryForm({
       }
       measured_at = d.toISOString();
     }
-    onSubmit({ weight: w, unit, measured_at });
-    setWeight("");
-    setMeasuredAtLocal("");
+    try {
+      await onSubmit({ weight: w, unit, measured_at });
+      onClose();
+    } catch {
+      // Error surfaces via the `error` prop; modal stays open so the
+      // user can correct + retry without losing their input.
+    }
   }
 
   const shownError = error ?? localError;
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-end"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bodyweight-log-modal-title"
     >
-      <label className="flex flex-1 flex-col gap-1 text-xs">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Weight
-        </span>
-        <input
-          type="number"
-          min={0}
-          step="any"
-          value={weight}
-          onChange={(e) => setWeight(e.target.value)}
-          placeholder="185"
-          disabled={busy}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm tabular-nums"
-        />
-      </label>
-      <label className="flex w-full flex-col gap-1 text-xs sm:w-24">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Unit
-        </span>
-        <select
-          value={unit}
-          onChange={(e) => setUnit(e.target.value as "lb" | "kg")}
-          disabled={busy}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
-        >
-          <option value="lb">lb</option>
-          <option value="kg">kg</option>
-        </select>
-      </label>
-      <label className="flex flex-1 flex-col gap-1 text-xs">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          When
-        </span>
-        <input
-          type="datetime-local"
-          value={measuredAtLocal}
-          onChange={(e) => setMeasuredAtLocal(e.target.value)}
-          disabled={busy}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm tabular-nums"
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={busy}
-        className="rounded-md bg-[var(--accent)] px-4 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
-      >
-        {busy ? "Logging…" : "Log"}
-      </button>
-      {shownError && (
-        <p className="w-full text-xs text-[var(--danger)] sm:ml-3">
-          {shownError}
-        </p>
-      )}
-    </form>
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={() => !busy && onClose()}
+        aria-hidden="true"
+      />
+      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
+        <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
+          <div className="flex flex-col gap-0.5">
+            <h2
+              id="bodyweight-log-modal-title"
+              className="text-base font-semibold"
+            >
+              Log a reading
+            </h2>
+            <p className="text-xs text-[var(--muted)]">
+              Multi-per-day is fine — log morning and evening separately.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+            className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:opacity-50"
+          >
+            ✕
+          </button>
+        </header>
+
+        <form onSubmit={submit} className="flex flex-col gap-4 px-5 py-4">
+          <div className="flex gap-3">
+            <label className="flex flex-1 flex-col gap-1 text-xs">
+              <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Weight
+              </span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder="185"
+                disabled={busy}
+                autoFocus
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums"
+              />
+            </label>
+            <label className="flex w-24 flex-col gap-1 text-xs">
+              <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Unit
+              </span>
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as "lb" | "kg")}
+                disabled={busy}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+              >
+                <option value="lb">lb</option>
+                <option value="kg">kg</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+              When
+            </span>
+            <input
+              type="datetime-local"
+              value={measuredAtLocal}
+              onChange={(e) => setMeasuredAtLocal(e.target.value)}
+              disabled={busy}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums"
+            />
+            <span className="text-[10px] text-[var(--muted)]">
+              Leave blank to log right now.
+            </span>
+          </label>
+
+          {shownError && (
+            <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
+              {shownError}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] pt-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:opacity-80 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] hover:opacity-80 disabled:opacity-50"
+            >
+              {busy ? "Logging…" : "Log"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -780,12 +902,6 @@ function EntryForm({
 
 const LB_PER_KG = 2.20462;
 
-/**
- * Convert a weight value between lb and kg. No-op when the source +
- * target units match. Used to normalize mixed-unit entries to the
- * display unit for stat tiles + chart math; the table preserves
- * each entry's original unit.
- */
 function convertWeight(
   weight: number,
   from: "lb" | "kg",
@@ -804,15 +920,6 @@ type Stats = {
   deltaPercent: number | null;
 };
 
-/**
- * Compute the four stat-tile values over a window of entries.
- *
- * Delta uses first-day-average vs last-day-average rather than
- * first-vs-last raw reading — matches the chart's trend line and
- * isn't pulled around by a single bad scale read at either endpoint.
- * Requires at least two distinct local days in the window; below
- * that delta and deltaPercent both return null.
- */
 function computeStats(
   entries: BodyweightEntry[],
   displayUnit: "lb" | "kg",
@@ -842,7 +949,6 @@ function computeStats(
     normalized[0],
   );
 
-  // Group by local-day, mean within day, compare first vs last day's mean.
   const byDay = new Map<number, number[]>();
   for (const w of normalized) {
     const d = new Date(w.measured_at);
