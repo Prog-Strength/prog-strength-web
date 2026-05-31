@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import type {
-  Exercise,
-  Workout,
-  WorkoutExercise,
-  WorkoutSet,
-} from "@/lib/api";
+import type { Exercise, Workout, WorkoutExercise, WorkoutSet } from "@/lib/api";
 import { MuscleGroupPill } from "@/components/muscle-group-pill";
 
 /**
@@ -31,9 +26,7 @@ export function WorkoutDetails({
 }) {
   return (
     <div>
-      {workout.notes && (
-        <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
-      )}
+      {workout.notes && <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>}
       <ul className="flex flex-col gap-3">
         {/* A superset is conceptually a single "block" in the
             workout — performed alternating-set style as one unit.
@@ -55,20 +48,13 @@ export function WorkoutDetails({
                   <ul className="flex flex-col gap-2">
                     {group.map((we, i) => (
                       <li key={i}>
-                        <ExerciseDetails
-                          exercise={we}
-                          exerciseMap={exerciseMap}
-                        />
+                        <ExerciseDetails exercise={we} exerciseMap={exerciseMap} />
                       </li>
                     ))}
                   </ul>
                 </div>
               ) : (
-                <ExerciseDetails
-                  exercise={group[0]}
-                  exerciseMap={exerciseMap}
-                  index={groupNum}
-                />
+                <ExerciseDetails exercise={group[0]} exerciseMap={exerciseMap} index={groupNum} />
               )}
             </li>
           );
@@ -130,17 +116,10 @@ export function WorkoutDetailsModal({
       aria-modal="true"
       aria-labelledby="workout-details-title"
     >
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
       <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
         <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
-          <h2
-            id="workout-details-title"
-            className="truncate text-base font-semibold"
-          >
+          <h2 id="workout-details-title" className="truncate text-base font-semibold">
             {title}
           </h2>
           <button
@@ -171,9 +150,7 @@ export function WorkoutDetailsModal({
  * means tweaks (e.g. catching a new auto-generated prefix) only
  * happen in one place.
  */
-export function hasMeaningfulName(
-  name: string | undefined,
-): name is string {
+export function hasMeaningfulName(name: string | undefined): name is string {
   return !!name && !name.startsWith("Workout - ");
 }
 
@@ -213,9 +190,7 @@ function ExerciseDetails({
         </ul>
       )}
       {exercise.notes && (
-        <p className="mt-1 text-xs italic text-[var(--muted)]">
-          {exercise.notes}
-        </p>
+        <p className="mt-1 text-xs italic text-[var(--muted)]">{exercise.notes}</p>
       )}
     </div>
   );
@@ -237,11 +212,7 @@ function groupExercises(exercises: WorkoutExercise[]): WorkoutExercise[][] {
   for (const ex of sorted) {
     const lastGroup = groups[groups.length - 1];
     const lastEx = lastGroup?.[lastGroup.length - 1];
-    if (
-      lastEx &&
-      ex.superset_group != null &&
-      lastEx.superset_group === ex.superset_group
-    ) {
+    if (lastEx && ex.superset_group != null && lastEx.superset_group === ex.superset_group) {
       lastGroup.push(ex);
     } else {
       groups.push([ex]);

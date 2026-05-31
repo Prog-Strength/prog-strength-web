@@ -93,8 +93,7 @@ export default function ProgressPage() {
   const router = useRouter();
   const [muscleGroup, setMuscleGroup] = useState<string>("chest");
   const [timeframe, setTimeframe] = useState<Timeframe>("90d");
-  const [progression, setProgression] =
-    useState<MuscleGroupProgression | null>(null);
+  const [progression, setProgression] = useState<MuscleGroupProgression | null>(null);
   // Raw workouts in the timeframe — feeds the Sets × Reps × Weight table
   // view alongside the chart. Fetched in parallel with progression so
   // both views are ready by the time the user toggles between them.
@@ -299,15 +298,12 @@ function ProgressionView({
   // exercises that contributed at least one point in this window.
   const trendPct =
     trendline && trendline.start_value > 0
-      ? ((trendline.end_value - trendline.start_value) /
-          trendline.start_value) *
-        100
+      ? ((trendline.end_value - trendline.start_value) / trendline.start_value) * 100
       : null;
   const bestPoint = useMemo(
     () =>
       points.reduce<MuscleGroupProgressionPoint | null>(
-        (acc, p) =>
-          acc === null || p.normalized_max > acc.normalized_max ? p : acc,
+        (acc, p) => (acc === null || p.normalized_max > acc.normalized_max ? p : acc),
         null,
       ),
     [points],
@@ -331,15 +327,9 @@ function ProgressionView({
           }
         />
         <StatTile
-          value={
-            bestPoint
-              ? `${formatPercent(bestPoint.normalized_max)} of baseline`
-              : "—"
-          }
+          value={bestPoint ? `${formatPercent(bestPoint.normalized_max)} of baseline` : "—"}
           label={
-            bestPoint
-              ? `Best session • ${formatDate(bestPoint.performed_at)}`
-              : "Best session"
+            bestPoint ? `Best session • ${formatDate(bestPoint.performed_at)}` : "Best session"
           }
         />
         <StatTile
@@ -351,9 +341,7 @@ function ProgressionView({
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="h-[380px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              margin={{ top: 12, right: 16, bottom: 8, left: 0 }}
-            >
+            <ComposedChart margin={{ top: 12, right: 16, bottom: 8, left: 0 }}>
               <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
               <XAxis
                 dataKey="t"
@@ -386,9 +374,7 @@ function ProgressionView({
                   fontSize: "12px",
                 }}
                 wrapperStyle={{ outline: "none" }}
-                content={
-                  <CustomTooltip exerciseColors={exerciseColors} />
-                }
+                content={<CustomTooltip exerciseColors={exerciseColors} />}
               />
 
               {/* Reference line at 1.0 = "your current baseline".
@@ -424,25 +410,23 @@ function ProgressionView({
 
               {/* One Scatter per exercise so each gets its own color
                   and its own tooltip identity. */}
-              {Array.from(seriesByExercise.entries()).map(
-                ([exerciseID, exercisePoints]) => {
-                  const data = exercisePoints.map((p) => ({
-                    t: new Date(p.performed_at).getTime(),
-                    normalized_max: p.normalized_max,
-                    point: p,
-                  }));
-                  return (
-                    <Scatter
-                      key={exerciseID}
-                      data={data}
-                      dataKey="normalized_max"
-                      fill={exerciseColors.get(exerciseID) ?? COLOR_TREND}
-                      stroke={exerciseColors.get(exerciseID) ?? COLOR_TREND}
-                      isAnimationActive={false}
-                    />
-                  );
-                },
-              )}
+              {Array.from(seriesByExercise.entries()).map(([exerciseID, exercisePoints]) => {
+                const data = exercisePoints.map((p) => ({
+                  t: new Date(p.performed_at).getTime(),
+                  normalized_max: p.normalized_max,
+                  point: p,
+                }));
+                return (
+                  <Scatter
+                    key={exerciseID}
+                    data={data}
+                    dataKey="normalized_max"
+                    fill={exerciseColors.get(exerciseID) ?? COLOR_TREND}
+                    stroke={exerciseColors.get(exerciseID) ?? COLOR_TREND}
+                    isAnimationActive={false}
+                  />
+                );
+              })}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -453,15 +437,11 @@ function ProgressionView({
               key={b.exercise_id}
               color={exerciseColors.get(b.exercise_id) ?? COLOR_TREND}
               label={`${b.exercise_name}${
-                b.baseline > 0
-                  ? ` · baseline ${formatNumber(b.baseline)} ${b.unit}`
-                  : ""
+                b.baseline > 0 ? ` · baseline ${formatNumber(b.baseline)} ${b.unit}` : ""
               }`}
             />
           ))}
-          <span className="text-[10px] uppercase tracking-wider">
-            Dashed line = trend
-          </span>
+          <span className="text-[10px] uppercase tracking-wider">Dashed line = trend</span>
         </div>
       </div>
 
@@ -502,9 +482,7 @@ function TablesSection({
   const [view, setView] = useState<TableView>("estimates");
   // `null` = no filter, show every exercise. Shared across views so
   // toggling preserves what the lifter is looking at.
-  const [filterExerciseID, setFilterExerciseID] = useState<string | null>(
-    null,
-  );
+  const [filterExerciseID, setFilterExerciseID] = useState<string | null>(null);
 
   // Lookup of exercise_id → baseline metadata. exercise_baselines lists
   // every exercise that contributed to the chart's muscle-group filter,
@@ -525,24 +503,17 @@ function TablesSection({
       : points;
     // Most recent first — that's how lifters naturally read a log.
     return [...filtered].sort(
-      (a, b) =>
-        new Date(b.performed_at).getTime() -
-        new Date(a.performed_at).getTime(),
+      (a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime(),
     );
   }, [points, filterExerciseID]);
 
   // Sets rows — built from raw workouts, scoped to this muscle group
   // via baselineByID, and coalesced by (reps, weight, unit) within each
   // workout-exercise.
-  const setsRows = useMemo(
-    () => buildSetsRows(workouts, baselineByID),
-    [workouts, baselineByID],
-  );
+  const setsRows = useMemo(() => buildSetsRows(workouts, baselineByID), [workouts, baselineByID]);
   const filteredSetsRows = useMemo(
     () =>
-      filterExerciseID
-        ? setsRows.filter((r) => r.exercise_id === filterExerciseID)
-        : setsRows,
+      filterExerciseID ? setsRows.filter((r) => r.exercise_id === filterExerciseID) : setsRows,
     [setsRows, filterExerciseID],
   );
 
@@ -586,19 +557,14 @@ function TablesSection({
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1">
-          <h2 className="text-sm font-semibold tracking-tight">
-            {meta.title}
-          </h2>
+          <h2 className="text-sm font-semibold tracking-tight">{meta.title}</h2>
           <p className="text-xs text-[var(--muted)]">{meta.description}</p>
         </div>
         <ViewToggle value={view} onChange={setView} />
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1.5">
-        <FilterPill
-          active={filterExerciseID === null}
-          onClick={() => setFilterExerciseID(null)}
-        >
+        <FilterPill active={filterExerciseID === null} onClick={() => setFilterExerciseID(null)}>
           All ({activeTotal})
         </FilterPill>
         {exerciseBaselines.map((b) => {
@@ -617,10 +583,7 @@ function TablesSection({
       </div>
 
       {view === "estimates" ? (
-        <EstimatesTableBody
-          rows={estimateRows}
-          exerciseColors={exerciseColors}
-        />
+        <EstimatesTableBody rows={estimateRows} exerciseColors={exerciseColors} />
       ) : (
         <SetsTableBody rows={filteredSetsRows} exerciseColors={exerciseColors} />
       )}
@@ -775,8 +738,7 @@ function buildSetsRows(
   // the same day group together, then by weight descending so the
   // heaviest sets land at the top of each (workout, exercise) cluster.
   rows.sort((a, b) => {
-    const t =
-      new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime();
+    const t = new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime();
     if (t !== 0) return t;
     if (a.exercise_id !== b.exercise_id) {
       return a.exercise_name.localeCompare(b.exercise_name);
@@ -839,9 +801,7 @@ function SetsTableBody({
                     <span className="truncate">{r.exercise_name}</span>
                   </span>
                 </td>
-                <td className="py-2 pr-3 text-right tabular-nums">
-                  {r.set_count}
-                </td>
+                <td className="py-2 pr-3 text-right tabular-nums">{r.set_count}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{r.reps}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">
                   {formatNumber(r.weight)} {r.unit}
@@ -858,29 +818,17 @@ function SetsTableBody({
   );
 }
 
-function ViewToggle({
-  value,
-  onChange,
-}: {
-  value: TableView;
-  onChange: (v: TableView) => void;
-}) {
+function ViewToggle({ value, onChange }: { value: TableView; onChange: (v: TableView) => void }) {
   return (
     <div
       role="tablist"
       aria-label="Table view"
       className="inline-flex shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs"
     >
-      <ViewToggleButton
-        active={value === "estimates"}
-        onClick={() => onChange("estimates")}
-      >
+      <ViewToggleButton active={value === "estimates"} onClick={() => onChange("estimates")}>
         1RM estimates
       </ViewToggleButton>
-      <ViewToggleButton
-        active={value === "sets"}
-        onClick={() => onChange("sets")}
-      >
+      <ViewToggleButton active={value === "sets"} onClick={() => onChange("sets")}>
         Sets × Reps × Weight
       </ViewToggleButton>
     </div>
@@ -1026,9 +974,7 @@ function StatTile({
         : "text-[var(--foreground)]";
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-      <p className={`text-2xl font-semibold tracking-tight ${toneColor}`}>
-        {value}
-      </p>
+      <p className={`text-2xl font-semibold tracking-tight ${toneColor}`}>{value}</p>
       <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
         {label}
       </p>
@@ -1111,4 +1057,3 @@ function formatDate(iso: string): string {
     year: "numeric",
   });
 }
-

@@ -91,11 +91,7 @@ export function WorkoutModal({
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateWorkout(
-        token,
-        workout.id,
-        draftToPayload(draft),
-      );
+      const updated = await updateWorkout(token, workout.id, draftToPayload(draft));
       onSaved(updated);
       onClose();
     } catch (e) {
@@ -107,10 +103,8 @@ export function WorkoutModal({
 
   // Helpers that re-build the draft immutably. Defined inline so the
   // closures capture `setDraft` without prop-drilling.
-  const updateField = <K extends keyof WorkoutDraft>(
-    key: K,
-    value: WorkoutDraft[K],
-  ) => setDraft((d) => ({ ...d, [key]: value }));
+  const updateField = <K extends keyof WorkoutDraft>(key: K, value: WorkoutDraft[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }));
 
   const updateExercise = (i: number, fn: (ex: ExerciseDraft) => ExerciseDraft) =>
     setDraft((d) => ({
@@ -118,11 +112,7 @@ export function WorkoutModal({
       exercises: d.exercises.map((ex, idx) => (idx === i ? fn(ex) : ex)),
     }));
 
-  const updateSet = (
-    exIdx: number,
-    setIdx: number,
-    fn: (s: SetDraft) => SetDraft,
-  ) =>
+  const updateSet = (exIdx: number, setIdx: number, fn: (s: SetDraft) => SetDraft) =>
     updateExercise(exIdx, (ex) => ({
       ...ex,
       sets: ex.sets.map((s, j) => (j === setIdx ? fn(s) : s)),
@@ -172,11 +162,7 @@ export function WorkoutModal({
     >
       {/* Backdrop: separate element so clicking it dismisses the modal
           without also catching clicks on the panel. */}
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
       <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
         <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
           <h2 id="workout-modal-title" className="text-base font-semibold">
@@ -320,18 +306,14 @@ function ExerciseCard({
       <div className="flex items-start gap-2">
         <select
           value={exercise.exercise_id}
-          onChange={(e) =>
-            onChange((ex) => ({ ...ex, exercise_id: e.target.value }))
-          }
+          onChange={(e) => onChange((ex) => ({ ...ex, exercise_id: e.target.value }))}
           className={`${inputClasses} flex-1`}
         >
           {!catalog.some((c) => c.id === exercise.exercise_id) && (
             // Surface unknown slugs so the user notices a soft-deleted
             // or catalog-renamed exercise rather than silently picking
             // the first option.
-            <option value={exercise.exercise_id}>
-              {exercise.exercise_id} (unknown)
-            </option>
+            <option value={exercise.exercise_id}>{exercise.exercise_id} (unknown)</option>
           )}
           {catalog.map((c) => (
             <option key={c.id} value={c.id}>
@@ -365,10 +347,7 @@ function ExerciseCard({
           <span />
         </div>
         {exercise.sets.map((s, setIdx) => (
-          <div
-            key={setIdx}
-            className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2"
-          >
+          <div key={setIdx} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
             <input
               type="number"
               min={1}

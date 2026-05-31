@@ -19,6 +19,5 @@ export const config = {
   // request access. The default is the project owner's personal
   // address — override via the env var if you set up a dedicated
   // alias later.
-  betaContactEmail:
-    process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
+  betaContactEmail: process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
 };

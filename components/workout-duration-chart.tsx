@@ -42,10 +42,7 @@ export function WorkoutDurationChart({
   truncated: boolean;
   fetchLimit: number;
 }) {
-  const summary = useMemo(
-    () => summarize(workouts ?? [], days),
-    [workouts, days],
-  );
+  const summary = useMemo(() => summarize(workouts ?? [], days), [workouts, days]);
 
   return (
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -67,9 +64,7 @@ export function WorkoutDurationChart({
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
             Sessions
           </p>
-          <p className="mt-0.5 text-2xl font-semibold tabular-nums">
-            {summary.sessionCount}
-          </p>
+          <p className="mt-0.5 text-2xl font-semibold tabular-nums">{summary.sessionCount}</p>
         </div>
       </header>
 
@@ -84,10 +79,7 @@ export function WorkoutDurationChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={summary.weeks}
-              margin={{ top: 8, right: 12, bottom: 8, left: 0 }}
-            >
+            <AreaChart data={summary.weeks} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
               <defs>
                 <linearGradient id="duration-fill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.32} />
@@ -125,14 +117,10 @@ export function WorkoutDurationChart({
                 }}
                 wrapperStyle={{ outline: "none" }}
                 labelFormatter={(v) =>
-                  typeof v === "number"
-                    ? formatWeekRangeFromMonday(new Date(v))
-                    : ""
+                  typeof v === "number" ? formatWeekRangeFromMonday(new Date(v)) : ""
                 }
                 formatter={(v) =>
-                  typeof v === "number"
-                    ? [formatHours(v), "Total"]
-                    : ["—", "Total"]
+                  typeof v === "number" ? [formatHours(v), "Total"] : ["—", "Total"]
                 }
               />
               <Area
@@ -152,8 +140,8 @@ export function WorkoutDurationChart({
 
       {truncated && (
         <p className="mt-2 text-[11px] text-[var(--muted)]">
-          Showing the most recent {fetchLimit} sessions. Older data
-          isn&apos;t included in this chart yet.
+          Showing the most recent {fetchLimit} sessions. Older data isn&apos;t included in this
+          chart yet.
         </p>
       )}
     </section>
@@ -196,11 +184,7 @@ function summarize(workouts: Workout[], days: number | null): Summary {
     days !== null
       ? new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
       : workouts.length > 0
-        ? new Date(
-            Math.min(
-              ...workouts.map((w) => new Date(w.performed_at).getTime()),
-            ),
-          )
+        ? new Date(Math.min(...workouts.map((w) => new Date(w.performed_at).getTime())))
         : now;
 
   const weeksByKey = new Map<string, WeekPoint>();
@@ -230,8 +214,7 @@ function summarize(workouts: Workout[], days: number | null): Summary {
       openWorkouts++;
       continue;
     }
-    const durationMs =
-      new Date(w.ended_at).getTime() - performedAt.getTime();
+    const durationMs = new Date(w.ended_at).getTime() - performedAt.getTime();
     if (!Number.isFinite(durationMs) || durationMs <= 0) continue;
     const minutes = durationMs / 60_000;
     totalMinutes += minutes;

@@ -50,9 +50,7 @@ export default function ExercisesPage() {
   // overall A→Z order.
   const grouped = useMemo(() => {
     if (!filtered) return null;
-    const sorted = [...filtered].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+    const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
     const map = new Map<string, Exercise[]>();
     for (const ex of sorted) {
       const letter = (ex.name[0] ?? "#").toUpperCase();
@@ -116,10 +114,7 @@ export default function ExercisesPage() {
 
           {grouped && grouped.length === 0 && (
             <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 text-center text-sm text-[var(--muted)]">
-              No exercises match{" "}
-              <span className="font-mono text-[var(--foreground)]">
-                {query}
-              </span>
+              No exercises match <span className="font-mono text-[var(--foreground)]">{query}</span>
               .
             </p>
           )}
@@ -174,31 +169,23 @@ function ExerciseRow({
         className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
       >
         <ChevronIcon expanded={expanded} />
-        <span className="flex-1 truncate text-sm font-medium">
-          {exercise.name}
-        </span>
+        <span className="flex-1 truncate text-sm font-medium">{exercise.name}</span>
       </button>
 
       {expanded && (
         <div className="flex flex-col gap-3 border-t border-[var(--border)] px-4 py-3">
-          {exercise.description && (
-            <p className="text-sm">{exercise.description}</p>
-          )}
+          {exercise.description && <p className="text-sm">{exercise.description}</p>}
 
           {exercise.muscle_groups.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-[var(--muted)]">
-                Targets
-              </span>
+              <span className="text-xs uppercase tracking-wide text-[var(--muted)]">Targets</span>
               {exercise.muscle_groups.map((mg) => (
                 <MuscleGroupPill key={mg} muscleGroup={mg} />
               ))}
             </div>
           )}
 
-          {exercise.equipment.length > 0 && (
-            <EquipmentRow tags={exercise.equipment} />
-          )}
+          {exercise.equipment.length > 0 && <EquipmentRow tags={exercise.equipment} />}
         </div>
       )}
     </li>
@@ -214,9 +201,7 @@ function ExerciseRow({
 function EquipmentRow({ tags }: { tags: string[] }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs uppercase tracking-wide text-[var(--muted)]">
-        Equipment
-      </span>
+      <span className="text-xs uppercase tracking-wide text-[var(--muted)]">Equipment</span>
       {tags.map((t) => (
         <EquipmentPill key={t} equipment={t} />
       ))}
@@ -235,9 +220,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`shrink-0 text-[var(--muted)] transition-transform ${
-        expanded ? "rotate-90" : ""
-      }`}
+      className={`shrink-0 text-[var(--muted)] transition-transform ${expanded ? "rotate-90" : ""}`}
       aria-hidden="true"
     >
       <path d="M9 18l6-6-6-6" />
@@ -265,4 +248,3 @@ function InfoIcon() {
     </svg>
   );
 }
-

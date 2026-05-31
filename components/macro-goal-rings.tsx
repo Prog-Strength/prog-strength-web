@@ -77,8 +77,8 @@ export function MacroGoalRings({
 
       {!goalsAreSet && (
         <p className="mb-3 text-xs text-[var(--muted)]">
-          Set targets for protein, carbs, fat, and calories to see how
-          close {headerLabel.toLowerCase()} {emptyCopyTense}.
+          Set targets for protein, carbs, fat, and calories to see how close{" "}
+          {headerLabel.toLowerCase()} {emptyCopyTense}.
         </p>
       )}
 
@@ -104,13 +104,7 @@ export function MacroGoalRings({
           goal={goals.carbs_g}
           color={COLORS.carbs}
         />
-        <Ring
-          label="Fat"
-          unit="g"
-          intake={totals.fat_g}
-          goal={goals.fat_g}
-          color={COLORS.fat}
-        />
+        <Ring label="Fat" unit="g" intake={totals.fat_g} goal={goals.fat_g} color={COLORS.fat} />
       </div>
     </section>
   );
@@ -143,18 +137,11 @@ function Ring({
   const ratio = goal > 0 ? intake / goal : 0;
   const filled = Math.min(ratio, 1);
   const over = ratio > 1;
-  const pctText =
-    goal > 0 ? `${Math.round(ratio * 100)}%` : "—";
+  const pctText = goal > 0 ? `${Math.round(ratio * 100)}%` : "—";
 
   // Round to one decimal for grams; calories are integer-shaped.
-  const intakeText = unit === "g"
-    ? `${formatGrams(intake)} g`
-    : `${Math.round(intake)} kcal`;
-  const goalText = goal > 0
-    ? unit === "g"
-      ? `${goal} g`
-      : `${goal} kcal`
-    : "—";
+  const intakeText = unit === "g" ? `${formatGrams(intake)} g` : `${Math.round(intake)} kcal`;
+  const goalText = goal > 0 ? (unit === "g" ? `${goal} g` : `${goal} kcal`) : "—";
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -213,10 +200,7 @@ function Ring({
         {intakeText} <span className="text-[var(--muted)]">/ {goalText}</span>
       </p>
       {over && (
-        <p
-          className="text-[10px] font-semibold text-amber-300 tabular-nums"
-          aria-label="Over goal"
-        >
+        <p className="text-[10px] font-semibold text-amber-300 tabular-nums" aria-label="Over goal">
           {Math.round(ratio * 100)}% of goal
         </p>
       )}

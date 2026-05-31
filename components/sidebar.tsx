@@ -114,9 +114,7 @@ export function Sidebar() {
               className="flex min-w-0 items-center gap-2 text-[var(--foreground)] transition hover:opacity-80"
             >
               <BrandMark size={22} className="shrink-0" />
-              <span className="truncate text-sm font-semibold">
-                Prog Strength
-              </span>
+              <span className="truncate text-sm font-semibold">Prog Strength</span>
             </Link>
             <button
               type="button"
@@ -149,9 +147,7 @@ export function Sidebar() {
                   : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               }`}
             >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                {item.icon}
-              </span>
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">{item.icon}</span>
               {!collapsed && <span className="truncate">{item.label}</span>}
             </Link>
           );

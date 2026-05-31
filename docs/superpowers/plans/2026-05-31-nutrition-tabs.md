@@ -27,6 +27,7 @@ The new shell reads `view` from the URL via `useSearchParams` (from `next/naviga
 **Why first:** Three new view components will need `formatNumber`, and it's currently duplicated across three files. Centralizing it first means later tasks can import from one place.
 
 **Files:**
+
 - Create: `lib/format.ts`
 - Modify: `app/(app)/nutrition/page.tsx` (remove duplicate, import shared)
 - Modify: `app/(app)/pantry/page.tsx` (remove duplicate, import shared — this file will be deleted in Task 11, but we keep it functional until then)
@@ -107,6 +108,7 @@ git commit -m "refactor: extract formatNumber to lib/format"
 **Why:** The new `PantryItemModal` (Task 4) reuses this form and needs a Delete button in the footer alongside Cancel/Save in edit mode. Adding the prop here keeps the form's footer the single source of truth for its action row.
 
 **Files:**
+
 - Modify: `components/pantry-item-form.tsx`
 
 - [ ] **Step 1: Extend the props type**
@@ -138,35 +140,35 @@ export function PantryItemForm({
 Replace the existing footer row (currently at lines ~143-161) with:
 
 ```tsx
-      <div className="flex items-center justify-end gap-2">
-        {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        )}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={busy}
-            className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:opacity-80 disabled:opacity-50"
-          >
-            Delete
-          </button>
-        )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
-        >
-          {busy ? "Saving…" : submitLabel}
-        </button>
-      </div>
+<div className="flex items-center justify-end gap-2">
+  {onCancel && (
+    <button
+      type="button"
+      onClick={onCancel}
+      disabled={busy}
+      className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+    >
+      Cancel
+    </button>
+  )}
+  {onDelete && (
+    <button
+      type="button"
+      onClick={onDelete}
+      disabled={busy}
+      className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:opacity-80 disabled:opacity-50"
+    >
+      Delete
+    </button>
+  )}
+  <button
+    type="submit"
+    disabled={busy}
+    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+  >
+    {busy ? "Saving…" : submitLabel}
+  </button>
+</div>
 ```
 
 Note: `Delete` sits between `Cancel` and `Save`. Existing call sites in `app/(app)/pantry/page.tsx` omit `onDelete`, so they render identically to today.
@@ -190,6 +192,7 @@ git commit -m "feat: PantryItemForm accepts optional onDelete prop"
 ## Task 3: Add optional `onDelete` prop to `RecipeForm`
 
 **Files:**
+
 - Modify: `components/recipe-form.tsx`
 
 - [ ] **Step 1: Extend the props type**
@@ -223,35 +226,35 @@ export function RecipeForm({
 Replace the existing footer row (currently at lines ~235-253) with:
 
 ```tsx
-      <div className="flex items-center justify-end gap-2">
-        {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        )}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={busy}
-            className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:opacity-80 disabled:opacity-50"
-          >
-            Delete
-          </button>
-        )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
-        >
-          {busy ? "Saving…" : submitLabel}
-        </button>
-      </div>
+<div className="flex items-center justify-end gap-2">
+  {onCancel && (
+    <button
+      type="button"
+      onClick={onCancel}
+      disabled={busy}
+      className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+    >
+      Cancel
+    </button>
+  )}
+  {onDelete && (
+    <button
+      type="button"
+      onClick={onDelete}
+      disabled={busy}
+      className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:opacity-80 disabled:opacity-50"
+    >
+      Delete
+    </button>
+  )}
+  <button
+    type="submit"
+    disabled={busy}
+    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+  >
+    {busy ? "Saving…" : submitLabel}
+  </button>
+</div>
 ```
 
 - [ ] **Step 3: Verify and commit**
@@ -275,6 +278,7 @@ git commit -m "feat: RecipeForm accepts optional onDelete prop"
 **Why:** A modal wrapper around `PantryItemForm` that owns its create/edit/delete API calls and includes the inline delete-confirm step. Modeled on `MacroGoalsModal` (overlay, backdrop click, Escape to close, body scroll lock).
 
 **Files:**
+
 - Create: `components/pantry-item-modal.tsx`
 
 - [ ] **Step 1: Create the file**
@@ -406,12 +410,9 @@ export function PantryItemModal(props: Props) {
           {confirmingDelete ? (
             <div className="flex flex-col gap-3 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-3">
               <p className="text-sm">
-                Delete this pantry item? Historical log entries keep their
-                macros.
+                Delete this pantry item? Historical log entries keep their macros.
               </p>
-              {error && (
-                <p className="text-xs text-[var(--danger)]">{error}</p>
-              )}
+              {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -442,9 +443,7 @@ export function PantryItemModal(props: Props) {
               error={error}
               onSubmit={handleSubmit}
               onCancel={onClose}
-              onDelete={
-                mode === "edit" ? () => setConfirmingDelete(true) : undefined
-              }
+              onDelete={mode === "edit" ? () => setConfirmingDelete(true) : undefined}
             />
           )}
         </div>
@@ -473,6 +472,7 @@ git commit -m "feat: add PantryItemModal with inline delete confirm"
 ## Task 5: Create `RecipeModal`
 
 **Files:**
+
 - Create: `components/recipe-modal.tsx`
 
 - [ ] **Step 1: Create the file**
@@ -605,9 +605,7 @@ export function RecipeModal(props: Props) {
               <p className="text-sm">
                 Delete this recipe? Historical log entries keep their macros.
               </p>
-              {error && (
-                <p className="text-xs text-[var(--danger)]">{error}</p>
-              )}
+              {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -639,9 +637,7 @@ export function RecipeModal(props: Props) {
               error={error}
               onSubmit={handleSubmit}
               onCancel={onClose}
-              onDelete={
-                mode === "edit" ? () => setConfirmingDelete(true) : undefined
-              }
+              onDelete={mode === "edit" ? () => setConfirmingDelete(true) : undefined}
             />
           )}
         </div>
@@ -672,6 +668,7 @@ git commit -m "feat: add RecipeModal with inline delete confirm"
 **Why:** Pure code move — pulls the meal-sections rendering (and supporting helpers) into its own file so `NutritionPage` can swap it in/out alongside the new Pantry/Recipes views. No behavior change.
 
 **Files:**
+
 - Create: `components/nutrition/nutrition-log-view.tsx`
 - Modify: `app/(app)/nutrition/page.tsx` (drop the extracted code, import the new component)
 
@@ -687,12 +684,7 @@ Create `components/nutrition/nutrition-log-view.tsx`:
 "use client";
 
 import { useMemo } from "react";
-import type {
-  MealType,
-  NutritionLogEntry,
-  PantryItem,
-  Recipe,
-} from "@/lib/api";
+import type { MealType, NutritionLogEntry, PantryItem, Recipe } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 
 const MEAL_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
@@ -813,18 +805,14 @@ function MealSection({
   return (
     <section className="flex flex-col gap-2">
       <header className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight">
-          {MEAL_LABELS[meal]}
-        </h2>
+        <h2 className="text-sm font-semibold tracking-tight">{MEAL_LABELS[meal]}</h2>
         <p className="text-xs text-[var(--muted)] tabular-nums">
           {entries.length === 0 ? (
             <span className="italic">No entries</span>
           ) : (
             <>
-              {formatNumber(subtotal.calories)} cal · P{" "}
-              {formatNumber(subtotal.protein_g)}g · F{" "}
-              {formatNumber(subtotal.fat_g)}g · C{" "}
-              {formatNumber(subtotal.carbs_g)}g
+              {formatNumber(subtotal.calories)} cal · P {formatNumber(subtotal.protein_g)}g · F{" "}
+              {formatNumber(subtotal.fat_g)}g · C {formatNumber(subtotal.carbs_g)}g
             </>
           )}
         </p>
@@ -883,8 +871,8 @@ function LogEntryRow({
           </span>
         </p>
         <p className="text-xs text-[var(--muted)] tabular-nums">
-          {formatNumber(entry.calories)} cal · P {formatNumber(entry.protein_g)}g ·
-          F {formatNumber(entry.fat_g)}g · C {formatNumber(entry.carbs_g)}g
+          {formatNumber(entry.calories)} cal · P {formatNumber(entry.protein_g)}g · F{" "}
+          {formatNumber(entry.fat_g)}g · C {formatNumber(entry.carbs_g)}g
           <span className="ml-2 text-[10px] uppercase tracking-wider">
             {formatLocalTime(entry.consumed_at)}
           </span>
@@ -913,6 +901,7 @@ function formatLocalTime(iso: string): string {
 - [ ] **Step 2: Remove the extracted code from `app/(app)/nutrition/page.tsx`**
 
 Delete the following from the page file:
+
 - The `MEAL_ORDER` and `MEAL_LABELS` constants near the top (lines ~28-34).
 - The `LogEntryRow`, `MealSections`, `MealSection` functions and the comment block above `MealSections` (lines ~263-436).
 - The `formatLocalTime` function (lines ~462-467).
@@ -920,18 +909,20 @@ Delete the following from the page file:
 In the page's JSX, replace the existing rendering block:
 
 ```tsx
-{entries === null && (
-  <p className="text-sm text-[var(--muted)]">Loading…</p>
-)}
-{entries && (
-  <MealSections
-    entries={entries}
-    pantryByID={pantryByID}
-    recipeByID={recipeByID}
-    rowBusyID={rowBusyID}
-    onDelete={handleDelete}
-  />
-)}
+{
+  entries === null && <p className="text-sm text-[var(--muted)]">Loading…</p>;
+}
+{
+  entries && (
+    <MealSections
+      entries={entries}
+      pantryByID={pantryByID}
+      recipeByID={recipeByID}
+      rowBusyID={rowBusyID}
+      onDelete={handleDelete}
+    />
+  );
+}
 ```
 
 with:
@@ -976,6 +967,7 @@ git commit -m "refactor: extract NutritionLogView from nutrition page"
 **Why:** New component for the Pantry tab — search, alphabetical-headers-within-page pagination, `+ Add` button, row-click opens edit modal.
 
 **Files:**
+
 - Create: `components/nutrition/pantry-view.tsx`
 
 - [ ] **Step 1: Create the file**
@@ -990,10 +982,7 @@ import { PantryItemModal } from "@/components/pantry-item-modal";
 
 const PAGE_SIZE = 25;
 
-type ModalTarget =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; id: string };
+type ModalTarget = null | { mode: "create" } | { mode: "edit"; id: string };
 
 /**
  * Pantry view rendered when /nutrition?view=pantry. Owns its own UI
@@ -1054,9 +1043,7 @@ export function PantryView({
   }, [pageItems]);
 
   const editingItem =
-    modal && modal.mode === "edit"
-      ? (pantry ?? []).find((p) => p.id === modal.id)
-      : undefined;
+    modal && modal.mode === "edit" ? (pantry ?? []).find((p) => p.id === modal.id) : undefined;
 
   return (
     <section className="flex flex-col gap-3">
@@ -1082,9 +1069,7 @@ export function PantryView({
         className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
       />
 
-      {pantry === null && (
-        <p className="text-sm text-[var(--muted)]">Loading…</p>
-      )}
+      {pantry === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
 
       {filtered && filtered.length === 0 && (
         <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
@@ -1105,10 +1090,7 @@ export function PantryView({
                 <ul className="flex flex-col gap-2">
                   {g.items.map((p) => (
                     <li key={p.id}>
-                      <PantryRow
-                        item={p}
-                        onClick={() => setModal({ mode: "edit", id: p.id })}
-                      />
+                      <PantryRow item={p} onClick={() => setModal({ mode: "edit", id: p.id })} />
                     </li>
                   ))}
                 </ul>
@@ -1145,20 +1127,12 @@ export function PantryView({
       )}
       {/* Edge case: if the edit target was deleted out from under us
           (e.g. by an external mutation), close the modal silently. */}
-      {modal?.mode === "edit" && !editingItem && (
-        <CloseStaleModal onClose={() => setModal(null)} />
-      )}
+      {modal?.mode === "edit" && !editingItem && <CloseStaleModal onClose={() => setModal(null)} />}
     </section>
   );
 }
 
-function PantryRow({
-  item,
-  onClick,
-}: {
-  item: PantryItem;
-  onClick: () => void;
-}) {
+function PantryRow({ item, onClick }: { item: PantryItem; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -1168,8 +1142,8 @@ function PantryRow({
       <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
         <p className="truncate text-sm font-medium">{item.name}</p>
         <p className="text-xs text-[var(--muted)] tabular-nums">
-          {formatNumber(item.calories)} cal · P {formatNumber(item.protein_g)}g ·
-          F {formatNumber(item.fat_g)}g · C {formatNumber(item.carbs_g)}g
+          {formatNumber(item.calories)} cal · P {formatNumber(item.protein_g)}g · F{" "}
+          {formatNumber(item.fat_g)}g · C {formatNumber(item.carbs_g)}g
           <span className="ml-2 text-[10px] uppercase tracking-wider">
             per {formatNumber(item.serving_size)} {item.serving_unit}
           </span>
@@ -1247,6 +1221,7 @@ git commit -m "feat: add PantryView component for nutrition tabs"
 ## Task 8: Create `RecipesView`
 
 **Files:**
+
 - Create: `components/nutrition/recipes-view.tsx`
 
 - [ ] **Step 1: Create the file**
@@ -1261,10 +1236,7 @@ import { RecipeModal } from "@/components/recipe-modal";
 
 const PAGE_SIZE = 25;
 
-type ModalTarget =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; id: string };
+type ModalTarget = null | { mode: "create" } | { mode: "edit"; id: string };
 
 /**
  * Recipes view rendered when /nutrition?view=recipes. Mirrors
@@ -1324,9 +1296,7 @@ export function RecipesView({
   }, [pageItems]);
 
   const editingRecipe =
-    modal && modal.mode === "edit"
-      ? (recipes ?? []).find((r) => r.id === modal.id)
-      : undefined;
+    modal && modal.mode === "edit" ? (recipes ?? []).find((r) => r.id === modal.id) : undefined;
 
   return (
     <section className="flex flex-col gap-3">
@@ -1352,9 +1322,7 @@ export function RecipesView({
         className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
       />
 
-      {recipes === null && (
-        <p className="text-sm text-[var(--muted)]">Loading…</p>
-      )}
+      {recipes === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
 
       {filtered && filtered.length === 0 && (
         <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
@@ -1375,10 +1343,7 @@ export function RecipesView({
                 <ul className="flex flex-col gap-2">
                   {g.items.map((r) => (
                     <li key={r.id}>
-                      <RecipeRow
-                        recipe={r}
-                        onClick={() => setModal({ mode: "edit", id: r.id })}
-                      />
+                      <RecipeRow recipe={r} onClick={() => setModal({ mode: "edit", id: r.id })} />
                     </li>
                   ))}
                 </ul>
@@ -1422,13 +1387,7 @@ export function RecipesView({
   );
 }
 
-function RecipeRow({
-  recipe,
-  onClick,
-}: {
-  recipe: Recipe;
-  onClick: () => void;
-}) {
+function RecipeRow({ recipe, onClick }: { recipe: Recipe; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -1517,6 +1476,7 @@ git commit -m "feat: add RecipesView component for nutrition tabs"
 **Why:** The big one. Splits the four fetches into per-resource `useCallback`s, adds the `view` URL param via a Suspense-wrapped inner component, redesigns the toolbar with left/right groups and a new `active` prop on `ToolbarButton`, and swaps the body based on `view`.
 
 **Files:**
+
 - Modify: `app/(app)/nutrition/page.tsx` (significant rewrite)
 
 - [ ] **Step 1: Replace `app/(app)/nutrition/page.tsx` with the new shell**
@@ -1621,9 +1581,7 @@ function NutritionPageInner() {
       if (!token) return;
       const since = d.toISOString();
       const until = endOfLocalDay(d).toISOString();
-      listNutritionLog(token, { since, until })
-        .then(setEntries)
-        .catch(handleApiError);
+      listNutritionLog(token, { since, until }).then(setEntries).catch(handleApiError);
     },
     [requireToken, handleApiError],
   );
@@ -1696,9 +1654,7 @@ function NutritionPageInner() {
     const isToday = sameLocalDay(date, new Date());
     const consumedAt = isToday ? new Date() : new Date(date.getTime() + 12 * 60 * 60 * 1000);
     return createNutritionLogEntry(token, {
-      ...(source.kind === "pantry"
-        ? { pantry_item_id: source.id }
-        : { recipe_id: source.id }),
+      ...(source.kind === "pantry" ? { pantry_item_id: source.id } : { recipe_id: source.id }),
       quantity,
       meal,
       consumed_at: consumedAt.toISOString(),
@@ -1739,8 +1695,8 @@ function NutritionPageInner() {
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Nutrition</h1>
         <p className="text-xs text-[var(--muted)]">
-          Log meals here or in chat. Macros are frozen at log time, so
-          editing a pantry item later won&apos;t rewrite this day.
+          Log meals here or in chat. Macros are frozen at log time, so editing a pantry item later
+          won&apos;t rewrite this day.
         </p>
       </header>
 
@@ -1754,9 +1710,7 @@ function NutritionPageInner() {
 
           <DateTileStrip value={date} onChange={setDate} />
 
-          {goals && (
-            <MacroGoalRings totals={totals} goals={goals} date={date} />
-          )}
+          {goals && <MacroGoalRings totals={totals} goals={goals} date={date} />}
 
           {/* Toolbar row: left group are actions, right group are view
               switches. The bottom border of this row doubles as the
@@ -1800,19 +1754,10 @@ function NutritionPageInner() {
             />
           )}
           {view === "pantry" && (
-            <PantryView
-              token={token}
-              pantry={pantry}
-              onChanged={onPantryChanged}
-            />
+            <PantryView token={token} pantry={pantry} onChanged={onPantryChanged} />
           )}
           {view === "recipes" && (
-            <RecipesView
-              token={token}
-              pantry={pantry}
-              recipes={recipes}
-              onChanged={fetchRecipes}
-            />
+            <RecipesView token={token} pantry={pantry} recipes={recipes} onChanged={fetchRecipes} />
           )}
         </div>
       </div>
@@ -1884,9 +1829,7 @@ function ToolbarButton({
       onClick={onClick}
       className={
         "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 " +
-        (active
-          ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3"
-          : "")
+        (active ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3" : "")
       }
     >
       {icon}
@@ -2021,6 +1964,7 @@ git commit -m "feat: tabbed Pantry and Recipes views on /nutrition"
 ## Task 10: Remove Pantry from the sidebar
 
 **Files:**
+
 - Modify: `components/sidebar.tsx`
 
 - [ ] **Step 1: Remove the Pantry NAV entry**
@@ -2098,6 +2042,7 @@ git commit -m "refactor: remove Pantry from sidebar nav"
 ## Task 11: Delete the standalone `/pantry` route
 
 **Files:**
+
 - Delete: `app/(app)/pantry/page.tsx`
 - Delete: `app/(app)/pantry/` (the now-empty directory)
 
@@ -2137,7 +2082,7 @@ npm run dev
 
 - [ ] **Step 2: Walk the spec's verification checklist**
 
-Open `docs/superpowers/specs/2026-05-31-nutrition-tabs-design.md` and run through the *Manual verification plan* section: the 9-step golden path plus all 6 edge cases.
+Open `docs/superpowers/specs/2026-05-31-nutrition-tabs-design.md` and run through the _Manual verification plan_ section: the 9-step golden path plus all 6 edge cases.
 
 For each edge case, note whether it behaves as the spec describes. Specifically:
 
@@ -2163,6 +2108,7 @@ git commit -m "fix: <what was off>"
 ## Done
 
 Plan complete. Implementation produces:
+
 - `/nutrition` with `?view=log|pantry|recipes` URL-backed tabs.
 - Pantry and Recipes views with search, alphabetical-headers-within-page pagination at 25 per page, `+ Add` and click-to-edit modals with inline delete confirm.
 - Per-resource fetch strategy that stops the over-fetching on date change.

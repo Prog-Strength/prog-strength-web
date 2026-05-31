@@ -17,11 +17,7 @@ import { Sidebar } from "@/components/sidebar";
  * which avoids a flash of the chat UI before we redirect them to
  * /login.
  */
-export default function AppLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
 

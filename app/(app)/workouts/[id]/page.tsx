@@ -11,10 +11,7 @@ import {
   type PersonalRecordEvent,
   type Workout,
 } from "@/lib/api";
-import {
-  WorkoutDetails,
-  hasMeaningfulName,
-} from "@/components/workout-details";
+import { WorkoutDetails, hasMeaningfulName } from "@/components/workout-details";
 
 /**
  * Single-workout detail route. Reached from the Personal Records page
@@ -57,10 +54,7 @@ export default function WorkoutDetailPage() {
       });
   }, [id, router]);
 
-  const exerciseMap = useMemo(
-    () => new Map(exercises.map((e) => [e.id, e])),
-    [exercises],
-  );
+  const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
@@ -81,8 +75,7 @@ export default function WorkoutDetailPage() {
         {workout && (
           <p className="text-xs text-[var(--muted)]">
             {formatDate(workout.performed_at)}
-            {workout.ended_at &&
-              ` · ${formatDuration(workout.performed_at, workout.ended_at)}`}
+            {workout.ended_at && ` · ${formatDuration(workout.performed_at, workout.ended_at)}`}
           </p>
         )}
       </header>
@@ -102,10 +95,7 @@ export default function WorkoutDetailPage() {
           {workout && (
             <div className="flex flex-col gap-4">
               {workout.personal_records_set.length > 0 && (
-                <PRBanner
-                  events={workout.personal_records_set}
-                  exerciseMap={exerciseMap}
-                />
+                <PRBanner events={workout.personal_records_set} exerciseMap={exerciseMap} />
               )}
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
                 <WorkoutDetails workout={workout} exerciseMap={exerciseMap} />
@@ -130,19 +120,14 @@ function PRBanner({
       <div className="flex items-center gap-2">
         <TrophyIcon />
         <h2 className="text-sm font-semibold text-amber-200">
-          {events.length === 1
-            ? "New personal record!"
-            : `${events.length} new personal records!`}
+          {events.length === 1 ? "New personal record!" : `${events.length} new personal records!`}
         </h2>
       </div>
       <ul className="flex flex-col gap-1.5 text-sm">
         {events.map((e) => {
           const exerciseName = exerciseMap.get(e.exercise_id)?.name ?? e.exercise_id;
           return (
-            <li
-              key={e.id}
-              className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
-            >
+            <li key={e.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="font-medium">{exerciseName}</span>
               <span className="tabular-nums">
                 {formatWeight(e.weight, e.unit)} × {e.reps}

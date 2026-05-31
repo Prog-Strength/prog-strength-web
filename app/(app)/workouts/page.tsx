@@ -3,18 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import {
-  deleteWorkout,
-  listExercises,
-  listWorkouts,
-  type Exercise,
-  type Workout,
-} from "@/lib/api";
+import { deleteWorkout, listExercises, listWorkouts, type Exercise, type Workout } from "@/lib/api";
 import { WorkoutModal } from "@/components/workout-modal";
-import {
-  WorkoutDetails,
-  hasMeaningfulName,
-} from "@/components/workout-details";
+import { WorkoutDetails, hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutDurationChart } from "@/components/workout-duration-chart";
 
 /**
@@ -125,10 +116,7 @@ export default function WorkoutsPage() {
     [visibleWorkouts],
   );
 
-  const exerciseMap = useMemo(
-    () => new Map(exercises.map((e) => [e.id, e])),
-    [exercises],
-  );
+  const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
 
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
@@ -139,19 +127,11 @@ export default function WorkoutsPage() {
     });
 
   const handleSaved = (updated: Workout) =>
-    setWorkouts((ws) =>
-      ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws,
-    );
+    setWorkouts((ws) => (ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws));
 
   const handleDelete = async (workout: Workout) => {
-    const label = hasMeaningfulName(workout.name)
-      ? workout.name
-      : formatDate(workout.performed_at);
-    if (
-      !window.confirm(
-        `Delete "${label}"? This removes the workout from your history.`,
-      )
-    ) {
+    const label = hasMeaningfulName(workout.name) ? workout.name : formatDate(workout.performed_at);
+    if (!window.confirm(`Delete "${label}"? This removes the workout from your history.`)) {
       return;
     }
     const token = getToken();
@@ -206,9 +186,7 @@ export default function WorkoutsPage() {
         <div className="mx-auto flex max-w-3xl flex-col gap-6">
           <WorkoutDurationChart
             workouts={workouts}
-            days={
-              TIMEFRAMES.find((t) => t.id === timeframe)?.days ?? null
-            }
+            days={TIMEFRAMES.find((t) => t.id === timeframe)?.days ?? null}
             truncated={truncated}
             fetchLimit={FETCH_LIMIT}
           />
@@ -329,8 +307,8 @@ function EmptyState() {
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-center">
       <p className="text-sm font-medium">No workouts in this timeframe</p>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Log a session from the chat by describing it in plain language —
-        try &quot;log Tuesday&apos;s push day&quot;.
+        Log a session from the chat by describing it in plain language — try &quot;log
+        Tuesday&apos;s push day&quot;.
       </p>
     </div>
   );
@@ -385,14 +363,11 @@ function WorkoutRow({
             </p>
             <p className="truncate text-xs text-[var(--muted)]">
               {named && `${formatDate(workout.performed_at)} · `}
-              {formatDuration(workout.performed_at, workout.ended_at ?? null)}{" "}
-              · {workout.exercises.length}{" "}
-              {workout.exercises.length === 1 ? "exercise" : "exercises"}
+              {formatDuration(workout.performed_at, workout.ended_at ?? null)} ·{" "}
+              {workout.exercises.length} {workout.exercises.length === 1 ? "exercise" : "exercises"}
             </p>
             {workout.notes && (
-              <p className="truncate text-xs text-[var(--muted)]">
-                {workout.notes}
-              </p>
+              <p className="truncate text-xs text-[var(--muted)]">{workout.notes}</p>
             )}
           </div>
         </button>
@@ -436,9 +411,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`shrink-0 text-[var(--muted)] transition-transform ${
-        expanded ? "rotate-90" : ""
-      }`}
+      className={`shrink-0 text-[var(--muted)] transition-transform ${expanded ? "rotate-90" : ""}`}
       aria-hidden="true"
     >
       <path d="M9 18l6-6-6-6" />
@@ -584,18 +557,11 @@ function WeekHeader({ group }: { group: WeekGroup }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight">
-          {formatWeekLabel(group.monday)}
-        </h2>
-        <span className="text-xs text-[var(--muted)]">
-          {formatWeekRange(group.monday)}
-        </span>
+        <h2 className="text-sm font-semibold tracking-tight">{formatWeekLabel(group.monday)}</h2>
+        <span className="text-xs text-[var(--muted)]">{formatWeekRange(group.monday)}</span>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <StatTile
-          label="Total time"
-          value={formatTotalDuration(group.totalDurationMs)}
-        />
+        <StatTile label="Total time" value={formatTotalDuration(group.totalDurationMs)} />
         <StatTile label="Activities" value={String(group.count)} />
       </div>
     </div>
@@ -640,8 +606,7 @@ function formatWeekRange(monday: Date): string {
   const now = new Date();
   const sameMonth = monday.getMonth() === sunday.getMonth();
   const includeYear =
-    monday.getFullYear() !== now.getFullYear() ||
-    sunday.getFullYear() !== now.getFullYear();
+    monday.getFullYear() !== now.getFullYear() || sunday.getFullYear() !== now.getFullYear();
   const start = monday.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -650,9 +615,7 @@ function formatWeekRange(monday: Date): string {
     "en-US",
     sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" },
   );
-  return includeYear
-    ? `${start} – ${end}, ${sunday.getFullYear()}`
-    : `${start} – ${end}`;
+  return includeYear ? `${start} – ${end}, ${sunday.getFullYear()}` : `${start} – ${end}`;
 }
 
 /** Same format as the row's `formatDuration` but sums across the week. */
@@ -675,11 +638,7 @@ function formatTotalDuration(ms: number): string {
 function formatDate(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const dayDiff = Math.round(
     (startOfToday.getTime() - startOfThat.getTime()) / (24 * 60 * 60 * 1000),

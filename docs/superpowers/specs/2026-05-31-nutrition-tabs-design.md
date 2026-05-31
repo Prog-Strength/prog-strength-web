@@ -60,20 +60,26 @@ Active-state styling (Option A from brainstorming): a 2px underline on the activ
 
 Split fetches by what they actually depend on:
 
-| Resource | Depends on | Refetch trigger |
-|---|---|---|
-| `entries` | `date` | mount; date change |
-| `pantry` | nothing | mount; pantry mutation |
-| `recipes` | nothing | mount; recipe mutation; pantry mutation |
-| `goals` | nothing | mount; goals mutation |
+| Resource  | Depends on | Refetch trigger                         |
+| --------- | ---------- | --------------------------------------- |
+| `entries` | `date`     | mount; date change                      |
+| `pantry`  | nothing    | mount; pantry mutation                  |
+| `recipes` | nothing    | mount; recipe mutation; pantry mutation |
+| `goals`   | nothing    | mount; goals mutation                   |
 
 Recipes get refetched on pantry mutation because the API derives recipe macros by joining `recipe_items` to `pantry_items` server-side — editing a pantry item can change a recipe's displayed macros. This mirrors today's `/pantry` page behavior.
 
 Implementation shape:
 
 ```ts
-useEffect(() => { fetchPantry(); fetchRecipes(); fetchGoals(); }, []);
-useEffect(() => { fetchEntries(date); }, [date]);
+useEffect(() => {
+  fetchPantry();
+  fetchRecipes();
+  fetchGoals();
+}, []);
+useEffect(() => {
+  fetchEntries(date);
+}, [date]);
 ```
 
 Each fetch is its own `useCallback`. Modals call the specific refetch(es) they need:
@@ -88,15 +94,15 @@ Tab switching triggers no fetches.
 
 ## State ownership
 
-| State | Owner | Notes |
-|---|---|---|
-| `view` | URL (`useSearchParams`) | Source of truth |
-| `date` | `NutritionPage` | Shared by log + rings |
-| `entries`, `pantry`, `recipes`, `goals` | `NutritionPage` | Shared across views |
-| Quick Add modal open/state | `NutritionPage` | Triggered from toolbar |
-| Goals modal open/state | `NutritionPage` | Triggered from toolbar |
-| Pantry view: `query`, `page`, `modalTarget` | `PantryView` | Tab-local; resets on unmount |
-| Recipes view: `query`, `page`, `modalTarget` | `RecipesView` | Same |
+| State                                        | Owner                   | Notes                        |
+| -------------------------------------------- | ----------------------- | ---------------------------- |
+| `view`                                       | URL (`useSearchParams`) | Source of truth              |
+| `date`                                       | `NutritionPage`         | Shared by log + rings        |
+| `entries`, `pantry`, `recipes`, `goals`      | `NutritionPage`         | Shared across views          |
+| Quick Add modal open/state                   | `NutritionPage`         | Triggered from toolbar       |
+| Goals modal open/state                       | `NutritionPage`         | Triggered from toolbar       |
+| Pantry view: `query`, `page`, `modalTarget`  | `PantryView`            | Tab-local; resets on unmount |
+| Recipes view: `query`, `page`, `modalTarget` | `RecipesView`           | Same                         |
 
 Tab-local state resets when a view unmounts (i.e. when the user switches tabs and comes back). Acceptable trade-off given the simpler code; no need to lift into the shell.
 
@@ -134,6 +140,7 @@ B
 **Loading state.** While `pantry` is null (cold-load before the first fetch resolves), render "Loading…" in place of the list. Search input and `+ Add` button stay visible and functional (the modal can still open in create mode while the list loads).
 
 **Empty / no-match states:** if `pantry` is non-null but `filtered` is empty:
+
 - Query empty: "Your pantry is empty. Add an item to get started."
 - Query non-empty: "No items match that search."
 - Either case: no pagination footer.
@@ -156,9 +163,14 @@ Two new components, modeled on `MacroGoalsModal` (overlay + centered card + form
 
 ```ts
 type Props =
-  | { mode: "create"; onSaved: () => void; onClose: () => void; }
-  | { mode: "edit"; initial: PantryItem; onSaved: () => void;
-      onDeleted: () => void; onClose: () => void; };
+  | { mode: "create"; onSaved: () => void; onClose: () => void }
+  | {
+      mode: "edit";
+      initial: PantryItem;
+      onSaved: () => void;
+      onDeleted: () => void;
+      onClose: () => void;
+    };
 ```
 
 - Wraps `PantryItemForm`. The form today renders its own `Cancel` + `Save` footer via the existing `submitLabel` and `onCancel` props; the modal binds those to its own state (Cancel → `onClose`; Save → existing form submit path). To get a three-button footer in edit mode (`Cancel` + `Delete` + `Save`), `PantryItemForm` gains one small optional prop: `onDelete?: () => void`. When provided, the form renders a red `Delete` button between `Cancel` and `Save`. When not provided (every existing call site), the form renders identically to today.
@@ -176,9 +188,15 @@ Same shape with one extra prop:
 
 ```ts
 type Props =
-  | { mode: "create"; pantry: PantryItem[]; onSaved: () => void; onClose: () => void; }
-  | { mode: "edit"; initial: Recipe; pantry: PantryItem[];
-      onSaved: () => void; onDeleted: () => void; onClose: () => void; };
+  | { mode: "create"; pantry: PantryItem[]; onSaved: () => void; onClose: () => void }
+  | {
+      mode: "edit";
+      initial: Recipe;
+      pantry: PantryItem[];
+      onSaved: () => void;
+      onDeleted: () => void;
+      onClose: () => void;
+    };
 ```
 
 Wraps `RecipeForm`. Same footer rules (the form similarly gains an optional `onDelete` prop), same inline confirm panel, same error handling.
@@ -186,10 +204,7 @@ Wraps `RecipeForm`. Same footer rules (the form similarly gains an optional `onD
 **Mount location.** Both modals are rendered by their respective view components (`PantryView`, `RecipesView`), not by the shell. The view holds a small `modalTarget` state:
 
 ```ts
-type ModalTarget =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; id: string };
+type ModalTarget = null | { mode: "create" } | { mode: "edit"; id: string };
 ```
 
 The view renders the modal when `modalTarget !== null`.
@@ -197,6 +212,7 @@ The view renders the modal when `modalTarget !== null`.
 ## Component file plan
 
 **New files:**
+
 - `components/pantry-item-modal.tsx`
 - `components/recipe-modal.tsx`
 - `components/nutrition/nutrition-log-view.tsx` — the meal-sections body extracted from today's `NutritionPage` (the `MealSections`, `MealSection`, `LogEntryRow` functions, the `MEAL_ORDER` / `MEAL_LABELS` constants, and the `formatLocalTime` helper move here essentially as-is).
@@ -205,12 +221,14 @@ The view renders the modal when `modalTarget !== null`.
 - `lib/format.ts` — shared home for `formatNumber`.
 
 **Modified:**
-- `app/(app)/nutrition/page.tsx` — slims down to the shell described in *Page structure*. Keeps the date helpers (`startOfLocalDay`, `endOfLocalDay`, `sameLocalDay`) and the `totals` computation. Adds per-resource `useCallback` fetches.
+
+- `app/(app)/nutrition/page.tsx` — slims down to the shell described in _Page structure_. Keeps the date helpers (`startOfLocalDay`, `endOfLocalDay`, `sameLocalDay`) and the `totals` computation. Adds per-resource `useCallback` fetches.
 - `components/sidebar.tsx` — remove the Pantry NAV entry; remove `JarIcon` definition if unused elsewhere.
 - `components/pantry-item-form.tsx` — add optional `onDelete?: () => void` prop; render a `Delete` button between `Cancel` and `Save` when provided. No other changes.
 - `components/recipe-form.tsx` — same additive `onDelete?: () => void` prop.
 
 **Deleted:**
+
 - `app/(app)/pantry/page.tsx`
 - `app/(app)/pantry/` (the now-empty directory).
 

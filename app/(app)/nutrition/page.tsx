@@ -146,9 +146,7 @@ export default function NutritionPage() {
     const isToday = sameLocalDay(date, new Date());
     const consumedAt = isToday ? new Date() : new Date(date.getTime() + 12 * 60 * 60 * 1000);
     return createNutritionLogEntry(token, {
-      ...(source.kind === "pantry"
-        ? { pantry_item_id: source.id }
-        : { recipe_id: source.id }),
+      ...(source.kind === "pantry" ? { pantry_item_id: source.id } : { recipe_id: source.id }),
       quantity,
       meal,
       consumed_at: consumedAt.toISOString(),
@@ -183,8 +181,8 @@ export default function NutritionPage() {
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Nutrition</h1>
         <p className="text-xs text-[var(--muted)]">
-          Log meals here or in chat. Macros are frozen at log time, so
-          editing a pantry item later won&apos;t rewrite this day.
+          Log meals here or in chat. Macros are frozen at log time, so editing a pantry item later
+          won&apos;t rewrite this day.
         </p>
       </header>
 
@@ -198,9 +196,7 @@ export default function NutritionPage() {
 
           <DateTileStrip value={date} onChange={setDate} />
 
-          {goals && (
-            <MacroGoalRings totals={totals} goals={goals} date={date} />
-          )}
+          {goals && <MacroGoalRings totals={totals} goals={goals} date={date} />}
 
           {/* Small toolbar sitting above the meal sections. White
               icon-text buttons (no fill, no border) keep the page's
@@ -222,9 +218,7 @@ export default function NutritionPage() {
             />
           </div>
 
-          {entries === null && (
-            <p className="text-sm text-[var(--muted)]">Loading…</p>
-          )}
+          {entries === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
           {entries && (
             <MealSections
               entries={entries}
@@ -289,8 +283,8 @@ function LogEntryRow({
           </span>
         </p>
         <p className="text-xs text-[var(--muted)] tabular-nums">
-          {formatNumber(entry.calories)} cal · P {formatNumber(entry.protein_g)}g ·
-          F {formatNumber(entry.fat_g)}g · C {formatNumber(entry.carbs_g)}g
+          {formatNumber(entry.calories)} cal · P {formatNumber(entry.protein_g)}g · F{" "}
+          {formatNumber(entry.fat_g)}g · C {formatNumber(entry.carbs_g)}g
           <span className="ml-2 text-[10px] uppercase tracking-wider">
             {formatLocalTime(entry.consumed_at)}
           </span>
@@ -394,18 +388,14 @@ function MealSection({
   return (
     <section className="flex flex-col gap-2">
       <header className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight">
-          {MEAL_LABELS[meal]}
-        </h2>
+        <h2 className="text-sm font-semibold tracking-tight">{MEAL_LABELS[meal]}</h2>
         <p className="text-xs text-[var(--muted)] tabular-nums">
           {entries.length === 0 ? (
             <span className="italic">No entries</span>
           ) : (
             <>
-              {formatNumber(subtotal.calories)} cal · P{" "}
-              {formatNumber(subtotal.protein_g)}g · F{" "}
-              {formatNumber(subtotal.fat_g)}g · C{" "}
-              {formatNumber(subtotal.carbs_g)}g
+              {formatNumber(subtotal.calories)} cal · P {formatNumber(subtotal.protein_g)}g · F{" "}
+              {formatNumber(subtotal.fat_g)}g · C {formatNumber(subtotal.carbs_g)}g
             </>
           )}
         </p>

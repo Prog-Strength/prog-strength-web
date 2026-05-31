@@ -17,11 +17,7 @@ import {
   type ChatMessage as PersistedChatMessage,
 } from "@/lib/api";
 import { generateChatTitle } from "@/lib/agent";
-import {
-  getSpeechRecognitionCtor,
-  startSpeechSession,
-  type SpeechSession,
-} from "@/lib/speech";
+import { getSpeechRecognitionCtor, startSpeechSession, type SpeechSession } from "@/lib/speech";
 
 /**
  * A tool the agent invoked during a single assistant turn. State
@@ -287,9 +283,7 @@ export default function ChatPage() {
           // user has to grant mic permission in browser settings.
           // "no-speech" and "aborted" are routine and noisy.
           if (errCode === "not-allowed") {
-            setError(
-              "Microphone access is blocked. Allow it in your browser's site settings.",
-            );
+            setError("Microphone access is blocked. Allow it in your browser's site settings.");
           }
           setListening(false);
           speechSessionRef.current = null;
@@ -425,9 +419,7 @@ export default function ChatPage() {
           assistantText += ev.text;
           // Mutate the text on the last (assistant) message while
           // preserving any tools that were attached during this turn.
-          setMessages((prev) =>
-            replaceLast(prev, (last) => ({ ...last, content: assistantText })),
-          );
+          setMessages((prev) => replaceLast(prev, (last) => ({ ...last, content: assistantText })));
         } else if (ev.type === "tool_use_start") {
           toolsLog.push({ name: ev.name, state: "running" });
           // Append a "running" tool to the in-progress assistant
@@ -438,10 +430,7 @@ export default function ChatPage() {
           setMessages((prev) =>
             replaceLast(prev, (last) => ({
               ...last,
-              tools: [
-                ...(last.tools ?? []),
-                { name: ev.name, state: "running" },
-              ],
+              tools: [...(last.tools ?? []), { name: ev.name, state: "running" }],
             })),
           );
         } else if (ev.type === "tool_result") {
@@ -459,9 +448,7 @@ export default function ChatPage() {
             replaceLast(prev, (last) => ({
               ...last,
               tools: (last.tools ?? []).map((t) =>
-                t.name === ev.name && t.state === "running"
-                  ? { ...t, state: finalState }
-                  : t,
+                t.name === ev.name && t.state === "running" ? { ...t, state: finalState } : t,
               ),
             })),
           );
@@ -470,9 +457,7 @@ export default function ChatPage() {
           // Stamp the chosen model onto the in-progress assistant
           // message so the UI can render "via Haiku" / "via Sonnet"
           // and the label persists in conversation history.
-          setMessages((prev) =>
-            replaceLast(prev, (last) => ({ ...last, model: ev.model })),
-          );
+          setMessages((prev) => replaceLast(prev, (last) => ({ ...last, model: ev.model })));
         } else if (ev.type === "audio_chunk") {
           // Decode the base64 mp3 + push onto the playback queue.
           // drainAudioQueue is idempotent — calls beyond the first
@@ -480,9 +465,7 @@ export default function ChatPage() {
           // handler picks up subsequent chunks. Order is preserved
           // because the agent yields audio_chunks in source order
           // even when their TTS calls complete out of order.
-          const bytes = Uint8Array.from(atob(ev.mp3_base64), (c) =>
-            c.charCodeAt(0),
-          );
+          const bytes = Uint8Array.from(atob(ev.mp3_base64), (c) => c.charCodeAt(0));
           const blob = new Blob([bytes], { type: "audio/mpeg" });
           audioQueueRef.current.push(blob);
           drainAudioQueue();
@@ -621,11 +604,7 @@ export default function ChatPage() {
           </Link>
         </div>
       </header>
-      <div
-        ref={scrollerRef}
-        className="flex-1 overflow-y-auto px-6 py-6"
-        aria-live="polite"
-      >
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-6 py-6" aria-live="polite">
         <div className="mx-auto flex max-w-2xl flex-col gap-4">
           {messages.length === 0 && (
             // Empty-state card. Brand mark up top gives a fresh chat
@@ -637,12 +616,10 @@ export default function ChatPage() {
                 <BrandMark size={36} />
               </div>
               <div className="space-y-1">
-                <p className="font-medium text-[var(--foreground)]">
-                  Ask about your training.
-                </p>
+                <p className="font-medium text-[var(--foreground)]">Ask about your training.</p>
                 <p>
-                  Try <em>&quot;what chest exercises are in the catalog?&quot;</em>{" "}
-                  or paste a workout log and ask it to record the session.
+                  Try <em>&quot;what chest exercises are in the catalog?&quot;</em> or paste a
+                  workout log and ask it to record the session.
                 </p>
               </div>
             </div>
@@ -703,13 +680,7 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={
-              loading
-                ? "Loading…"
-                : listening
-                  ? "Listening…"
-                  : "Message Prog Strength…"
-            }
+            placeholder={loading ? "Loading…" : listening ? "Listening…" : "Message Prog Strength…"}
             rows={1}
             className="min-h-[44px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
             disabled={streaming || loading || !sessionId}
@@ -717,9 +688,7 @@ export default function ChatPage() {
           <button
             type="button"
             onClick={send}
-            disabled={
-              streaming || loading || !sessionId || input.trim().length === 0
-            }
+            disabled={streaming || loading || !sessionId || input.trim().length === 0}
             className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
           >
             {streaming ? "…" : "Send"}
@@ -834,17 +803,14 @@ function MessageBubble({
         {hasMetadata && (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             {hasModel && <ModelLabel model={model} />}
-            {hasTools &&
-              tools.map((t, i) => <ToolPill key={i} tool={t} />)}
+            {hasTools && tools.map((t, i) => <ToolPill key={i} tool={t} />)}
           </div>
         )}
         {!hasContent && !hasMetadata ? (
           // No text and no metadata yet — show the typing placeholder.
           // Once any signal arrives (model_chosen, tool start, text)
           // the metadata row acts as the in-progress indicator.
-          <span className="inline-block animate-pulse text-[var(--muted)]">
-            …
-          </span>
+          <span className="inline-block animate-pulse text-[var(--muted)]">…</span>
         ) : isUser ? (
           content
         ) : hasContent ? (
@@ -1006,13 +972,7 @@ function DotsIcon() {
   // the surrounding animate-pulse so the whole pill breathes while
   // a tool call is in flight.
   return (
-    <svg
-      viewBox="0 0 24 24"
-      width={10}
-      height={10}
-      fill="currentColor"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" width={10} height={10} fill="currentColor" aria-hidden="true">
       <circle cx="5" cy="12" r="2" />
       <circle cx="12" cy="12" r="2" />
       <circle cx="19" cy="12" r="2" />
@@ -1073,12 +1033,8 @@ function AssistantMarkdown({ content }: { content: string }) {
       components={{
         // Paragraphs: tight by default. The bubble already has padding,
         // so internal margins only need to separate consecutive blocks.
-        p: ({ children }) => (
-          <p className="my-1 first:mt-0 last:mb-0">{children}</p>
-        ),
-        strong: ({ children }) => (
-          <strong className="font-semibold">{children}</strong>
-        ),
+        p: ({ children }) => <p className="my-1 first:mt-0 last:mb-0">{children}</p>,
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
         em: ({ children }) => <em className="italic">{children}</em>,
         // Lists indent with bullets / numbers; tight vertical rhythm
         // matches the surrounding text.
@@ -1096,19 +1052,13 @@ function AssistantMarkdown({ content }: { content: string }) {
         // Headings inside a chat bubble are usually small (Claude uses
         // them as section labels, not page titles), so we cap the size.
         h1: ({ children }) => (
-          <h1 className="mb-2 mt-3 text-base font-semibold first:mt-0">
-            {children}
-          </h1>
+          <h1 className="mb-2 mt-3 text-base font-semibold first:mt-0">{children}</h1>
         ),
         h2: ({ children }) => (
-          <h2 className="mb-2 mt-3 text-sm font-semibold first:mt-0">
-            {children}
-          </h2>
+          <h2 className="mb-2 mt-3 text-sm font-semibold first:mt-0">{children}</h2>
         ),
         h3: ({ children }) => (
-          <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">
-            {children}
-          </h3>
+          <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h3>
         ),
         // Inline `code` gets a subtle background; fenced code blocks
         // get their own dark block + horizontal scroll for long lines.
@@ -1156,9 +1106,7 @@ function AssistantMarkdown({ content }: { content: string }) {
         // tables don't blow out the bubble width.
         table: ({ children }) => (
           <div className="my-2 overflow-x-auto first:mt-0 last:mb-0">
-            <table className="min-w-full border-collapse text-xs">
-              {children}
-            </table>
+            <table className="min-w-full border-collapse text-xs">{children}</table>
           </div>
         ),
         th: ({ children }) => (
@@ -1167,9 +1115,7 @@ function AssistantMarkdown({ content }: { content: string }) {
           </th>
         ),
         td: ({ children }) => (
-          <td className="border-b border-[var(--border)]/50 px-2 py-1">
-            {children}
-          </td>
+          <td className="border-b border-[var(--border)]/50 px-2 py-1">{children}</td>
         ),
         hr: () => <hr className="my-3 border-[var(--border)]" />,
       }}

@@ -93,9 +93,8 @@ export default function PantryPage() {
       <header className="flex flex-col gap-3 border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Pantry</h1>
         <p className="text-xs text-[var(--muted)]">
-          Your saved foods on the left tab; recipes you&apos;ve built on
-          top of them on the right. Both feed the Nutrition page&apos;s
-          quick-add and the agent&apos;s log tools.
+          Your saved foods on the left tab; recipes you&apos;ve built on top of them on the right.
+          Both feed the Nutrition page&apos;s quick-add and the agent&apos;s log tools.
         </p>
         <TabBar value={tab} onChange={setTab} />
       </header>
@@ -196,9 +195,7 @@ function PantryTab({
 
   const filtered = items
     ? items.filter((p) =>
-        query.trim() === ""
-          ? true
-          : p.name.toLowerCase().includes(query.toLowerCase()),
+        query.trim() === "" ? true : p.name.toLowerCase().includes(query.toLowerCase()),
       )
     : null;
 
@@ -274,9 +271,7 @@ function PantryTab({
           </div>
         )}
 
-        {items === null && (
-          <p className="text-sm text-[var(--muted)]">Loading…</p>
-        )}
+        {items === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
 
         {filtered && filtered.length === 0 && (
           <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
@@ -337,8 +332,8 @@ function PantryRow({
       <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
         <p className="truncate text-sm font-medium">{item.name}</p>
         <p className="text-xs text-[var(--muted)] tabular-nums">
-          {formatNumber(item.calories)} cal · P {formatNumber(item.protein_g)}g ·
-          F {formatNumber(item.fat_g)}g · C {formatNumber(item.carbs_g)}g
+          {formatNumber(item.calories)} cal · P {formatNumber(item.protein_g)}g · F{" "}
+          {formatNumber(item.fat_g)}g · C {formatNumber(item.carbs_g)}g
           <span className="ml-2 text-[10px] uppercase tracking-wider">
             per {formatNumber(item.serving_size)} {item.serving_unit}
           </span>
@@ -449,9 +444,7 @@ function RecipesTab({
           </div>
         )}
 
-        {recipes === null && (
-          <p className="text-sm text-[var(--muted)]">Loading…</p>
-        )}
+        {recipes === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
 
         {recipes && recipes.length === 0 && (
           <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
@@ -534,8 +527,8 @@ function RecipeRow({
         </div>
       </div>
       <p className="text-xs text-[var(--muted)] tabular-nums">
-        {formatNumber(recipe.macros.calories)} cal · P {formatNumber(recipe.macros.protein_g)}g ·
-        F {formatNumber(recipe.macros.fat_g)}g · C {formatNumber(recipe.macros.carbs_g)}g
+        {formatNumber(recipe.macros.calories)} cal · P {formatNumber(recipe.macros.protein_g)}g · F{" "}
+        {formatNumber(recipe.macros.fat_g)}g · C {formatNumber(recipe.macros.carbs_g)}g
         <span className="ml-2 text-[10px] uppercase tracking-wider">per batch</span>
       </p>
       <ul className="flex flex-col gap-0.5 text-xs text-[var(--muted)]">

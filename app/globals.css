@@ -7,13 +7,13 @@
 :root {
   --background: #0a0a0a;
   --foreground: #ededed;
-  --surface: #18181b;       /* zinc-900 — message bubbles, cards */
-  --surface-2: #27272a;     /* zinc-800 — hover states, dividers */
-  --border: #3f3f46;        /* zinc-700 */
-  --muted: #a1a1aa;         /* zinc-400 — secondary text */
-  --accent: #3b82f6;        /* blue-500 — primary action */
+  --surface: #18181b; /* zinc-900 — message bubbles, cards */
+  --surface-2: #27272a; /* zinc-800 — hover states, dividers */
+  --border: #3f3f46; /* zinc-700 */
+  --muted: #a1a1aa; /* zinc-400 — secondary text */
+  --accent: #3b82f6; /* blue-500 — primary action */
   --accent-fg: #ffffff;
-  --danger: #ef4444;        /* red-500 */
+  --danger: #ef4444; /* red-500 */
 }
 
 @theme inline {

@@ -108,9 +108,7 @@ export type SpeechSessionCallbacks = {
  * should feature-detect via getSpeechRecognitionCtor() before
  * showing the mic button at all.
  */
-export function startSpeechSession(
-  callbacks: SpeechSessionCallbacks,
-): SpeechSession {
+export function startSpeechSession(callbacks: SpeechSessionCallbacks): SpeechSession {
   const Ctor = getSpeechRecognitionCtor();
   if (!Ctor) {
     throw new Error("SpeechRecognition is not available in this browser");
