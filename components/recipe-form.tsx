@@ -37,6 +37,7 @@ export function RecipeForm({
   error,
   onSubmit,
   onCancel,
+  onDelete,
 }: {
   initial?: Recipe;
   pantry: PantryItem[];
@@ -45,6 +46,7 @@ export function RecipeForm({
   error?: string | null;
   onSubmit: (payload: RecipePayload) => void;
   onCancel?: () => void;
+  onDelete?: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [components, setComponents] = useState<DraftComponent[]>(
@@ -89,8 +91,7 @@ export function RecipeForm({
     // falling back to the first item overall. Mild UX nicety:
     // adding two rows in a row doesn't duplicate by default.
     const taken = new Set(components.map((c) => c.pantry_item_id));
-    const candidate =
-      pantry.find((p) => !taken.has(p.id)) ?? pantry[0];
+    const candidate = pantry.find((p) => !taken.has(p.id)) ?? pantry[0];
     if (!candidate) return;
     setComponents((prev) => [
       ...prev,
@@ -103,9 +104,7 @@ export function RecipeForm({
   }
 
   function updateComponent(key: string, patch: Partial<DraftComponent>) {
-    setComponents((prev) =>
-      prev.map((c) => (c.key === key ? { ...c, ...patch } : c)),
-    );
+    setComponents((prev) => prev.map((c) => (c.key === key ? { ...c, ...patch } : c)));
   }
 
   function removeComponent(key: string) {
@@ -174,9 +173,7 @@ export function RecipeForm({
       className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
     >
       <label className="flex flex-col gap-1 text-xs">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Name
-        </span>
+        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">Name</span>
         <input
           type="text"
           value={name}
@@ -229,9 +226,7 @@ export function RecipeForm({
         )}
       </div>
 
-      {shownError && (
-        <p className="text-xs text-[var(--danger)]">{shownError}</p>
-      )}
+      {shownError && <p className="text-xs text-[var(--danger)]">{shownError}</p>}
 
       <div className="flex items-center justify-end gap-2">
         {onCancel && (
@@ -242,6 +237,16 @@ export function RecipeForm({
             className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
           >
             Cancel
+          </button>
+        )}
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={busy}
+            className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:opacity-80 disabled:opacity-50"
+          >
+            Delete
           </button>
         )}
         <button
@@ -297,9 +302,7 @@ function ComponentRow({
         ))}
       </select>
       <label className="flex flex-col gap-1 text-xs sm:w-24">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Servings
-        </span>
+        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">Servings</span>
         <input
           type="number"
           min={0}
@@ -362,10 +365,7 @@ function Tile({ label, value }: { label: string; value: string }) {
   return (
     <div className="text-center">
       <p className="text-sm font-semibold tabular-nums">{value}</p>
-      <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
-        {label}
-      </p>
+      <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">{label}</p>
     </div>
   );
 }
-
