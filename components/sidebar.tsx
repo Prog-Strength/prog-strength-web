@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { clearToken } from "@/lib/auth";
+import { BrandMark } from "@/components/brand-mark";
 
 type NavItem = {
   href: string;
@@ -88,17 +89,45 @@ export function Sidebar() {
       }`}
     >
       <div className="flex h-14 items-center justify-between gap-2 border-b border-[var(--border)] px-3">
-        {!collapsed && (
-          <span className="truncate text-sm font-semibold">Prog Strength</span>
+        {collapsed ? (
+          // Collapsed: the brand mark IS the toggle. The whole header
+          // strip is too narrow (w-14 = 56px) to fit mark + chevron
+          // side-by-side, and keeping the mark visible is more useful
+          // than a chevron — users always see the brand identity, and
+          // the same click still expands the sidebar.
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            className="mx-auto flex items-center justify-center rounded p-1 text-[var(--foreground)] transition hover:bg-[var(--surface-2)]"
+          >
+            <BrandMark size={22} />
+          </button>
+        ) : (
+          <>
+            {/* Expanded: brand mark + wordmark are a Link home, and the
+                collapse chevron lives on the right. */}
+            <Link
+              href="/chat"
+              aria-label="Prog Strength home"
+              className="flex min-w-0 items-center gap-2 text-[var(--foreground)] transition hover:opacity-80"
+            >
+              <BrandMark size={22} className="shrink-0" />
+              <span className="truncate text-sm font-semibold">
+                Prog Strength
+              </span>
+            </Link>
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label="Collapse sidebar"
+              className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+            >
+              <ChevronIcon direction="left" />
+            </button>
+          </>
         )}
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-        >
-          <ChevronIcon direction={collapsed ? "right" : "left"} />
-        </button>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 px-2 py-3">

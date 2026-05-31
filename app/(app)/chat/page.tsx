@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { clearToken, getToken } from "@/lib/auth";
+import { BrandMark } from "@/components/brand-mark";
 import { config } from "@/lib/config";
 import { parseSSE } from "@/lib/stream";
 import {
@@ -538,14 +539,23 @@ export default function ChatPage() {
       >
         <div className="mx-auto flex max-w-2xl flex-col gap-4">
           {messages.length === 0 && (
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
-              <p className="font-medium text-[var(--foreground)]">
-                Ask about your training.
-              </p>
-              <p className="mt-1">
-                Try <em>&quot;what chest exercises are in the catalog?&quot;</em>{" "}
-                or paste a workout log and ask it to record the session.
-              </p>
+            // Empty-state card. Brand mark up top gives a fresh chat
+            // surface a clear visual identity instead of a wall of
+            // muted text — feels like opening "the Prog Strength app"
+            // rather than a generic chat box.
+            <div className="flex flex-col items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-center text-sm text-[var(--muted)]">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)]">
+                <BrandMark size={36} />
+              </div>
+              <div className="space-y-1">
+                <p className="font-medium text-[var(--foreground)]">
+                  Ask about your training.
+                </p>
+                <p>
+                  Try <em>&quot;what chest exercises are in the catalog?&quot;</em>{" "}
+                  or paste a workout log and ask it to record the session.
+                </p>
+              </div>
             </div>
           )}
 

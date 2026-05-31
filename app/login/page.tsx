@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { config } from "@/lib/config";
 import { isAuthenticated } from "@/lib/auth";
+import { BrandMark } from "@/components/brand-mark";
 
 /**
  * "Continue with Google" → kicks off OAuth at the API. The API knows how
@@ -34,13 +35,21 @@ export default function LoginPage() {
   return (
     <main className="flex flex-1 items-center justify-center px-6">
       <div className="w-full max-w-sm space-y-8">
-        <header className="space-y-2 text-center">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Prog Strength
-          </h1>
-          <p className="text-sm text-[var(--muted)]">
-            Sign in to track and chat about your training.
-          </p>
+        <header className="flex flex-col items-center space-y-4 text-center">
+          {/* Logo lockup: large brand mark in a soft surface tile, then
+              wordmark + tagline. The tile gives the white P a defined
+              edge without baking a background into the SVG itself. */}
+          <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-lg shadow-black/40">
+            <BrandMark size={56} />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-3xl font-semibold tracking-tight">
+              Prog Strength
+            </h1>
+            <p className="text-sm text-[var(--muted)]">
+              Sign in to track and chat about your training.
+            </p>
+          </div>
         </header>
 
         <a
