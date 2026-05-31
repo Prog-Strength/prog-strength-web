@@ -723,6 +723,73 @@ export async function getDailyMacros(
   return unwrap<DailyMacros[]>(resp, []);
 }
 
+// --- Macro goals --------------------------------------------------
+
+/**
+ * The user's daily macro targets. created_at / updated_at are nullable
+ * because the API returns a zero-valued row with null timestamps when
+ * the user has never set goals — the UI uses the null timestamps as
+ * the "render the empty-state ring outline" signal. See
+ * prog-strength-docs/sows/daily-macro-goals.md.
+ */
+export type MacroGoals = {
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  calories: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+/** Payload for PUT /me/macro-goals. All four fields required. */
+export type PutMacroGoalsPayload = {
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  calories: number;
+};
+
+/**
+ * GET /me/macro-goals. Always 200 — when goals were never set the
+ * response carries zeros and null timestamps. Callers should check
+ * `created_at === null` to render the empty state rather than
+ * comparing the numbers against zero (the user may have legitimately
+ * set everything to 0 to clear a target).
+ */
+export async function getMacroGoals(token: string): Promise<MacroGoals> {
+  const resp = await fetch(`${config.apiUrl}/me/macro-goals`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<MacroGoals>(resp, {
+    protein_g: 0,
+    carbs_g: 0,
+    fat_g: 0,
+    calories: 0,
+    created_at: null,
+    updated_at: null,
+  });
+}
+
+/** PUT /me/macro-goals. Set-replacement; returns the persisted row. */
+export async function putMacroGoals(
+  token: string,
+  payload: PutMacroGoalsPayload,
+): Promise<MacroGoals> {
+  const resp = await fetch(`${config.apiUrl}/me/macro-goals`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return unwrap<MacroGoals>(resp, {
+    ...payload,
+    created_at: null,
+    updated_at: null,
+  });
+}
+
 // --- Bodyweight ---------------------------------------------------
 
 /**

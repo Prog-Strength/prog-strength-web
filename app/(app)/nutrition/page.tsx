@@ -6,14 +6,18 @@ import { clearToken, getToken } from "@/lib/auth";
 import {
   createNutritionLogEntry,
   deleteNutritionLogEntry,
+  getMacroGoals,
   listNutritionLog,
   listPantryItems,
   listRecipes,
+  type MacroGoals,
   type MealType,
   type NutritionLogEntry,
   type PantryItem,
   type Recipe,
 } from "@/lib/api";
+import { MacroGoalRings } from "@/components/macro-goal-rings";
+import { MacroGoalsModal } from "@/components/macro-goals-modal";
 
 // Section order on the page. Pinning here (rather than sorting by
 // section averages of consumed_at) means an empty Lunch still
@@ -46,6 +50,8 @@ export default function NutritionPage() {
   const [entries, setEntries] = useState<NutritionLogEntry[] | null>(null);
   const [pantry, setPantry] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [goals, setGoals] = useState<MacroGoals | null>(null);
+  const [showGoalsModal, setShowGoalsModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -64,11 +70,13 @@ export default function NutritionPage() {
         listNutritionLog(token, { since, until }),
         listPantryItems(token),
         listRecipes(token),
+        getMacroGoals(token),
       ])
-        .then(([logs, pantryItems, recipeList]) => {
+        .then(([logs, pantryItems, recipeList, macroGoals]) => {
           setEntries(logs);
           setPantry(pantryItems);
           setRecipes(recipeList);
+          setGoals(macroGoals);
         })
         .catch((err: Error) => {
           if (err.message.toLowerCase().includes("401")) {
@@ -182,6 +190,14 @@ export default function NutritionPage() {
 
           <MacroSummary totals={totals} entryCount={entries?.length ?? 0} />
 
+          {goals && (
+            <MacroGoalRings
+              totals={totals}
+              goals={goals}
+              onSetGoals={() => setShowGoalsModal(true)}
+            />
+          )}
+
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-semibold tracking-tight">Quick-add</h2>
             <QuickAdd
@@ -207,6 +223,17 @@ export default function NutritionPage() {
           )}
         </div>
       </div>
+      {showGoalsModal && goals && (
+        <MacroGoalsModal
+          token={getToken() ?? ""}
+          initial={goals}
+          onSaved={(saved) => {
+            setGoals(saved);
+            setShowGoalsModal(false);
+          }}
+          onClose={() => setShowGoalsModal(false)}
+        />
+      )}
     </main>
   );
 }
