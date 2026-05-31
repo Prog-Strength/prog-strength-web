@@ -15,6 +15,19 @@ export type StreamEvent =
   // label which model produced the response (Haiku for simple CRUD,
   // Sonnet for analysis). See ModelRouter on the agent side.
   | { type: "model_chosen"; model: string }
+  // Per-sentence TTS mp3 emitted by the agent's voice_streamer when
+  // the request was sent with voice_mode: true. `index` is the
+  // monotonic order the agent assigned (SSE preserves order, but
+  // having it explicit makes debugging trivial). `text` carries the
+  // post-Markdown-stripping sentence for caption / debug overlays.
+  // `mp3_base64` is the audio bytes. See
+  // prog-strength-docs/sows/streaming-tts.md.
+  | {
+      type: "audio_chunk";
+      index: number;
+      text: string;
+      mp3_base64: string;
+    }
   | { type: "done"; stop_reason: string }
   | { type: "error"; message: string };
 

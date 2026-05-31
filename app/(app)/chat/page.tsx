@@ -16,7 +16,7 @@ import {
   patchChatSessionTitle,
   type ChatMessage as PersistedChatMessage,
 } from "@/lib/api";
-import { generateChatSpeech, generateChatTitle } from "@/lib/agent";
+import { generateChatTitle } from "@/lib/agent";
 import {
   getSpeechRecognitionCtor,
   startSpeechSession,
@@ -103,6 +103,20 @@ export default function ChatPage() {
   // mode off mid-playback.
   const playbackRef = useRef<HTMLAudioElement | null>(null);
   const playbackUrlRef = useRef<string | null>(null);
+  // Per-sentence mp3 Blobs queued from the agent's audio_chunk SSE
+  // events. The drainAudioQueue() helper pops the head, plays it,
+  // and chains onto the next via the audio element's onEnded — so
+  // sentences play in order even though the agent's TTS fires them
+  // in parallel server-side. Cleared on new turn / voice toggle off
+  // / unmount via stopPlayback().
+  const audioQueueRef = useRef<Blob[]>([]);
+  // Captures performance.now() when the user pressed Send so the
+  // first audio_chunk's onPlay handler can compute end-to-end TTFA
+  // and POST it to /telemetry/voice. Reset per turn.
+  const turnStartMsRef = useRef<number>(0);
+  // Guards the TTFA telemetry POST so we only report once per turn
+  // even though audio_chunk N+1 also triggers a play() call.
+  const firstAudioReportedRef = useRef<boolean>(false);
 
   // Bootstrap the session on every mount. Two paths:
   //   - URL has ?session=<id>: GET to rehydrate (history + persisted
@@ -180,7 +194,62 @@ export default function ChatPage() {
       URL.revokeObjectURL(playbackUrlRef.current);
       playbackUrlRef.current = null;
     }
+    // Discard any not-yet-played audio chunks too. A new turn after
+    // an interrupted one shouldn't replay the previous turn's
+    // remaining sentences.
+    audioQueueRef.current = [];
+    firstAudioReportedRef.current = false;
   }, []);
+
+  // Pop the head of audioQueueRef and play it; chain onto the next
+  // chunk via onEnded. The first audio that plays in a turn fires
+  // the TTFA telemetry POST exactly once (guarded by
+  // firstAudioReportedRef). Caller-driven — invoked when an
+  // audio_chunk arrives OR by an outer effect that wants to kick
+  // playback if it stalled.
+  const drainAudioQueue = useCallback(() => {
+    if (playbackRef.current) return; // already playing something
+    const blob = audioQueueRef.current.shift();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    playbackUrlRef.current = url;
+    const audio = new Audio(url);
+    playbackRef.current = audio;
+    audio.addEventListener("ended", () => {
+      URL.revokeObjectURL(url);
+      if (playbackUrlRef.current === url) playbackUrlRef.current = null;
+      if (playbackRef.current === audio) playbackRef.current = null;
+      drainAudioQueue();
+    });
+
+    // First audio in this turn — report TTFA. Fire-and-forget; a
+    // network blip on the telemetry endpoint shouldn't affect the
+    // user's voice experience.
+    if (!firstAudioReportedRef.current && turnStartMsRef.current > 0) {
+      firstAudioReportedRef.current = true;
+      const ttfaMs = performance.now() - turnStartMsRef.current;
+      const token = getToken();
+      if (token) {
+        void fetch(`${config.agentUrl}/telemetry/voice`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            session_id: sessionId,
+            time_to_first_audio_ms: ttfaMs,
+          }),
+        }).catch(() => {
+          // Swallow — telemetry failure is invisible to users.
+        });
+      }
+    }
+
+    audio.play().catch((err) => {
+      console.warn("voice mode: audio.play() rejected", err);
+    });
+  }, [sessionId]);
 
   // Clean up any audio playback + speech session on unmount. Without
   // these, a navigation away mid-stream-or-playback leaks the Audio
@@ -295,6 +364,13 @@ export default function ChatPage() {
     setInput("");
     setStreaming(true);
 
+    // Cancel any audio queue / playback left over from a prior turn
+    // and capture the turn-start timestamp so the first audio_chunk
+    // that arrives can compute TTFA against it. firstAudioReported
+    // resets too so the new turn's first chunk fires telemetry.
+    stopPlayback();
+    turnStartMsRef.current = performance.now();
+
     // Track whether this is the first turn of the session so we
     // know to fire the title-generation flow after the append. The
     // pre-append messages array (before this turn) defines "first".
@@ -324,6 +400,13 @@ export default function ChatPage() {
           messages: nextMessages,
           session_id: sessionId,
           client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          // When true, the agent's voice_streamer wraps the SSE
+          // stream with per-sentence audio_chunk events alongside
+          // the text_delta events. The client below handles those
+          // by decoding base64 mp3, queueing Blobs, and chaining
+          // playback via onEnded. See
+          // prog-strength-docs/sows/streaming-tts.md.
+          voice_mode: voiceMode,
         }),
       });
 
@@ -390,6 +473,19 @@ export default function ChatPage() {
           setMessages((prev) =>
             replaceLast(prev, (last) => ({ ...last, model: ev.model })),
           );
+        } else if (ev.type === "audio_chunk") {
+          // Decode the base64 mp3 + push onto the playback queue.
+          // drainAudioQueue is idempotent — calls beyond the first
+          // are no-ops while playback is in flight; the onEnded
+          // handler picks up subsequent chunks. Order is preserved
+          // because the agent yields audio_chunks in source order
+          // even when their TTS calls complete out of order.
+          const bytes = Uint8Array.from(atob(ev.mp3_base64), (c) =>
+            c.charCodeAt(0),
+          );
+          const blob = new Blob([bytes], { type: "audio/mpeg" });
+          audioQueueRef.current.push(blob);
+          drainAudioQueue();
         } else if (ev.type === "error") {
           setError(ev.message);
         }
@@ -427,21 +523,12 @@ export default function ChatPage() {
           void titleAndPatch(token, sessionId, trimmed, assistantText);
         }
 
-        if (voiceMode) {
-          // Background TTS playback. Fire-and-forget like the title
-          // flow; the chat surface stays interactive while the
-          // agent's voice loads. Any failure (503 if OPENAI_API_KEY
-          // unset, 429 if quota exhausted, network blip) is
-          // logged-and-swallowed — voice is enhancement, not core,
-          // and an inline error would punish the user for a server
-          // hiccup that doesn't affect the text they already see.
-          void speakAndPlay(
-            token,
-            assistantText,
-            playbackRef,
-            playbackUrlRef,
-          );
-        }
+        // Voice playback (when voiceMode is on) now rides on the
+        // SSE stream itself via audio_chunk events handled inline
+        // above — no post-stream /speak roundtrip. The streaming-tts
+        // SOW switched us from one-mp3-per-turn to one-mp3-per-
+        // sentence so first audio starts within ~1-2s of send
+        // instead of ~5-12s.
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -475,6 +562,8 @@ export default function ChatPage() {
     sessionPersisted,
     loading,
     voiceMode,
+    stopPlayback,
+    drainAudioQueue,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -682,65 +771,6 @@ function fallbackTitle(userText: string): string {
   const trimmed = userText.trim();
   if (!trimmed) return "New Chat";
   return trimmed.slice(0, 60).trim() || "New Chat";
-}
-
-/**
- * Fetch the spoken version of `text` from the agent's /speak endpoint
- * and start playing it. Updates the audio + url refs the caller
- * holds so subsequent calls can stop the in-flight playback before
- * starting a new one (otherwise overlapping turns would step on
- * each other audibly).
- *
- * Failures are logged and swallowed — voice playback is enhancement;
- * an inline error would punish the user for a transient server
- * blip that doesn't affect the text they already see.
- */
-async function speakAndPlay(
-  token: string,
-  text: string,
-  audioRef: React.MutableRefObject<HTMLAudioElement | null>,
-  urlRef: React.MutableRefObject<string | null>,
-): Promise<void> {
-  // Tear down any in-flight playback first. /speak roundtrips
-  // sequentially, but a slow first reply + a fast second one could
-  // otherwise stack two simultaneous Audio elements.
-  if (audioRef.current) {
-    audioRef.current.pause();
-    audioRef.current.src = "";
-    audioRef.current = null;
-  }
-  if (urlRef.current) {
-    URL.revokeObjectURL(urlRef.current);
-    urlRef.current = null;
-  }
-
-  let blob: Blob;
-  try {
-    blob = await generateChatSpeech(token, text);
-  } catch (err) {
-    // Most likely 503 (no OPENAI_API_KEY) or 429 (quota exceeded).
-    // Either way the user has nothing to act on; log + move on.
-    console.warn("voice mode: /speak failed", err);
-    return;
-  }
-  const url = URL.createObjectURL(blob);
-  urlRef.current = url;
-  const audio = new Audio(url);
-  audioRef.current = audio;
-  audio.addEventListener("ended", () => {
-    URL.revokeObjectURL(url);
-    if (urlRef.current === url) urlRef.current = null;
-    if (audioRef.current === audio) audioRef.current = null;
-  });
-  try {
-    await audio.play();
-  } catch (err) {
-    // Autoplay can be blocked when the user hasn't interacted with
-    // the page yet. In a chat session they always have (they
-    // clicked Send), but we still log so a future regression is
-    // diagnosable.
-    console.warn("voice mode: audio.play() rejected", err);
-  }
 }
 
 /**
