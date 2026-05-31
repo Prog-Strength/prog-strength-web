@@ -16,6 +16,7 @@ import {
   type PantryItem,
   type Recipe,
 } from "@/lib/api";
+import { DateTileStrip } from "@/components/date-tile-strip";
 import { MacroGoalRings } from "@/components/macro-goal-rings";
 import { MacroGoalsModal } from "@/components/macro-goals-modal";
 import { QuickAddModal } from "@/components/quick-add-modal";
@@ -178,11 +179,8 @@ export default function NutritionPage() {
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex flex-col gap-3 border-b border-[var(--border)] px-6 py-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">Nutrition</h1>
-          <DateSelector value={date} onChange={setDate} />
-        </div>
+      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
+        <h1 className="text-lg font-semibold tracking-tight">Nutrition</h1>
         <p className="text-xs text-[var(--muted)]">
           Log meals here or in chat. Macros are frozen at log time, so
           editing a pantry item later won&apos;t rewrite this day.
@@ -196,6 +194,8 @@ export default function NutritionPage() {
               {error}
             </div>
           )}
+
+          <DateTileStrip value={date} onChange={setDate} />
 
           {goals && <MacroGoalRings totals={totals} goals={goals} />}
 
@@ -255,53 +255,6 @@ export default function NutritionPage() {
         />
       )}
     </main>
-  );
-}
-
-function DateSelector({
-  value,
-  onChange,
-}: {
-  value: Date;
-  onChange: (d: Date) => void;
-}) {
-  const isToday = sameLocalDay(value, new Date());
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => onChange(addDays(value, -1))}
-        className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs hover:opacity-80"
-        aria-label="Previous day"
-      >
-        ←
-      </button>
-      <input
-        type="date"
-        value={toLocalDateInputValue(value)}
-        onChange={(e) => {
-          if (e.target.value) onChange(fromLocalDateInputValue(e.target.value));
-        }}
-        className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs tabular-nums"
-      />
-      <button
-        type="button"
-        onClick={() => onChange(addDays(value, 1))}
-        className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs hover:opacity-80"
-        aria-label="Next day"
-      >
-        →
-      </button>
-      {!isToday && (
-        <button
-          type="button"
-          onClick={() => onChange(startOfLocalDay(new Date()))}
-          className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs hover:opacity-80"
-        >
-          Today
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -496,26 +449,6 @@ function sameLocalDay(a: Date, b: Date): boolean {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   );
-}
-
-function addDays(d: Date, days: number): Date {
-  const out = new Date(d);
-  out.setDate(out.getDate() + days);
-  return startOfLocalDay(out);
-}
-
-function toLocalDateInputValue(d: Date): string {
-  // <input type="date"> expects YYYY-MM-DD in the user's local time —
-  // toISOString() would render UTC and slip a day around midnight.
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function fromLocalDateInputValue(v: string): Date {
-  const [y, m, d] = v.split("-").map((s) => Number(s));
-  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
 }
 
 function formatNumber(v: number): string {
