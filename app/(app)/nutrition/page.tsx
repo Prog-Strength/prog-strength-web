@@ -188,8 +188,6 @@ export default function NutritionPage() {
             </div>
           )}
 
-          <MacroSummary totals={totals} entryCount={entries?.length ?? 0} />
-
           {goals && (
             <MacroGoalRings
               totals={totals}
@@ -281,78 +279,6 @@ function DateSelector({
           Today
         </button>
       )}
-    </div>
-  );
-}
-
-function MacroSummary({
-  totals,
-  entryCount,
-}: {
-  totals: { calories: number; protein_g: number; fat_g: number; carbs_g: number };
-  entryCount: number;
-}) {
-  // Show each macro's share of total calories. Reminder of the
-  // 4/4/9 per-gram math: protein = 4cal/g, carbs = 4cal/g, fat = 9cal/g.
-  // Useful UI cue regardless of any explicit goal config — gives the
-  // user a sense of macro split even without a "set my targets" flow.
-  const proteinCal = totals.protein_g * 4;
-  const carbCal = totals.carbs_g * 4;
-  const fatCal = totals.fat_g * 9;
-  const totalMacroCal = proteinCal + carbCal + fatCal;
-  const pct = (n: number) =>
-    totalMacroCal > 0 ? Math.round((n / totalMacroCal) * 100) : 0;
-
-  return (
-    <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <MacroTile
-        label="Calories"
-        value={formatNumber(totals.calories)}
-        sublabel={`${entryCount} ${entryCount === 1 ? "entry" : "entries"}`}
-        accent="text-[var(--foreground)]"
-      />
-      <MacroTile
-        label="Protein"
-        value={`${formatNumber(totals.protein_g)} g`}
-        sublabel={`${pct(proteinCal)}% of macro cal`}
-        accent="text-emerald-300"
-      />
-      <MacroTile
-        label="Carbs"
-        value={`${formatNumber(totals.carbs_g)} g`}
-        sublabel={`${pct(carbCal)}% of macro cal`}
-        accent="text-amber-300"
-      />
-      <MacroTile
-        label="Fat"
-        value={`${formatNumber(totals.fat_g)} g`}
-        sublabel={`${pct(fatCal)}% of macro cal`}
-        accent="text-pink-300"
-      />
-    </section>
-  );
-}
-
-function MacroTile({
-  label,
-  value,
-  sublabel,
-  accent,
-}: {
-  label: string;
-  value: string;
-  sublabel: string;
-  accent: string;
-}) {
-  return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-      <p className={`text-2xl font-semibold tracking-tight tabular-nums ${accent}`}>
-        {value}
-      </p>
-      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-        {label}
-      </p>
-      <p className="mt-1 text-[10px] text-[var(--muted)]">{sublabel}</p>
     </div>
   );
 }
