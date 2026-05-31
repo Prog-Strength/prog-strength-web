@@ -312,7 +312,18 @@ export default function ChatPage() {
           // a useful signal for shared middleware (e.g. Caddy).
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({ messages: nextMessages, session_id: sessionId }),
+        // client_timezone is the IANA name detected by the browser
+        // (e.g. "America/Denver"). The agent uses it to compute the
+        // user's local date and prepend it to the system prompt so
+        // the model answers "did I work out yesterday?" against the
+        // actual local-day boundary instead of UTC. Server falls
+        // back to UTC if the value is missing or unrecognized, so
+        // a browser without Intl support never breaks /chat.
+        body: JSON.stringify({
+          messages: nextMessages,
+          session_id: sessionId,
+          client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
 
       if (resp.status === 401) {
