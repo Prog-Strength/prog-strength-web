@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import { MacroGoalRings } from "@/components/macro-goal-rings";
 import { MacroGoalsModal } from "@/components/macro-goals-modal";
+import { QuickAddModal } from "@/components/quick-add-modal";
 
 // Section order on the page. Pinning here (rather than sorting by
 // section averages of consumed_at) means an empty Lunch still
@@ -52,6 +53,7 @@ export default function NutritionPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [goals, setGoals] = useState<MacroGoals | null>(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -120,15 +122,19 @@ export default function NutritionPage() {
     return out;
   }, [entries]);
 
+  // Returns a Promise so the QuickAddModal can await it: on resolve
+  // the modal closes itself; on reject the modal stays open and reads
+  // the error message off `logError`. Error state is set in the catch
+  // before we re-throw so the modal sees the latest message.
   function handleLog(
     source: { kind: "pantry" | "recipe"; id: string },
     quantity: number,
     meal: MealType,
-  ) {
+  ): Promise<void> {
     const token = getToken();
     if (!token) {
       router.replace("/login");
-      return;
+      return Promise.reject(new Error("not signed in"));
     }
     setLogBusy(true);
     setLogError(null);
@@ -137,7 +143,7 @@ export default function NutritionPage() {
     // as the previous day in some zones" trap on backdated logs.
     const isToday = sameLocalDay(date, new Date());
     const consumedAt = isToday ? new Date() : new Date(date.getTime() + 12 * 60 * 60 * 1000);
-    createNutritionLogEntry(token, {
+    return createNutritionLogEntry(token, {
       ...(source.kind === "pantry"
         ? { pantry_item_id: source.id }
         : { recipe_id: source.id }),
@@ -148,7 +154,10 @@ export default function NutritionPage() {
       .then((entry) => {
         setEntries((prev) => (prev ? [entry, ...prev] : [entry]));
       })
-      .catch((err: Error) => setLogError(err.message))
+      .catch((err: Error) => {
+        setLogError(err.message);
+        throw err;
+      })
       .finally(() => setLogBusy(false));
   }
 
@@ -196,16 +205,15 @@ export default function NutritionPage() {
             />
           )}
 
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold tracking-tight">Quick-add</h2>
-            <QuickAdd
-              pantry={pantry}
-              recipes={recipes}
-              busy={logBusy}
-              error={logError}
-              onLog={handleLog}
-            />
-          </section>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowQuickAdd(true)}
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-80"
+            >
+              + Quick add
+            </button>
+          </div>
 
           {entries === null && (
             <p className="text-sm text-[var(--muted)]">Loading…</p>
@@ -230,6 +238,16 @@ export default function NutritionPage() {
             setShowGoalsModal(false);
           }}
           onClose={() => setShowGoalsModal(false)}
+        />
+      )}
+      {showQuickAdd && (
+        <QuickAddModal
+          pantry={pantry}
+          recipes={recipes}
+          busy={logBusy}
+          error={logError}
+          onLog={handleLog}
+          onClose={() => setShowQuickAdd(false)}
         />
       )}
     </main>
@@ -280,141 +298,6 @@ function DateSelector({
         </button>
       )}
     </div>
-  );
-}
-
-function QuickAdd({
-  pantry,
-  recipes,
-  busy,
-  error,
-  onLog,
-}: {
-  pantry: PantryItem[];
-  recipes: Recipe[];
-  busy: boolean;
-  error: string | null;
-  onLog: (
-    source: { kind: "pantry" | "recipe"; id: string },
-    quantity: number,
-    meal: MealType,
-  ) => void;
-}) {
-  // Picker value is a "kind:id" string so a single <select> can host
-  // both pantry items and recipes. Parsed back into the discriminated
-  // shape at log time.
-  const [selection, setSelection] = useState<string>("");
-  const [quantity, setQuantity] = useState<string>("1");
-  // Meal default tracks the user's local time of day on mount.
-  // After they submit, we leave the meal where they last left it
-  // (rather than re-inferring) so a string of breakfast entries
-  // doesn't suddenly snap to "lunch" because they crossed an
-  // imaginary boundary mid-logging.
-  const [meal, setMeal] = useState<MealType>(() => defaultMealForLocalHour(new Date()));
-
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const q = Number(quantity);
-    if (!selection || !Number.isFinite(q) || q <= 0) return;
-    const [kind, id] = selection.split(":", 2);
-    if ((kind !== "pantry" && kind !== "recipe") || !id) return;
-    onLog({ kind, id }, q, meal);
-    // Keep selection + meal so logging the same thing twice in a
-    // row is fast; reset quantity to 1 as the friction-minimizing
-    // default.
-    setQuantity("1");
-  }
-
-  if (pantry.length === 0 && recipes.length === 0) {
-    return (
-      <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
-        Add a pantry item first.{" "}
-        <a className="text-[var(--accent)] hover:underline" href="/pantry">
-          Go to Pantry →
-        </a>
-      </p>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={submit}
-      className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-end"
-    >
-      <label className="flex flex-1 flex-col gap-1 text-xs">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Item or recipe
-        </span>
-        <select
-          value={selection}
-          onChange={(e) => setSelection(e.target.value)}
-          disabled={busy}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
-        >
-          <option value="">Pick something…</option>
-          {recipes.length > 0 && (
-            <optgroup label="Recipes">
-              {recipes.map((r) => (
-                <option key={`recipe:${r.id}`} value={`recipe:${r.id}`}>
-                  {r.name} ({formatNumber(r.macros.calories)} cal / batch)
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {pantry.length > 0 && (
-            <optgroup label="Pantry items">
-              {pantry.map((p) => (
-                <option key={`pantry:${p.id}`} value={`pantry:${p.id}`}>
-                  {p.name} ({formatNumber(p.calories)} cal/
-                  {formatNumber(p.serving_size)} {p.serving_unit})
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-      </label>
-      <label className="flex w-full flex-col gap-1 text-xs sm:w-32">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Meal
-        </span>
-        <select
-          value={meal}
-          onChange={(e) => setMeal(e.target.value as MealType)}
-          disabled={busy}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
-        >
-          {MEAL_ORDER.map((m) => (
-            <option key={m} value={m}>
-              {MEAL_LABELS[m]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex w-full flex-col gap-1 text-xs sm:w-24">
-        <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Servings
-        </span>
-        <input
-          type="number"
-          min={0}
-          step="any"
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          disabled={busy}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm tabular-nums"
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={busy || !selection}
-        className="rounded-md bg-[var(--accent)] px-4 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
-      >
-        {busy ? "Logging…" : "Log"}
-      </button>
-      {error && (
-        <p className="w-full text-xs text-[var(--danger)] sm:ml-3">{error}</p>
-      )}
-    </form>
   );
 }
 
@@ -594,19 +477,6 @@ function MealSection({
 }
 
 // --- helpers --------------------------------------------------------------
-
-// defaultMealForLocalHour picks a sensible meal based on the user's
-// local time. Loose ranges — covers the bulk case, the picker is
-// always overridable. Outside the meal windows we default to snack
-// because off-meal foods (coffee, fruit, a protein bar) are usually
-// what's logged in those hours.
-function defaultMealForLocalHour(d: Date): MealType {
-  const h = d.getHours();
-  if (h >= 4 && h < 11) return "breakfast";
-  if (h >= 11 && h < 15) return "lunch";
-  if (h >= 17 && h < 22) return "dinner";
-  return "snack";
-}
 
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
