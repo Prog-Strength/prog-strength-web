@@ -47,7 +47,6 @@ const COLORS = {
 export function MacroGoalRings({
   totals,
   goals,
-  onSetGoals,
 }: {
   totals: {
     protein_g: number;
@@ -56,24 +55,14 @@ export function MacroGoalRings({
     calories: number;
   };
   goals: MacroGoals;
-  onSetGoals: () => void;
 }) {
   const goalsAreSet = goals.created_at !== null;
 
   return (
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-          Today
-        </h2>
-        <button
-          type="button"
-          onClick={onSetGoals}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs hover:opacity-80"
-        >
-          {goalsAreSet ? "Edit goals" : "Set goals"}
-        </button>
-      </div>
+      <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+        Today
+      </h2>
 
       {!goalsAreSet && (
         <p className="mb-3 text-xs text-[var(--muted)]">

@@ -197,22 +197,26 @@ export default function NutritionPage() {
             </div>
           )}
 
-          {goals && (
-            <MacroGoalRings
-              totals={totals}
-              goals={goals}
-              onSetGoals={() => setShowGoalsModal(true)}
-            />
-          )}
+          {goals && <MacroGoalRings totals={totals} goals={goals} />}
 
-          <div className="flex justify-end">
-            <button
-              type="button"
+          {/* Small toolbar sitting above the meal sections. White
+              icon-text buttons (no fill, no border) keep the page's
+              visual weight on the rings; the bottom border doubles as
+              the separator between the toolbar and the daily log
+              below. Goals-not-set vs goals-set decides the second
+              button's label so the same affordance covers both
+              flows. */}
+          <div className="flex items-center gap-5 border-b border-[var(--border)] pb-3">
+            <ToolbarButton
               onClick={() => setShowQuickAdd(true)}
-              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-80"
-            >
-              + Quick add
-            </button>
+              icon={<PlusIcon />}
+              label="Quick Add"
+            />
+            <ToolbarButton
+              onClick={() => setShowGoalsModal(true)}
+              icon={<PencilIcon />}
+              label={goals?.created_at ? "Edit Macros" : "Set Macros"}
+            />
           </div>
 
           {entries === null && (
@@ -525,4 +529,72 @@ function formatLocalTime(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+// --- Toolbar bits --------------------------------------------------
+
+// Ghost-style button — no fill, no border. The icon and the label
+// both ride on `text-[var(--foreground)]` so the white-on-dark theme
+// reads as "clickable text with an icon" rather than a heavyweight
+// action chip. The bottom-border on the parent flex row provides the
+// only visual frame.
+function ToolbarButton({
+  onClick,
+  icon,
+  label,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+// Inline SVG icons rather than pulling in lucide-react or heroicons:
+// two icons used in exactly one place, so the dependency cost isn't
+// worth saving ~30 lines. `currentColor` lets the parent button drive
+// the stroke color, which means the white-on-dark theme + any future
+// theme swap just work.
+function PlusIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
 }
