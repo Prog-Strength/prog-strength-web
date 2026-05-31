@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   createNutritionLogEntry,
@@ -21,26 +21,42 @@ import { MacroGoalRings } from "@/components/macro-goal-rings";
 import { MacroGoalsModal } from "@/components/macro-goals-modal";
 import { QuickAddModal } from "@/components/quick-add-modal";
 import { NutritionLogView } from "@/components/nutrition/nutrition-log-view";
+import { PantryView } from "@/components/nutrition/pantry-view";
+import { RecipesView } from "@/components/nutrition/recipes-view";
+
+type View = "log" | "pantry" | "recipes";
+
+function parseView(raw: string | null): View {
+  if (raw === "pantry" || raw === "recipes") return raw;
+  return "log";
+}
 
 /**
- * Nutrition — today's log + macro widget for a navigable date.
+ * Nutrition — daily log + macro widget + Pantry/Recipes catalogs,
+ * switched by the ?view= URL param.
  *
- * The date selector defaults to the user's local "today" and supports
- * previous/next/picker controls. Behind the scenes the API queries are
- * scoped by UTC bounds derived from the local-day boundaries — the SOW
- * deliberately keeps timezone math client-side for v1.
- *
- * The macro widget at the top sums whatever's in `entries` for the
- * selected day (rather than calling /nutrition-log/daily separately)
- * because we already have the per-entry rows on hand. Saves a round
- * trip; the math is trivial.
+ * The page is split into an outer Suspense wrapper and an inner
+ * component so the inner can use `useSearchParams` without tripping
+ * Next 16's prerender requirement (see
+ * node_modules/next/dist/docs/01-app/03-api-reference/04-functions/use-search-params.md).
  */
 export default function NutritionPage() {
+  return (
+    <Suspense fallback={null}>
+      <NutritionPageInner />
+    </Suspense>
+  );
+}
+
+function NutritionPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const view = parseView(searchParams.get("view"));
+
   const [date, setDate] = useState<Date>(() => startOfLocalDay(new Date()));
   const [entries, setEntries] = useState<NutritionLogEntry[] | null>(null);
-  const [pantry, setPantry] = useState<PantryItem[]>([]);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [pantry, setPantry] = useState<PantryItem[] | null>(null);
+  const [recipes, setRecipes] = useState<Recipe[] | null>(null);
   const [goals, setGoals] = useState<MacroGoals | null>(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -49,55 +65,77 @@ export default function NutritionPage() {
   const [logError, setLogError] = useState<string | null>(null);
   const [rowBusyID, setRowBusyID] = useState<string | null>(null);
 
-  const refetch = useCallback(
-    (d: Date) => {
-      const token = getToken();
-      if (!token) {
+  const requireToken = useCallback((): string | null => {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return null;
+    }
+    return token;
+  }, [router]);
+
+  const handleApiError = useCallback(
+    (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.toLowerCase().includes("401")) {
+        clearToken();
         router.replace("/login");
         return;
       }
-      const since = d.toISOString();
-      const until = endOfLocalDay(d).toISOString();
-      Promise.all([
-        listNutritionLog(token, { since, until }),
-        listPantryItems(token),
-        listRecipes(token),
-        getMacroGoals(token),
-      ])
-        .then(([logs, pantryItems, recipeList, macroGoals]) => {
-          setEntries(logs);
-          setPantry(pantryItems);
-          setRecipes(recipeList);
-          setGoals(macroGoals);
-        })
-        .catch((err: Error) => {
-          if (err.message.toLowerCase().includes("401")) {
-            clearToken();
-            router.replace("/login");
-            return;
-          }
-          setError(err.message);
-        });
+      setError(msg);
     },
     [router],
   );
 
-  useEffect(() => {
-    refetch(date);
-  }, [date, refetch]);
+  const fetchEntries = useCallback(
+    (d: Date) => {
+      const token = requireToken();
+      if (!token) return;
+      const since = d.toISOString();
+      const until = endOfLocalDay(d).toISOString();
+      listNutritionLog(token, { since, until }).then(setEntries).catch(handleApiError);
+    },
+    [requireToken, handleApiError],
+  );
 
-  // Pantry-item lookup for entry row rendering — entries carry a
-  // pantry_item_id (or recipe_id) but no name; denormalized macros are
-  // the only thing on the entry row itself. Same shape for the
-  // recipe lookup below.
+  const fetchPantry = useCallback(() => {
+    const token = requireToken();
+    if (!token) return;
+    listPantryItems(token).then(setPantry).catch(handleApiError);
+  }, [requireToken, handleApiError]);
+
+  const fetchRecipes = useCallback(() => {
+    const token = requireToken();
+    if (!token) return;
+    listRecipes(token).then(setRecipes).catch(handleApiError);
+  }, [requireToken, handleApiError]);
+
+  const fetchGoals = useCallback(() => {
+    const token = requireToken();
+    if (!token) return;
+    getMacroGoals(token).then(setGoals).catch(handleApiError);
+  }, [requireToken, handleApiError]);
+
+  // Mount: load the date-independent resources once.
+  useEffect(() => {
+    fetchPantry();
+    fetchRecipes();
+    fetchGoals();
+  }, [fetchPantry, fetchRecipes, fetchGoals]);
+
+  // Date change: only the log entries depend on the date.
+  useEffect(() => {
+    fetchEntries(date);
+  }, [date, fetchEntries]);
+
   const pantryByID = useMemo(() => {
     const m = new Map<string, PantryItem>();
-    for (const p of pantry) m.set(p.id, p);
+    for (const p of pantry ?? []) m.set(p.id, p);
     return m;
   }, [pantry]);
   const recipeByID = useMemo(() => {
     const m = new Map<string, Recipe>();
-    for (const r of recipes) m.set(r.id, r);
+    for (const r of recipes ?? []) m.set(r.id, r);
     return m;
   }, [recipes]);
 
@@ -112,25 +150,19 @@ export default function NutritionPage() {
     return out;
   }, [entries]);
 
-  // Returns a Promise so the QuickAddModal can await it: on resolve
-  // the modal closes itself; on reject the modal stays open and reads
-  // the error message off `logError`. Error state is set in the catch
-  // before we re-throw so the modal sees the latest message.
+  function setView(next: View) {
+    router.replace(next === "log" ? "/nutrition" : `/nutrition?view=${next}`);
+  }
+
   function handleLog(
     source: { kind: "pantry" | "recipe"; id: string },
     quantity: number,
     meal: MealType,
   ): Promise<void> {
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return Promise.reject(new Error("not signed in"));
-    }
+    const token = requireToken();
+    if (!token) return Promise.reject(new Error("not signed in"));
     setLogBusy(true);
     setLogError(null);
-    // consumed_at: noon on the selected local day if not today; current
-    // local time if today. Noon avoids the "midnight UTC entry shows
-    // as the previous day in some zones" trap on backdated logs.
     const isToday = sameLocalDay(date, new Date());
     const consumedAt = isToday ? new Date() : new Date(date.getTime() + 12 * 60 * 60 * 1000);
     return createNutritionLogEntry(token, {
@@ -142,27 +174,36 @@ export default function NutritionPage() {
       .then((entry) => {
         setEntries((prev) => (prev ? [entry, ...prev] : [entry]));
       })
-      .catch((err: Error) => {
-        setLogError(err.message);
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        setLogError(msg);
         throw err;
       })
       .finally(() => setLogBusy(false));
   }
 
   function handleDelete(id: string) {
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
+    const token = requireToken();
+    if (!token) return;
     setRowBusyID(id);
     deleteNutritionLogEntry(token, id)
       .then(() => {
         setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+      })
       .finally(() => setRowBusyID(null));
   }
+
+  // Triggered by pantry-item mutations. Recipes' derived macros
+  // depend on pantry items, so refresh both.
+  const onPantryChanged = useCallback(() => {
+    fetchPantry();
+    fetchRecipes();
+  }, [fetchPantry, fetchRecipes]);
+
+  const token = getToken() ?? "";
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
@@ -186,38 +227,58 @@ export default function NutritionPage() {
 
           {goals && <MacroGoalRings totals={totals} goals={goals} date={date} />}
 
-          {/* Small toolbar sitting above the meal sections. White
-              icon-text buttons (no fill, no border) keep the page's
-              visual weight on the rings; the bottom border doubles as
-              the separator between the toolbar and the daily log
-              below. Goals-not-set vs goals-set decides the second
-              button's label so the same affordance covers both
-              flows. */}
-          <div className="flex items-center gap-5 border-b border-[var(--border)] pb-3">
-            <ToolbarButton
-              onClick={() => setShowQuickAdd(true)}
-              icon={<PlusIcon />}
-              label="Quick Add"
-            />
-            <ToolbarButton
-              onClick={() => setShowGoalsModal(true)}
-              icon={<PencilIcon />}
-              label={goals?.created_at ? "Edit Macros" : "Set Macros"}
-            />
+          {/* Toolbar row: left group are actions, right group are view
+              switches. The bottom border of this row doubles as the
+              separator between the toolbar and the body below. */}
+          <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <div className="flex items-center gap-5">
+              <ToolbarButton
+                onClick={() => setShowQuickAdd(true)}
+                icon={<PlusIcon />}
+                label="Quick Add"
+              />
+              <ToolbarButton
+                onClick={() => setShowGoalsModal(true)}
+                icon={<PencilIcon />}
+                label={goals?.created_at ? "Edit Macros" : "Set Macros"}
+              />
+            </div>
+            <div className="flex items-center gap-5">
+              <ToolbarButton
+                onClick={() => setView("pantry")}
+                icon={<JarIcon />}
+                label="Pantry"
+                active={view === "pantry"}
+              />
+              <ToolbarButton
+                onClick={() => setView("recipes")}
+                icon={<ListIcon />}
+                label="Recipes"
+                active={view === "recipes"}
+              />
+            </div>
           </div>
 
-          <NutritionLogView
-            entries={entries}
-            pantryByID={pantryByID}
-            recipeByID={recipeByID}
-            rowBusyID={rowBusyID}
-            onDelete={handleDelete}
-          />
+          {view === "log" && (
+            <NutritionLogView
+              entries={entries}
+              pantryByID={pantryByID}
+              recipeByID={recipeByID}
+              rowBusyID={rowBusyID}
+              onDelete={handleDelete}
+            />
+          )}
+          {view === "pantry" && (
+            <PantryView token={token} pantry={pantry} onChanged={onPantryChanged} />
+          )}
+          {view === "recipes" && (
+            <RecipesView token={token} pantry={pantry} recipes={recipes} onChanged={fetchRecipes} />
+          )}
         </div>
       </div>
       {showGoalsModal && goals && (
         <MacroGoalsModal
-          token={getToken() ?? ""}
+          token={token}
           initial={goals}
           onSaved={(saved) => {
             setGoals(saved);
@@ -228,8 +289,8 @@ export default function NutritionPage() {
       )}
       {showQuickAdd && (
         <QuickAddModal
-          pantry={pantry}
-          recipes={recipes}
+          pantry={pantry ?? []}
+          recipes={recipes ?? []}
           busy={logBusy}
           error={logError}
           onLog={handleLog}
@@ -260,25 +321,31 @@ function sameLocalDay(a: Date, b: Date): boolean {
 
 // --- Toolbar bits --------------------------------------------------
 
-// Ghost-style button — no fill, no border. The icon and the label
-// both ride on `text-[var(--foreground)]` so the white-on-dark theme
-// reads as "clickable text with an icon" rather than a heavyweight
-// action chip. The bottom-border on the parent flex row provides the
-// only visual frame.
+/**
+ * Ghost-style button. When `active` is true (used by the Pantry and
+ * Recipes tabs), the button paints a 2px underline that aligns with
+ * the parent row's bottom border, so the active tab visually
+ * "connects" to the separator below.
+ */
 function ToolbarButton({
   onClick,
   icon,
   label,
+  active,
 }: {
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  active?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70"
+      className={
+        "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 " +
+        (active ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3" : "")
+      }
     >
       {icon}
       {label}
@@ -286,11 +353,6 @@ function ToolbarButton({
   );
 }
 
-// Inline SVG icons rather than pulling in lucide-react or heroicons:
-// two icons used in exactly one place, so the dependency cost isn't
-// worth saving ~30 lines. `currentColor` lets the parent button drive
-// the stroke color, which means the white-on-dark theme + any future
-// theme swap just work.
 function PlusIcon() {
   return (
     <svg
@@ -322,6 +384,47 @@ function PencilIcon() {
     >
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+
+function JarIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M7 4h10v3H7z" />
+      <path d="M6 9h12v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V9z" />
+      <path d="M9 13h6" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M8 6h13" />
+      <path d="M8 12h13" />
+      <path d="M8 18h13" />
+      <circle cx="4" cy="6" r="0.5" fill="currentColor" />
+      <circle cx="4" cy="12" r="0.5" fill="currentColor" />
+      <circle cx="4" cy="18" r="0.5" fill="currentColor" />
     </svg>
   );
 }
