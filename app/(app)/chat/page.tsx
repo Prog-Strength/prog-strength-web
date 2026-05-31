@@ -15,7 +15,12 @@ import {
   patchChatSessionTitle,
   type ChatMessage as PersistedChatMessage,
 } from "@/lib/api";
-import { generateChatTitle } from "@/lib/agent";
+import { generateChatSpeech, generateChatTitle } from "@/lib/agent";
+import {
+  getSpeechRecognitionCtor,
+  startSpeechSession,
+  type SpeechSession,
+} from "@/lib/speech";
 
 /**
  * A tool the agent invoked during a single assistant turn. State
@@ -40,6 +45,14 @@ type Message = {
   // turns show "via Haiku" / "via Sonnet" labels.
   model?: string;
 };
+
+// Feature-detect SpeechRecognition once at module load. Anywhere in the
+// page that gates a mic-related affordance reads this — null means we
+// hide the button entirely. Computed once because the support state
+// doesn't change at runtime, and the chat page re-renders enough that
+// running the lookup per render would be wasteful.
+const SPEECH_CTOR = getSpeechRecognitionCtor();
+const SPEECH_SUPPORTED = SPEECH_CTOR !== null;
 
 export default function ChatPage() {
   const router = useRouter();
@@ -70,6 +83,25 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // Voice mode: when on, the page asks the agent's /speak endpoint
+  // for an mp3 of each completed assistant turn and plays it. Off
+  // by default; survives component-level re-renders but not refresh
+  // (per the voice-chat SOW's "session-only" lean).
+  const [voiceMode, setVoiceMode] = useState(false);
+  // True while the mic button is held and the Web Speech API is
+  // actively listening. Drives the pulsing-red mic visual.
+  const [listening, setListening] = useState(false);
+  // Holds the active session so a re-render or a mouseleave can
+  // tear it down cleanly. Ref (not state) because the recognition
+  // object is a mutable browser handle, not render state.
+  const speechSessionRef = useRef<SpeechSession | null>(null);
+  // The audio element + the blob URL used to play the agent's most
+  // recent spoken reply. Stored in refs so we can stop playback and
+  // revoke the URL when the user starts a new turn or toggles voice
+  // mode off mid-playback.
+  const playbackRef = useRef<HTMLAudioElement | null>(null);
+  const playbackUrlRef = useRef<string | null>(null);
 
   // Bootstrap the session on every mount. Two paths:
   //   - URL has ?session=<id>: GET to rehydrate (history + persisted
@@ -132,6 +164,90 @@ export default function ChatPage() {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
   }, [messages, streaming]);
+
+  // Stop + revoke any in-flight audio. Idempotent — safe to call
+  // even when nothing is playing. The blob URL revocation matters
+  // because each /speak roundtrip mints a fresh one and a long
+  // session would otherwise leak them.
+  const stopPlayback = useCallback(() => {
+    if (playbackRef.current) {
+      playbackRef.current.pause();
+      playbackRef.current.src = "";
+      playbackRef.current = null;
+    }
+    if (playbackUrlRef.current) {
+      URL.revokeObjectURL(playbackUrlRef.current);
+      playbackUrlRef.current = null;
+    }
+  }, []);
+
+  // Clean up any audio playback + speech session on unmount. Without
+  // these, a navigation away mid-stream-or-playback leaks the Audio
+  // element and the blob URL the browser is holding for it.
+  useEffect(() => {
+    return () => {
+      stopPlayback();
+      speechSessionRef.current?.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Push-to-talk: mouse/touch DOWN starts a recognition session,
+  // mouse/touch UP (or LEAVE) stops it. Web Speech API fills the
+  // composer's input state live as the user speaks; release commits
+  // the transcript but doesn't send — the user can edit before
+  // hitting Send, the standard manual safety net for misheard words.
+  const startListening = useCallback(() => {
+    if (!SPEECH_SUPPORTED || listening) return;
+    setError(null);
+    // Stop any agent-reply audio playing — listening over the agent's
+    // voice would just feed it back into the recognizer.
+    stopPlayback();
+    try {
+      const session = startSpeechSession({
+        onTranscript: (transcript) => {
+          setInput(transcript);
+        },
+        onEnd: () => {
+          setListening(false);
+          speechSessionRef.current = null;
+        },
+        onError: (errCode) => {
+          // "not-allowed" is the only error worth surfacing — the
+          // user has to grant mic permission in browser settings.
+          // "no-speech" and "aborted" are routine and noisy.
+          if (errCode === "not-allowed") {
+            setError(
+              "Microphone access is blocked. Allow it in your browser's site settings.",
+            );
+          }
+          setListening(false);
+          speechSessionRef.current = null;
+        },
+      });
+      speechSessionRef.current = session;
+      setListening(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Voice input failed to start");
+    }
+  }, [listening, stopPlayback]);
+
+  const stopListening = useCallback(() => {
+    if (speechSessionRef.current) {
+      speechSessionRef.current.stop();
+      // onEnd flips `listening` to false and clears the ref.
+    }
+  }, []);
+
+  const toggleVoiceMode = useCallback(() => {
+    setVoiceMode((prev) => {
+      const next = !prev;
+      // Turning voice mode off mid-playback should silence the
+      // active audio — surprising otherwise.
+      if (!next) stopPlayback();
+      return next;
+    });
+  }, [stopPlayback]);
 
   const send = useCallback(async () => {
     const trimmed = input.trim();
@@ -298,6 +414,22 @@ export default function ChatPage() {
           // title is sane even if the agent /title endpoint fails.
           void titleAndPatch(token, sessionId, trimmed, assistantText);
         }
+
+        if (voiceMode) {
+          // Background TTS playback. Fire-and-forget like the title
+          // flow; the chat surface stays interactive while the
+          // agent's voice loads. Any failure (503 if OPENAI_API_KEY
+          // unset, 429 if quota exhausted, network blip) is
+          // logged-and-swallowed — voice is enhancement, not core,
+          // and an inline error would punish the user for a server
+          // hiccup that doesn't affect the text they already see.
+          void speakAndPlay(
+            token,
+            assistantText,
+            playbackRef,
+            playbackUrlRef,
+          );
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -322,7 +454,16 @@ export default function ChatPage() {
     } finally {
       setStreaming(false);
     }
-  }, [input, streaming, messages, router, sessionId, sessionPersisted, loading]);
+  }, [
+    input,
+    streaming,
+    messages,
+    router,
+    sessionId,
+    sessionPersisted,
+    loading,
+    voiceMode,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter inserts a newline. Standard chat UX.
@@ -344,6 +485,26 @@ export default function ChatPage() {
       <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-6 py-3">
         <h1 className="text-sm font-semibold tracking-tight">Chat</h1>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleVoiceMode}
+            aria-pressed={voiceMode}
+            title={
+              voiceMode
+                ? "Voice mode on — agent replies play as audio"
+                : "Voice mode off — turn on to hear agent replies"
+            }
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+              voiceMode
+                ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
+                : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <SpeakerIcon muted={!voiceMode} />
+              <span>{voiceMode ? "Voice on" : "Voice off"}</span>
+            </span>
+          </button>
           <button
             type="button"
             onClick={startNewChat}
@@ -397,12 +558,47 @@ export default function ChatPage() {
 
       <footer className="border-t border-[var(--border)] px-6 py-4">
         <div className="mx-auto flex max-w-2xl items-end gap-2">
+          {SPEECH_SUPPORTED && (
+            // Push-and-hold mic. mouseLeave is treated as "release"
+            // too — without it a user who slides off the button
+            // would never get an onMouseUp and the recognizer would
+            // keep listening forever. Same shape for touch.
+            <button
+              type="button"
+              onMouseDown={startListening}
+              onMouseUp={stopListening}
+              onMouseLeave={stopListening}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                startListening();
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                stopListening();
+              }}
+              disabled={streaming || loading || !sessionId}
+              title={listening ? "Listening… release to stop" : "Hold to speak"}
+              aria-pressed={listening}
+              aria-label={listening ? "Stop voice input" : "Start voice input"}
+              className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border transition disabled:opacity-40 ${
+                listening
+                  ? "animate-pulse border-[var(--danger)]/60 bg-[var(--danger)]/10 text-[var(--danger)]"
+                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              <MicIcon />
+            </button>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              loading ? "Loading…" : "Message Prog Strength…"
+              loading
+                ? "Loading…"
+                : listening
+                  ? "Listening…"
+                  : "Message Prog Strength…"
             }
             rows={1}
             className="min-h-[44px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
@@ -465,6 +661,65 @@ function fallbackTitle(userText: string): string {
   const trimmed = userText.trim();
   if (!trimmed) return "New Chat";
   return trimmed.slice(0, 60).trim() || "New Chat";
+}
+
+/**
+ * Fetch the spoken version of `text` from the agent's /speak endpoint
+ * and start playing it. Updates the audio + url refs the caller
+ * holds so subsequent calls can stop the in-flight playback before
+ * starting a new one (otherwise overlapping turns would step on
+ * each other audibly).
+ *
+ * Failures are logged and swallowed — voice playback is enhancement;
+ * an inline error would punish the user for a transient server
+ * blip that doesn't affect the text they already see.
+ */
+async function speakAndPlay(
+  token: string,
+  text: string,
+  audioRef: React.MutableRefObject<HTMLAudioElement | null>,
+  urlRef: React.MutableRefObject<string | null>,
+): Promise<void> {
+  // Tear down any in-flight playback first. /speak roundtrips
+  // sequentially, but a slow first reply + a fast second one could
+  // otherwise stack two simultaneous Audio elements.
+  if (audioRef.current) {
+    audioRef.current.pause();
+    audioRef.current.src = "";
+    audioRef.current = null;
+  }
+  if (urlRef.current) {
+    URL.revokeObjectURL(urlRef.current);
+    urlRef.current = null;
+  }
+
+  let blob: Blob;
+  try {
+    blob = await generateChatSpeech(token, text);
+  } catch (err) {
+    // Most likely 503 (no OPENAI_API_KEY) or 429 (quota exceeded).
+    // Either way the user has nothing to act on; log + move on.
+    console.warn("voice mode: /speak failed", err);
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  urlRef.current = url;
+  const audio = new Audio(url);
+  audioRef.current = audio;
+  audio.addEventListener("ended", () => {
+    URL.revokeObjectURL(url);
+    if (urlRef.current === url) urlRef.current = null;
+    if (audioRef.current === audio) audioRef.current = null;
+  });
+  try {
+    await audio.play();
+  } catch (err) {
+    // Autoplay can be blocked when the user hasn't interacted with
+    // the page yet. In a chat session they always have (they
+    // clicked Send), but we still log so a future regression is
+    // diagnosable.
+    console.warn("voice mode: audio.play() rejected", err);
+  }
 }
 
 /**
@@ -639,6 +894,61 @@ function humanizeModelName(model: string): string {
 }
 
 // --- icons -------------------------------------------------------------
+
+function MicIcon() {
+  // Rounded mic body with a stand. 14px so the button stays visually
+  // balanced against the Send button's text label height.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3" />
+      <path d="M9 21h6" />
+    </svg>
+  );
+}
+
+function SpeakerIcon({ muted }: { muted: boolean }) {
+  // Speaker + waves on (voice mode active) or speaker + slash on
+  // (muted). Same outer body so the icon doesn't visually jump
+  // between states.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11 5L6 9H3v6h3l5 4z" />
+      {muted ? (
+        <>
+          <path d="M17 9l5 6" />
+          <path d="M22 9l-5 6" />
+        </>
+      ) : (
+        <>
+          <path d="M15.5 9a3.5 3.5 0 0 1 0 6" />
+          <path d="M18.5 6a7 7 0 0 1 0 12" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 function DotsIcon() {
   // Three small dots — used inside the running-state pill alongside

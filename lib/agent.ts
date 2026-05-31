@@ -50,3 +50,37 @@ export async function generateChatTitle(
   if (!title) throw new Error("agent /title returned an empty title");
   return title;
 }
+
+/**
+ * Ask the agent's /speak endpoint for an mp3 of `text` spoken by
+ * the configured TTS voice. Returns the raw audio Blob; the caller
+ * is responsible for playback (typically by handing it to
+ * URL.createObjectURL + new Audio()).
+ *
+ * Throws on 4xx / 5xx; callers that fire this best-effort after a
+ * completed chat stream should wrap in try/catch and silently fall
+ * back to text-only mode for that turn rather than surfacing the
+ * error inline — voice is enhancement, not core, and a server
+ * blip shouldn't stop the conversation.
+ */
+export async function generateChatSpeech(
+  token: string,
+  text: string,
+): Promise<Blob> {
+  const resp = await fetch(`${config.agentUrl}/speak`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ text }),
+  });
+  if (!resp.ok) {
+    // /speak returns plain-text errors (see agent server.py) — read
+    // them verbatim so the caller can decide whether to retry, fall
+    // back, or surface to the user.
+    const detail = await resp.text();
+    throw new Error(`agent /speak returned ${resp.status}: ${detail.slice(0, 200)}`);
+  }
+  return resp.blob();
+}
