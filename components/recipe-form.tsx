@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatNumber } from "@/lib/format";
 import type { PantryItem, Recipe, RecipePayload } from "@/lib/api";
 
 /**
@@ -368,8 +369,3 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatNumber(v: number): string {
-  if (!Number.isFinite(v)) return "—";
-  const rounded = Math.round(v * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-}

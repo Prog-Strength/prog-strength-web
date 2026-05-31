@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
+import { formatNumber } from "@/lib/format";
 import {
   createPantryItem,
   createRecipe,
@@ -553,9 +554,3 @@ function RecipeRow({
 }
 
 // --- helpers ------------------------------------------------------
-
-function formatNumber(v: number): string {
-  if (!Number.isFinite(v)) return "—";
-  const rounded = Math.round(v * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-}

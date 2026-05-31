@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
+import { formatNumber } from "@/lib/format";
 import {
   createNutritionLogEntry,
   deleteNutritionLogEntry,
@@ -451,12 +452,6 @@ function sameLocalDay(a: Date, b: Date): boolean {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   );
-}
-
-function formatNumber(v: number): string {
-  if (!Number.isFinite(v)) return "—";
-  const rounded = Math.round(v * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 function formatLocalTime(iso: string): string {
