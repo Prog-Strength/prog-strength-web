@@ -123,7 +123,7 @@ export function QuickAddModal({
         {emptyState ? (
           <div className="px-5 py-5 text-center text-sm text-[var(--muted)]">
             Add a pantry item first.{" "}
-            <a className="text-[var(--accent)] hover:underline" href="/pantry">
+            <a className="text-[var(--accent)] hover:underline" href="/nutrition?view=pantry">
               Go to Pantry →
             </a>
           </div>
