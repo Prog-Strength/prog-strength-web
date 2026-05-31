@@ -176,6 +176,11 @@ function NutritionPageInner() {
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
+        if (msg.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
         setLogError(msg);
         throw err;
       })
@@ -191,7 +196,7 @@ function NutritionPageInner() {
         setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err));
+        handleApiError(err);
       })
       .finally(() => setRowBusyID(null));
   }
