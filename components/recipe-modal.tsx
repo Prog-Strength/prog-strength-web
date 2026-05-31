@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   createRecipe,
   deleteRecipe,
@@ -9,6 +10,7 @@ import {
   type Recipe,
   type RecipePayload,
 } from "@/lib/api";
+import { clearToken } from "@/lib/auth";
 import { RecipeForm } from "@/components/recipe-form";
 
 /**
@@ -37,6 +39,7 @@ type Props =
 
 export function RecipeModal(props: Props) {
   const { mode, token, pantry, onClose } = props;
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -69,7 +72,13 @@ export function RecipeModal(props: Props) {
       onClose();
     })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(msg);
       })
       .finally(() => setBusy(false));
   }
@@ -84,8 +93,13 @@ export function RecipeModal(props: Props) {
         onClose();
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err));
-        setConfirmingDelete(false);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(msg);
       })
       .finally(() => setBusy(false));
   }
