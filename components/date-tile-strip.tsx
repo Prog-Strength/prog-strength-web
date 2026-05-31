@@ -103,11 +103,7 @@ export function DateTileStrip({
         })}
       </div>
 
-      <NavButton
-        onClick={shiftForward}
-        disabled={todayInWindow}
-        ariaLabel="Next week"
-      >
+      <NavButton onClick={shiftForward} disabled={todayInWindow} ariaLabel="Next week">
         <ChevronRightIcon />
       </NavButton>
 

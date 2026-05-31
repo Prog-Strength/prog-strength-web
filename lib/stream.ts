@@ -38,9 +38,7 @@ export type StreamEvent =
  * Spec-compliant SSE separates events by `\n\n`. We buffer between reads
  * to handle the case where an event boundary falls mid-chunk.
  */
-export async function* parseSSE(
-  body: ReadableStream<Uint8Array>,
-): AsyncGenerator<StreamEvent> {
+export async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";

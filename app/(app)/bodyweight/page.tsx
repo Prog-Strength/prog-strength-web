@@ -96,21 +96,15 @@ export default function BodyweightPage() {
   const entriesInRange = useMemo(() => {
     if (!entries) return [];
     const sorted = [...entries].sort(
-      (a, b) =>
-        new Date(b.measured_at).getTime() - new Date(a.measured_at).getTime(),
+      (a, b) => new Date(b.measured_at).getTime() - new Date(a.measured_at).getTime(),
     );
     const rangeDef = RANGES.find((r) => r.key === range);
     if (!rangeDef || rangeDef.days === null) return sorted;
     const cutoffMs = Date.now() - rangeDef.days * 24 * 60 * 60 * 1000;
-    return sorted.filter(
-      (e) => new Date(e.measured_at).getTime() >= cutoffMs,
-    );
+    return sorted.filter((e) => new Date(e.measured_at).getTime() >= cutoffMs);
   }, [entries, range]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(entriesInRange.length / PAGE_SIZE),
-  );
+  const totalPages = Math.max(1, Math.ceil(entriesInRange.length / PAGE_SIZE));
   const pageEntries = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
     return entriesInRange.slice(start, start + PAGE_SIZE);
@@ -147,9 +141,7 @@ export default function BodyweightPage() {
 
   function handleDelete(id: string) {
     if (
-      !confirm(
-        "Delete this entry? Corrections are delete + re-add — the trend chart will update.",
-      )
+      !confirm("Delete this entry? Corrections are delete + re-add — the trend chart will update.")
     ) {
       return;
     }
@@ -167,8 +159,8 @@ export default function BodyweightPage() {
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Bodyweight</h1>
         <p className="text-xs text-[var(--muted)]">
-          Multi-per-day OK — log morning + evening readings, the chart
-          shows the daily-average trend through the spread.
+          Multi-per-day OK — log morning + evening readings, the chart shows the daily-average trend
+          through the spread.
         </p>
       </header>
 
@@ -189,16 +181,10 @@ export default function BodyweightPage() {
                 button above a white separator line, sitting directly
                 above the entries table. */}
             <div className="flex items-center gap-5 border-b border-[var(--border)] pb-3">
-              <ToolbarButton
-                onClick={() => setShowLog(true)}
-                icon={<PencilIcon />}
-                label="Log"
-              />
+              <ToolbarButton onClick={() => setShowLog(true)} icon={<PencilIcon />} label="Log" />
             </div>
 
-            {entries === null && (
-              <p className="text-sm text-[var(--muted)]">Loading…</p>
-            )}
+            {entries === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
             {entries && entriesInRange.length === 0 && (
               <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
                 {entries.length === 0
@@ -236,13 +222,7 @@ export default function BodyweightPage() {
 
 // --- Time range tabs ----------------------------------------------
 
-function TimeRangeTabs({
-  value,
-  onChange,
-}: {
-  value: RangeKey;
-  onChange: (v: RangeKey) => void;
-}) {
+function TimeRangeTabs({ value, onChange }: { value: RangeKey; onChange: (v: RangeKey) => void }) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
       {RANGES.map((r) => {
@@ -288,29 +268,21 @@ function ChartCard({
     const byDay = new Map<number, number[]>();
     for (const e of entries) {
       const d = new Date(e.measured_at);
-      const dayStart = new Date(
-        d.getFullYear(),
-        d.getMonth(),
-        d.getDate(),
-      ).getTime();
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
       const arr = byDay.get(dayStart) ?? [];
       arr.push(convertWeight(e.weight, e.unit, displayUnit));
       byDay.set(dayStart, arr);
     }
     const avg: { t: number; avg: number }[] = [];
     for (const [dayStart, weights] of byDay) {
-      const dailyMean =
-        weights.reduce((a, b) => a + b, 0) / weights.length;
+      const dailyMean = weights.reduce((a, b) => a + b, 0) / weights.length;
       avg.push({ t: dayStart + 12 * 60 * 60 * 1000, avg: dailyMean });
     }
     avg.sort((a, b) => a.t - b.t);
     return { rawPoints: raw, avgPoints: avg };
   }, [entries, displayUnit]);
 
-  const stats = useMemo(
-    () => computeStats(entries, displayUnit),
-    [entries, displayUnit],
-  );
+  const stats = useMemo(() => computeStats(entries, displayUnit), [entries, displayUnit]);
 
   if (entries.length === 0) {
     return (
@@ -360,8 +332,7 @@ function ChartCard({
               }}
               wrapperStyle={{ outline: "none" }}
               labelFormatter={(label) => {
-                const v =
-                  typeof label === "number" ? label : Number(label);
+                const v = typeof label === "number" ? label : Number(label);
                 return new Date(v).toLocaleDateString("en-US", {
                   weekday: "short",
                   month: "short",
@@ -370,8 +341,7 @@ function ChartCard({
                 });
               }}
               formatter={(value, name) => {
-                const v =
-                  typeof value === "number" ? value : Number(value);
+                const v = typeof value === "number" ? value : Number(value);
                 return [
                   `${formatNumber(v)} ${displayUnit}`,
                   name === "weight" ? "Reading" : "Daily avg",
@@ -409,11 +379,7 @@ function ChartCard({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
           label="Average"
-          value={
-            stats.avg !== null
-              ? `${formatNumber(stats.avg)} ${displayUnit}`
-              : "—"
-          }
+          value={stats.avg !== null ? `${formatNumber(stats.avg)} ${displayUnit}` : "—"}
           sublabel={
             stats.count > 0
               ? `${stats.count} reading${stats.count === 1 ? "" : "s"}`
@@ -422,25 +388,13 @@ function ChartCard({
         />
         <StatTile
           label="Min"
-          value={
-            stats.min !== null
-              ? `${formatNumber(stats.min.weight)} ${displayUnit}`
-              : "—"
-          }
-          sublabel={
-            stats.min !== null ? formatShortDate(stats.min.date) : "—"
-          }
+          value={stats.min !== null ? `${formatNumber(stats.min.weight)} ${displayUnit}` : "—"}
+          sublabel={stats.min !== null ? formatShortDate(stats.min.date) : "—"}
         />
         <StatTile
           label="Max"
-          value={
-            stats.max !== null
-              ? `${formatNumber(stats.max.weight)} ${displayUnit}`
-              : "—"
-          }
-          sublabel={
-            stats.max !== null ? formatShortDate(stats.max.date) : "—"
-          }
+          value={stats.max !== null ? `${formatNumber(stats.max.weight)} ${displayUnit}` : "—"}
+          sublabel={stats.max !== null ? formatShortDate(stats.max.date) : "—"}
         />
         <StatTile
           label="Delta"
@@ -460,24 +414,14 @@ function ChartCard({
   );
 }
 
-function StatTile({
-  label,
-  value,
-  sublabel,
-}: {
-  label: string;
-  value: string;
-  sublabel: string;
-}) {
+function StatTile({ label, value, sublabel }: { label: string; value: string; sublabel: string }) {
   // Tiles inside the chart card use a slightly different background
   // (page background vs surface) to inset them visually against the
   // chart's surface background — same depth-by-contrast trick the
   // nutrition meal sections use for entry rows.
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2">
-      <p className="text-xl font-semibold tracking-tight tabular-nums">
-        {value}
-      </p>
+      <p className="text-xl font-semibold tracking-tight tabular-nums">{value}</p>
       <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
         {label}
       </p>
@@ -486,15 +430,7 @@ function StatTile({
   );
 }
 
-function Legend({
-  color,
-  label,
-  scatter,
-}: {
-  color: string;
-  label: string;
-  scatter?: boolean;
-}) {
+function Legend({ color, label, scatter }: { color: string; label: string; scatter?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2">
       {scatter ? (
@@ -504,11 +440,7 @@ function Legend({
           style={{ backgroundColor: color }}
         />
       ) : (
-        <span
-          aria-hidden
-          className="inline-block h-0.5 w-5"
-          style={{ backgroundColor: color }}
-        />
+        <span aria-hidden className="inline-block h-0.5 w-5" style={{ backgroundColor: color }} />
       )}
       {label}
     </span>
@@ -592,19 +524,13 @@ function BodyweightTable({
         </thead>
         <tbody>
           {entries.map((e) => (
-            <tr
-              key={e.id}
-              className="border-b border-[var(--border)]/50 last:border-b-0"
-            >
-              <td className="px-4 py-2 tabular-nums">
-                {formatRowDate(e.measured_at)}
-              </td>
+            <tr key={e.id} className="border-b border-[var(--border)]/50 last:border-b-0">
+              <td className="px-4 py-2 tabular-nums">{formatRowDate(e.measured_at)}</td>
               <td className="px-4 py-2 tabular-nums text-[var(--muted)]">
                 {formatRowTime(e.measured_at)}
               </td>
               <td className="px-4 py-2 text-right font-medium tabular-nums">
-                {formatNumber(e.weight)}{" "}
-                <span className="text-[var(--muted)]">{e.unit}</span>
+                {formatNumber(e.weight)} <span className="text-[var(--muted)]">{e.unit}</span>
               </td>
               <td className="px-4 py-2 text-right">
                 <button
@@ -649,11 +575,7 @@ function Pagination({
         Page {page} of {totalPages} · {totalCount} total
       </p>
       <div className="flex items-center gap-1">
-        <PaginationBtn
-          label="« First"
-          disabled={page === 1}
-          onClick={() => onPageChange(1)}
-        />
+        <PaginationBtn label="« First" disabled={page === 1} onClick={() => onPageChange(1)} />
         <PaginationBtn
           label="‹ Prev"
           disabled={page === 1}
@@ -713,11 +635,7 @@ function BodyweightLogModal({
   busy: boolean;
   error: string | null;
   initialUnit: "lb" | "kg";
-  onSubmit: (payload: {
-    weight: number;
-    unit: "lb" | "kg";
-    measured_at?: string;
-  }) => Promise<void>;
+  onSubmit: (payload: { weight: number; unit: "lb" | "kg"; measured_at?: string }) => Promise<void>;
   onClose: () => void;
 }) {
   const [weight, setWeight] = useState("");
@@ -798,10 +716,7 @@ function BodyweightLogModal({
       <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
         <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
           <div className="flex flex-col gap-0.5">
-            <h2
-              id="bodyweight-log-modal-title"
-              className="text-base font-semibold"
-            >
+            <h2 id="bodyweight-log-modal-title" className="text-base font-semibold">
               Log a reading
             </h2>
             <p className="text-xs text-[var(--muted)]">
@@ -854,9 +769,7 @@ function BodyweightLogModal({
           </div>
 
           <label className="flex flex-col gap-1 text-xs">
-            <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-              When
-            </span>
+            <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">When</span>
             <input
               type="datetime-local"
               value={measuredAtLocal}
@@ -864,9 +777,7 @@ function BodyweightLogModal({
               disabled={busy}
               className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums"
             />
-            <span className="text-[10px] text-[var(--muted)]">
-              Leave blank to log right now.
-            </span>
+            <span className="text-[10px] text-[var(--muted)]">Leave blank to log right now.</span>
           </label>
 
           {shownError && (
@@ -902,11 +813,7 @@ function BodyweightLogModal({
 
 const LB_PER_KG = 2.20462;
 
-function convertWeight(
-  weight: number,
-  from: "lb" | "kg",
-  to: "lb" | "kg",
-): number {
+function convertWeight(weight: number, from: "lb" | "kg", to: "lb" | "kg"): number {
   if (from === to) return weight;
   return from === "kg" ? weight * LB_PER_KG : weight / LB_PER_KG;
 }
@@ -920,10 +827,7 @@ type Stats = {
   deltaPercent: number | null;
 };
 
-function computeStats(
-  entries: BodyweightEntry[],
-  displayUnit: "lb" | "kg",
-): Stats {
+function computeStats(entries: BodyweightEntry[], displayUnit: "lb" | "kg"): Stats {
   if (entries.length === 0) {
     return {
       count: 0,
@@ -940,23 +844,13 @@ function computeStats(
   }));
   const sum = normalized.reduce((a, b) => a + b.weight, 0);
   const avg = sum / normalized.length;
-  const min = normalized.reduce(
-    (acc, w) => (w.weight < acc.weight ? w : acc),
-    normalized[0],
-  );
-  const max = normalized.reduce(
-    (acc, w) => (w.weight > acc.weight ? w : acc),
-    normalized[0],
-  );
+  const min = normalized.reduce((acc, w) => (w.weight < acc.weight ? w : acc), normalized[0]);
+  const max = normalized.reduce((acc, w) => (w.weight > acc.weight ? w : acc), normalized[0]);
 
   const byDay = new Map<number, number[]>();
   for (const w of normalized) {
     const d = new Date(w.measured_at);
-    const dayStart = new Date(
-      d.getFullYear(),
-      d.getMonth(),
-      d.getDate(),
-    ).getTime();
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const arr = byDay.get(dayStart) ?? [];
     arr.push(w.weight);
     byDay.set(dayStart, arr);
@@ -966,9 +860,7 @@ function computeStats(
   let deltaPercent: number | null = null;
   if (dayStartTimes.length >= 2) {
     const firstAvg = mean(byDay.get(dayStartTimes[0]) ?? []);
-    const lastAvg = mean(
-      byDay.get(dayStartTimes[dayStartTimes.length - 1]) ?? [],
-    );
+    const lastAvg = mean(byDay.get(dayStartTimes[dayStartTimes.length - 1]) ?? []);
     delta = lastAvg - firstAvg;
     deltaPercent = firstAvg > 0 ? (delta / firstAvg) * 100 : null;
   }

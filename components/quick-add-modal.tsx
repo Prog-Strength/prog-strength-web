@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  type MealType,
-  type PantryItem,
-  type Recipe,
-} from "@/lib/api";
+import { type MealType, type PantryItem, type Recipe } from "@/lib/api";
 
 // Section order in the meal <select>. Pinned here rather than sorted
 // to match the page-level MEAL_ORDER convention.
@@ -58,9 +54,7 @@ export function QuickAddModal({
   // Meal default tracks the user's local time of day when the modal
   // opens, then sticks — easier to log multiple breakfast items in
   // a row without the field re-inferring mid-session.
-  const [meal, setMeal] = useState<MealType>(() =>
-    defaultMealForLocalHour(new Date()),
-  );
+  const [meal, setMeal] = useState<MealType>(() => defaultMealForLocalHour(new Date()));
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -113,9 +107,7 @@ export function QuickAddModal({
             <h2 id="quick-add-modal-title" className="text-base font-semibold">
               Quick add
             </h2>
-            <p className="text-xs text-[var(--muted)]">
-              Log a pantry item or recipe to today.
-            </p>
+            <p className="text-xs text-[var(--muted)]">Log a pantry item or recipe to today.</p>
           </div>
           <button
             type="button"
@@ -131,7 +123,7 @@ export function QuickAddModal({
         {emptyState ? (
           <div className="px-5 py-5 text-center text-sm text-[var(--muted)]">
             Add a pantry item first.{" "}
-            <a className="text-[var(--accent)] hover:underline" href="/pantry">
+            <a className="text-[var(--accent)] hover:underline" href="/nutrition?view=pantry">
               Go to Pantry →
             </a>
           </div>
@@ -152,10 +144,7 @@ export function QuickAddModal({
                 {recipes.length > 0 && (
                   <optgroup label="Recipes">
                     {recipes.map((r) => (
-                      <option
-                        key={`recipe:${r.id}`}
-                        value={`recipe:${r.id}`}
-                      >
+                      <option key={`recipe:${r.id}`} value={`recipe:${r.id}`}>
                         {r.name} ({formatNumber(r.macros.calories)} cal / batch)
                       </option>
                     ))}
@@ -164,10 +153,7 @@ export function QuickAddModal({
                 {pantry.length > 0 && (
                   <optgroup label="Pantry items">
                     {pantry.map((p) => (
-                      <option
-                        key={`pantry:${p.id}`}
-                        value={`pantry:${p.id}`}
-                      >
+                      <option key={`pantry:${p.id}`} value={`pantry:${p.id}`}>
                         {p.name} ({formatNumber(p.calories)} cal/
                         {formatNumber(p.serving_size)} {p.serving_unit})
                       </option>

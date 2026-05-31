@@ -5,13 +5,7 @@
  * setting its own `className`. The viewBox is the source 1254x1254
  * square; sizing is purely from the `size` prop in px.
  */
-export function BrandMark({
-  size = 24,
-  className,
-}: {
-  size?: number;
-  className?: string;
-}) {
+export function BrandMark({ size = 24, className }: { size?: number; className?: string }) {
   return (
     <svg
       viewBox="0 0 1254 1254"

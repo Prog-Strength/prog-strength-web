@@ -74,8 +74,7 @@ export function MacroGoalsModal({
 
   // 4/4/9 calories-from-macros hint. Only shown when all three macro
   // fields parse cleanly — partial input would mislead.
-  const computedCalories =
-    p !== null && c !== null && f !== null ? p * 4 + c * 4 + f * 9 : null;
+  const computedCalories = p !== null && c !== null && f !== null ? p * 4 + c * 4 + f * 9 : null;
   const delta = computedCalories !== null && k !== null ? k - computedCalories : null;
 
   async function save() {
@@ -149,20 +148,8 @@ export function MacroGoalsModal({
             onChange={setProtein}
             disabled={saving}
           />
-          <GoalField
-            label="Carbs"
-            unit="g"
-            value={carbs}
-            onChange={setCarbs}
-            disabled={saving}
-          />
-          <GoalField
-            label="Fat"
-            unit="g"
-            value={fat}
-            onChange={setFat}
-            disabled={saving}
-          />
+          <GoalField label="Carbs" unit="g" value={carbs} onChange={setCarbs} disabled={saving} />
+          <GoalField label="Fat" unit="g" value={fat} onChange={setFat} disabled={saving} />
           <GoalField
             label="Calories"
             unit="kcal"
@@ -178,8 +165,7 @@ export function MacroGoalsModal({
                   ) : (
                     <>
                       {" "}
-                      ({Math.abs(delta)} kcal {delta > 0 ? "under" : "over"} your
-                      target)
+                      ({Math.abs(delta)} kcal {delta > 0 ? "under" : "over"} your target)
                     </>
                   )}
                 </span>

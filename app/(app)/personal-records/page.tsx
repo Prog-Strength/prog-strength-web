@@ -4,10 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import {
-  listPersonalRecords,
-  type PersonalRecord,
-} from "@/lib/api";
+import { listPersonalRecords, type PersonalRecord } from "@/lib/api";
 import { HeadlineExercisesModal } from "@/components/headline-exercises-modal";
 
 /**
@@ -63,9 +60,7 @@ export default function PersonalRecordsPage() {
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
         <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">
-            Personal Records
-          </h1>
+          <h1 className="text-lg font-semibold tracking-tight">Personal Records</h1>
           <button
             type="button"
             onClick={() => setCustomizeOpen(true)}
@@ -75,9 +70,8 @@ export default function PersonalRecordsPage() {
           </button>
         </div>
         <p className="text-xs text-[var(--muted)]">
-          Your heaviest set on each headline lift, alongside your current
-          estimated 1RM for that exercise. A large gap is a cue to attempt
-          a new max.
+          Your heaviest set on each headline lift, alongside your current estimated 1RM for that
+          exercise. A large gap is a cue to attempt a new max.
         </p>
       </header>
 
@@ -90,15 +84,11 @@ export default function PersonalRecordsPage() {
           )}
 
           {records === null && !error && (
-            <p className="text-sm text-[var(--muted)]">
-              Loading personal records…
-            </p>
+            <p className="text-sm text-[var(--muted)]">Loading personal records…</p>
           )}
 
           {records && records.length === 0 && (
-            <p className="text-sm text-[var(--muted)]">
-              No headline lifts configured.
-            </p>
+            <p className="text-sm text-[var(--muted)]">No headline lifts configured.</p>
           )}
 
           {records && records.length > 0 && (
@@ -146,9 +136,7 @@ function PRCard({ record }: { record: PersonalRecord }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="truncate text-sm font-semibold tracking-tight">
-          {record.exercise_name}
-        </h2>
+        <h2 className="truncate text-sm font-semibold tracking-tight">{record.exercise_name}</h2>
         {readyForAttempt && (
           <span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-200">
             Time for a max?
@@ -170,12 +158,8 @@ function PRCard({ record }: { record: PersonalRecord }) {
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          <p className="text-2xl font-semibold tracking-tight text-[var(--muted)]">
-            —
-          </p>
-          <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
-            No record yet
-          </p>
+          <p className="text-2xl font-semibold tracking-tight text-[var(--muted)]">—</p>
+          <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">No record yet</p>
         </div>
       )}
 
@@ -186,15 +170,10 @@ function PRCard({ record }: { record: PersonalRecord }) {
         <p className="mt-0.5 text-sm font-medium tabular-nums">
           {record.current_estimated_1rm === null
             ? "—"
-            : formatWeight(
-                record.current_estimated_1rm,
-                record.estimated_1rm_unit,
-              )}
+            : formatWeight(record.current_estimated_1rm, record.estimated_1rm_unit)}
           {gap !== null && Math.abs(gap) >= 1 && (
             <span
-              className={`ml-2 text-xs ${
-                gap > 0 ? "text-emerald-300" : "text-[var(--muted)]"
-              }`}
+              className={`ml-2 text-xs ${gap > 0 ? "text-emerald-300" : "text-[var(--muted)]"}`}
             >
               {gap > 0 ? "+" : ""}
               {gap.toFixed(1)} vs PR

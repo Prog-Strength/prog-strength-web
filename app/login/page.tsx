@@ -29,8 +29,7 @@ export default function LoginPage() {
   }, [router]);
 
   const loginHref =
-    returnTo &&
-    `${config.apiUrl}/auth/google/login?return_to=${encodeURIComponent(returnTo)}`;
+    returnTo && `${config.apiUrl}/auth/google/login?return_to=${encodeURIComponent(returnTo)}`;
 
   return (
     <main className="flex flex-1 items-center justify-center px-6">
@@ -43,9 +42,7 @@ export default function LoginPage() {
             <BrandMark size={56} />
           </div>
           <div className="space-y-2">
-            <h1 className="text-3xl font-semibold tracking-tight">
-              Prog Strength
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Prog Strength</h1>
             <p className="text-sm text-[var(--muted)]">
               Sign in to track and chat about your training.
             </p>

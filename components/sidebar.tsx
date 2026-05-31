@@ -26,12 +26,9 @@ const NAV: NavItem[] = [
   { href: "/workouts", label: "Workouts", icon: <DumbbellIcon /> },
   { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
-  // Nutrition + Pantry are the food-side raw-data + reference pair,
-  // analogous to Workouts + Exercises on the lifting side. Slot them
-  // together so the mental model is "raw log, then the catalog the
-  // log references" — same pattern users already know.
+  // Pantry and Recipes live inside /nutrition as tabbed views, so the
+  // sidebar surfaces only the parent entry.
   { href: "/nutrition", label: "Nutrition", icon: <PlateIcon /> },
-  { href: "/pantry", label: "Pantry", icon: <JarIcon /> },
   // Bodyweight pairs with nutrition — same conceptual "did I eat /
   // weigh the right amount today?" loop. Slotted right after the
   // food pair so the daily-tracking views cluster together.
@@ -114,9 +111,7 @@ export function Sidebar() {
               className="flex min-w-0 items-center gap-2 text-[var(--foreground)] transition hover:opacity-80"
             >
               <BrandMark size={22} className="shrink-0" />
-              <span className="truncate text-sm font-semibold">
-                Prog Strength
-              </span>
+              <span className="truncate text-sm font-semibold">Prog Strength</span>
             </Link>
             <button
               type="button"
@@ -149,9 +144,7 @@ export function Sidebar() {
                   : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               }`}
             >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                {item.icon}
-              </span>
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">{item.icon}</span>
               {!collapsed && <span className="truncate">{item.label}</span>}
             </Link>
           );
@@ -353,28 +346,6 @@ function PlateIcon() {
       <circle cx="12" cy="12" r="3" />
       <path d="M4 4v6" />
       <path d="M20 4v6" />
-    </svg>
-  );
-}
-
-function JarIcon() {
-  // Mason jar — a small rectangle (lid) atop a slightly-rounded
-  // larger rectangle (body). Reads as "pantry / saved goods."
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M7 4h10v3H7z" />
-      <path d="M6 9h12v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V9z" />
-      <path d="M9 13h6" />
     </svg>
   );
 }

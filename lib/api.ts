@@ -118,10 +118,9 @@ export async function listWorkouts(
   if (options.limit !== undefined) params.set("limit", String(options.limit));
   if (options.offset !== undefined) params.set("offset", String(options.offset));
   const qs = params.toString();
-  const resp = await fetch(
-    `${config.apiUrl}/workouts${qs ? `?${qs}` : ""}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/workouts${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   // Empty page fallback so callers can render a clean empty state
   // rather than throw on missing payload.
   return await unwrap<WorkoutsPage>(resp, {
@@ -150,10 +149,9 @@ export async function listExercises(): Promise<Exercise[]> {
  * user (deliberately indistinguishable so IDs can't be enumerated).
  */
 export async function getWorkout(token: string, id: string): Promise<Workout> {
-  const resp = await fetch(
-    `${config.apiUrl}/workouts/${encodeURIComponent(id)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const got = await unwrap<Workout | null>(resp, null);
   if (!got) {
     throw new Error("workout not found");
@@ -186,9 +184,7 @@ export type PersonalRecord = {
  * GET /personal-records. Returns one row per backend-curated headline
  * lift; entries the user hasn't yet PR'd appear with null PR fields.
  */
-export async function listPersonalRecords(
-  token: string,
-): Promise<PersonalRecord[]> {
+export async function listPersonalRecords(token: string): Promise<PersonalRecord[]> {
   const resp = await fetch(`${config.apiUrl}/personal-records`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -222,9 +218,7 @@ export type DefaultHeadlineExercise = {
  * the user has no rows yet. Used by the customize modal to pre-check
  * the right boxes when it opens.
  */
-export async function listMyHeadlineExercises(
-  token: string,
-): Promise<HeadlineExercise[]> {
+export async function listMyHeadlineExercises(token: string): Promise<HeadlineExercise[]> {
   const resp = await fetch(`${config.apiUrl}/me/headline-exercises`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -358,10 +352,9 @@ export async function listProgression(
   const params = new URLSearchParams({ muscle_group: muscleGroup });
   if (since) params.set("since", since);
   if (until) params.set("until", until);
-  const resp = await fetch(
-    `${config.apiUrl}/workouts/progression?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/workouts/progression?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   // Force a non-null default — empty progression rather than throwing
   // on missing payload, so callers can render a clean empty state.
   const got = await unwrap<MuscleGroupProgression | null>(resp, null);
@@ -386,7 +379,7 @@ export async function listProgression(
 export type WorkoutPayload = {
   name?: string;
   performed_at: string; // RFC3339, required by the API
-  ended_at?: string;    // RFC3339, optional
+  ended_at?: string; // RFC3339, optional
   notes?: string;
   exercises: {
     exercise_id: string;
@@ -539,28 +532,20 @@ export type DailyMacros = {
   entry_count: number;
 };
 
-export async function listPantryItems(
-  token: string,
-  query?: string,
-): Promise<PantryItem[]> {
+export async function listPantryItems(token: string, query?: string): Promise<PantryItem[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   const qs = params.toString();
-  const resp = await fetch(
-    `${config.apiUrl}/pantry-items${qs ? `?${qs}` : ""}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/pantry-items${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return unwrap<PantryItem[]>(resp, []);
 }
 
-export async function getPantryItem(
-  token: string,
-  id: string,
-): Promise<PantryItem> {
-  const resp = await fetch(
-    `${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+export async function getPantryItem(token: string, id: string): Promise<PantryItem> {
+  const resp = await fetch(`${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const got = await unwrap<PantryItem | null>(resp, null);
   if (!got) throw new Error("pantry item not found");
   return got;
@@ -588,33 +573,24 @@ export async function updatePantryItem(
   id: string,
   payload: PantryItemPayload,
 ): Promise<PantryItem> {
-  const resp = await fetch(
-    `${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
+  const resp = await fetch(`${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  );
+    body: JSON.stringify(payload),
+  });
   const updated = await unwrap<PantryItem | null>(resp, null);
   if (!updated) throw new Error("API did not return the updated pantry item");
   return updated;
 }
 
-export async function deletePantryItem(
-  token: string,
-  id: string,
-): Promise<void> {
-  const resp = await fetch(
-    `${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+export async function deletePantryItem(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/pantry-items/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!resp.ok) {
     let detail: string;
     try {
@@ -638,10 +614,9 @@ export async function listNutritionLog(
   if (options.since) params.set("since", options.since);
   if (options.until) params.set("until", options.until);
   const qs = params.toString();
-  const resp = await fetch(
-    `${config.apiUrl}/nutrition-log${qs ? `?${qs}` : ""}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/nutrition-log${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return unwrap<NutritionLogEntry[]>(resp, []);
 }
 
@@ -667,33 +642,24 @@ export async function updateNutritionLogEntry(
   id: string,
   payload: UpdateLogEntryPayload,
 ): Promise<NutritionLogEntry> {
-  const resp = await fetch(
-    `${config.apiUrl}/nutrition-log/${encodeURIComponent(id)}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
+  const resp = await fetch(`${config.apiUrl}/nutrition-log/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  );
+    body: JSON.stringify(payload),
+  });
   const updated = await unwrap<NutritionLogEntry | null>(resp, null);
   if (!updated) throw new Error("API did not return the updated log entry");
   return updated;
 }
 
-export async function deleteNutritionLogEntry(
-  token: string,
-  id: string,
-): Promise<void> {
-  const resp = await fetch(
-    `${config.apiUrl}/nutrition-log/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+export async function deleteNutritionLogEntry(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/nutrition-log/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!resp.ok) {
     let detail: string;
     try {
@@ -716,10 +682,9 @@ export async function getDailyMacros(
   until: string,
 ): Promise<DailyMacros[]> {
   const params = new URLSearchParams({ since, until });
-  const resp = await fetch(
-    `${config.apiUrl}/nutrition-log/daily?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/nutrition-log/daily?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return unwrap<DailyMacros[]>(resp, []);
 }
 
@@ -820,10 +785,9 @@ export async function listBodyweight(
   if (options.since) params.set("since", options.since);
   if (options.until) params.set("until", options.until);
   const qs = params.toString();
-  const resp = await fetch(
-    `${config.apiUrl}/bodyweight${qs ? `?${qs}` : ""}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/bodyweight${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return unwrap<BodyweightEntry[]>(resp, []);
 }
 
@@ -844,17 +808,11 @@ export async function createBodyweightEntry(
   return created;
 }
 
-export async function deleteBodyweightEntry(
-  token: string,
-  id: string,
-): Promise<void> {
-  const resp = await fetch(
-    `${config.apiUrl}/bodyweight/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+export async function deleteBodyweightEntry(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/bodyweight/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!resp.ok) {
     let detail: string;
     try {
@@ -919,19 +877,15 @@ export async function listRecipes(token: string): Promise<Recipe[]> {
 }
 
 export async function getRecipe(token: string, id: string): Promise<Recipe> {
-  const resp = await fetch(
-    `${config.apiUrl}/recipes/${encodeURIComponent(id)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const resp = await fetch(`${config.apiUrl}/recipes/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const got = await unwrap<Recipe | null>(resp, null);
   if (!got) throw new Error("recipe not found");
   return got;
 }
 
-export async function createRecipe(
-  token: string,
-  payload: RecipePayload,
-): Promise<Recipe> {
+export async function createRecipe(token: string, payload: RecipePayload): Promise<Recipe> {
   const resp = await fetch(`${config.apiUrl}/recipes`, {
     method: "POST",
     headers: {
@@ -950,33 +904,24 @@ export async function updateRecipe(
   id: string,
   payload: RecipePayload,
 ): Promise<Recipe> {
-  const resp = await fetch(
-    `${config.apiUrl}/recipes/${encodeURIComponent(id)}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
+  const resp = await fetch(`${config.apiUrl}/recipes/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  );
+    body: JSON.stringify(payload),
+  });
   const updated = await unwrap<Recipe | null>(resp, null);
   if (!updated) throw new Error("API did not return the updated recipe");
   return updated;
 }
 
-export async function deleteRecipe(
-  token: string,
-  id: string,
-): Promise<void> {
-  const resp = await fetch(
-    `${config.apiUrl}/recipes/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+export async function deleteRecipe(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/recipes/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!resp.ok) {
     let detail: string;
     try {
@@ -1034,19 +979,14 @@ export type ChatTurnPayload = {
   };
 };
 
-export async function listChatSessions(
-  token: string,
-): Promise<ChatSessionListItem[]> {
+export async function listChatSessions(token: string): Promise<ChatSessionListItem[]> {
   const resp = await fetch(`${config.apiUrl}/chat-sessions`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return unwrap<ChatSessionListItem[]>(resp, []);
 }
 
-export async function createChatSession(
-  token: string,
-  id: string,
-): Promise<ChatSession> {
+export async function createChatSession(token: string, id: string): Promise<ChatSession> {
   const resp = await fetch(`${config.apiUrl}/chat-sessions`, {
     method: "POST",
     headers: {
@@ -1060,14 +1000,10 @@ export async function createChatSession(
   return created;
 }
 
-export async function getChatSession(
-  token: string,
-  id: string,
-): Promise<ChatSessionWithMessages> {
-  const resp = await fetch(
-    `${config.apiUrl}/chat-sessions/${encodeURIComponent(id)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+export async function getChatSession(token: string, id: string): Promise<ChatSessionWithMessages> {
+  const resp = await fetch(`${config.apiUrl}/chat-sessions/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const got = await unwrap<ChatSessionWithMessages | null>(resp, null);
   if (!got) throw new Error("chat session not found");
   return got;
@@ -1083,33 +1019,24 @@ export async function patchChatSessionTitle(
   id: string,
   title: string,
 ): Promise<ChatSession> {
-  const resp = await fetch(
-    `${config.apiUrl}/chat-sessions/${encodeURIComponent(id)}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ title }),
+  const resp = await fetch(`${config.apiUrl}/chat-sessions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  );
+    body: JSON.stringify({ title }),
+  });
   const updated = await unwrap<ChatSession | null>(resp, null);
   if (!updated) throw new Error("API did not return the updated chat session");
   return updated;
 }
 
-export async function deleteChatSession(
-  token: string,
-  id: string,
-): Promise<void> {
-  const resp = await fetch(
-    `${config.apiUrl}/chat-sessions/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+export async function deleteChatSession(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/chat-sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!resp.ok) {
     let detail: string;
     try {

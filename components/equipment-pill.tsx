@@ -33,12 +33,9 @@ const EQUIPMENT_CLASSES: Record<string, string> = {
 
 export function EquipmentPill({ equipment }: { equipment: string }) {
   const classes =
-    EQUIPMENT_CLASSES[equipment] ??
-    "bg-stone-500/15 text-stone-300 border-stone-500/30";
+    EQUIPMENT_CLASSES[equipment] ?? "bg-stone-500/15 text-stone-300 border-stone-500/30";
   return (
-    <span
-      className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${classes}`}
-    >
+    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${classes}`}>
       {humanizeEquipment(equipment)}
     </span>
   );

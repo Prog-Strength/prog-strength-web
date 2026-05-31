@@ -29,10 +29,7 @@ export type TitleMessage = {
  * catch and fall back locally because a 5xx / network blip
  * shouldn't block the user from getting *some* title.
  */
-export async function generateChatTitle(
-  token: string,
-  messages: TitleMessage[],
-): Promise<string> {
+export async function generateChatTitle(token: string, messages: TitleMessage[]): Promise<string> {
   const resp = await fetch(`${config.agentUrl}/title`, {
     method: "POST",
     headers: {
@@ -63,10 +60,7 @@ export async function generateChatTitle(
  * error inline — voice is enhancement, not core, and a server
  * blip shouldn't stop the conversation.
  */
-export async function generateChatSpeech(
-  token: string,
-  text: string,
-): Promise<Blob> {
+export async function generateChatSpeech(token: string, text: string): Promise<Blob> {
   const resp = await fetch(`${config.agentUrl}/speak`, {
     method: "POST",
     headers: {

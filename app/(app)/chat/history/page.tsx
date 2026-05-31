@@ -4,11 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import {
-  deleteChatSession,
-  listChatSessions,
-  type ChatSessionListItem,
-} from "@/lib/api";
+import { deleteChatSession, listChatSessions, type ChatSessionListItem } from "@/lib/api";
 
 /**
  * Chat history list. Sister surface to /chat: same data domain
@@ -50,11 +46,7 @@ export default function ChatHistoryPage() {
 
   const handleDelete = async (session: ChatSessionListItem) => {
     const label = session.title.trim() || "this chat";
-    if (
-      !window.confirm(
-        `Delete "${label}"? The conversation is removed from your history.`,
-      )
-    ) {
+    if (!window.confirm(`Delete "${label}"? The conversation is removed from your history.`)) {
       return;
     }
     const token = getToken();
@@ -100,9 +92,7 @@ export default function ChatHistoryPage() {
             </div>
           )}
 
-          {!error && sessions === null && (
-            <p className="text-sm text-[var(--muted)]">Loading…</p>
-          )}
+          {!error && sessions === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
 
           {sessions && sessions.length === 0 && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-center">
@@ -115,11 +105,7 @@ export default function ChatHistoryPage() {
 
           {sessions &&
             sessions.map((s) => (
-              <SessionRow
-                key={s.id}
-                session={s}
-                onDelete={() => handleDelete(s)}
-              />
+              <SessionRow key={s.id} session={s} onDelete={() => handleDelete(s)} />
             ))}
         </div>
       </div>
@@ -127,13 +113,7 @@ export default function ChatHistoryPage() {
   );
 }
 
-function SessionRow({
-  session,
-  onDelete,
-}: {
-  session: ChatSessionListItem;
-  onDelete: () => void;
-}) {
+function SessionRow({ session, onDelete }: { session: ChatSessionListItem; onDelete: () => void }) {
   const title = session.title.trim() || "New chat";
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
@@ -144,8 +124,7 @@ function SessionRow({
         >
           <span className="truncate text-sm font-medium">{title}</span>
           <span className="truncate text-xs text-[var(--muted)]">
-            {session.message_count}{" "}
-            {session.message_count === 1 ? "message" : "messages"} ·{" "}
+            {session.message_count} {session.message_count === 1 ? "message" : "messages"} ·{" "}
             {formatRelative(session.last_message_at)}
           </span>
         </Link>

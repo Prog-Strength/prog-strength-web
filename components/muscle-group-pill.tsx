@@ -29,12 +29,9 @@ const MUSCLE_GROUP_CLASSES: Record<string, string> = {
 
 export function MuscleGroupPill({ muscleGroup }: { muscleGroup: string }) {
   const classes =
-    MUSCLE_GROUP_CLASSES[muscleGroup] ??
-    "bg-zinc-500/15 text-zinc-300 border-zinc-500/30";
+    MUSCLE_GROUP_CLASSES[muscleGroup] ?? "bg-zinc-500/15 text-zinc-300 border-zinc-500/30";
   return (
-    <span
-      className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${classes}`}
-    >
+    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${classes}`}>
       {humanizeMuscleGroup(muscleGroup)}
     </span>
   );

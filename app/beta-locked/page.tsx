@@ -42,16 +42,13 @@ function Shell({ email }: { email: string | null }) {
             <h1 className="text-2xl font-semibold tracking-tight">
               Prog Strength is in private beta
             </h1>
-            <p className="text-sm text-[var(--muted)]">
-              Access is currently invite-only.
-            </p>
+            <p className="text-sm text-[var(--muted)]">Access is currently invite-only.</p>
           </div>
         </header>
 
         {email && (
           <p className="text-sm">
-            You signed in as{" "}
-            <span className="font-mono text-[var(--foreground)]">{email}</span>,
+            You signed in as <span className="font-mono text-[var(--foreground)]">{email}</span>,
             but that address isn&apos;t on the beta list yet.
           </p>
         )}

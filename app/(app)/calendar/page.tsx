@@ -3,16 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import {
-  listExercises,
-  listWorkouts,
-  type Exercise,
-  type Workout,
-} from "@/lib/api";
-import {
-  WorkoutDetailsModal,
-  hasMeaningfulName,
-} from "@/components/workout-details";
+import { listExercises, listWorkouts, type Exercise, type Workout } from "@/lib/api";
+import { WorkoutDetailsModal, hasMeaningfulName } from "@/components/workout-details";
 
 /**
  * Month-grid calendar with workout markers. Same data source as the
@@ -77,10 +69,7 @@ export default function CalendarPage() {
 
   // Lookup map for the shared WorkoutDetails component — resolves
   // exercise_id slugs to catalog entries for name + muscle pills.
-  const exerciseMap = useMemo(
-    () => new Map(exercises.map((e) => [e.id, e])),
-    [exercises],
-  );
+  const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
 
   // Bucket workouts by local-date key so the cell lookup is O(1) per
   // day during render. Key is `YYYY-M-D` in *local* time — the user's
@@ -98,19 +87,12 @@ export default function CalendarPage() {
     // Sort each day's workouts by start time so stacked pills read
     // morning → evening top-to-bottom.
     for (const list of map.values()) {
-      list.sort(
-        (a, b) =>
-          new Date(a.performed_at).getTime() -
-          new Date(b.performed_at).getTime(),
-      );
+      list.sort((a, b) => new Date(a.performed_at).getTime() - new Date(b.performed_at).getTime());
     }
     return map;
   }, [workouts]);
 
-  const days = useMemo(
-    () => buildMonthGrid(cursor.year, cursor.month),
-    [cursor],
-  );
+  const days = useMemo(() => buildMonthGrid(cursor.year, cursor.month), [cursor]);
 
   // Stats for the currently-viewed month: total tracked duration and
   // activity count. "Tracked duration" is the sum across workouts that
@@ -123,16 +105,12 @@ export default function CalendarPage() {
     if (!workouts) return { count, totalMinutes };
     for (const w of workouts) {
       const d = new Date(w.performed_at);
-      if (
-        d.getFullYear() !== cursor.year ||
-        d.getMonth() !== cursor.month
-      ) {
+      if (d.getFullYear() !== cursor.year || d.getMonth() !== cursor.month) {
         continue;
       }
       count += 1;
       if (w.ended_at) {
-        const ms =
-          new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
+        const ms = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
         if (ms > 0) totalMinutes += Math.round(ms / 60000);
       }
     }
@@ -150,15 +128,11 @@ export default function CalendarPage() {
 
   const goPrev = () =>
     setCursor((c) =>
-      c.month === 0
-        ? { year: c.year - 1, month: 11 }
-        : { year: c.year, month: c.month - 1 },
+      c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 },
     );
   const goNext = () =>
     setCursor((c) =>
-      c.month === 11
-        ? { year: c.year + 1, month: 0 }
-        : { year: c.year, month: c.month + 1 },
+      c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 },
     );
   const goToday = () => {
     const now = new Date();
@@ -200,10 +174,7 @@ export default function CalendarPage() {
               month regardless. The discrepancy is intentional — we
               don't want to fabricate durations for un-clocked sessions. */}
           <div className="mb-4 grid grid-cols-2 gap-3">
-            <StatTile
-              value={formatTotalDuration(monthStats.totalMinutes)}
-              label="Total time"
-            />
+            <StatTile value={formatTotalDuration(monthStats.totalMinutes)} label="Total time" />
             <StatTile
               value={monthStats.count.toString()}
               label={monthStats.count === 1 ? "Activity" : "Activities"}
@@ -275,14 +246,11 @@ function DayCell({
   // rows stay visually balanced even when a day has no workouts. The
   // accent ring on today's cell stays inside the border to avoid
   // shifting any adjacent cells.
-  const baseClasses =
-    "flex min-h-[88px] flex-col gap-1 rounded-md border p-1.5 transition";
+  const baseClasses = "flex min-h-[88px] flex-col gap-1 rounded-md border p-1.5 transition";
   const stateClasses = isToday
     ? "border-[var(--accent)] bg-[var(--surface)]"
     : "border-[var(--border)] bg-[var(--surface)]";
-  const labelClasses = inMonth
-    ? "text-[var(--foreground)]"
-    : "text-[var(--muted)] opacity-60";
+  const labelClasses = inMonth ? "text-[var(--foreground)]" : "text-[var(--muted)] opacity-60";
 
   return (
     <div
@@ -298,30 +266,20 @@ function DayCell({
           : ""
       }`}
     >
-      <div className={`px-1 text-xs font-medium ${labelClasses}`}>
-        {day.getDate()}
-      </div>
+      <div className={`px-1 text-xs font-medium ${labelClasses}`}>{day.getDate()}</div>
       <div className="flex flex-col gap-1">
         {visible.map((w) => (
           <WorkoutPill key={w.id} workout={w} onClick={() => onPillClick(w)} />
         ))}
         {hiddenCount > 0 && (
-          <span className="px-1 text-[10px] text-[var(--muted)]">
-            +{hiddenCount} more
-          </span>
+          <span className="px-1 text-[10px] text-[var(--muted)]">+{hiddenCount} more</span>
         )}
       </div>
     </div>
   );
 }
 
-function WorkoutPill({
-  workout,
-  onClick,
-}: {
-  workout: Workout;
-  onClick: () => void;
-}) {
+function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => void }) {
   const time = new Date(workout.performed_at).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",

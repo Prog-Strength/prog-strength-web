@@ -174,15 +174,11 @@ export function HeadlineExercisesModal({
       <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
         <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
           <div className="flex flex-col gap-0.5">
-            <h2
-              id="headline-exercises-modal-title"
-              className="text-base font-semibold"
-            >
+            <h2 id="headline-exercises-modal-title" className="text-base font-semibold">
               Customize headline lifts
             </h2>
             <p className="text-xs text-[var(--muted)]">
-              Pick the exercises you want surfaced on this page. Up to{" "}
-              {MAX_SELECTION}.
+              Pick the exercises you want surfaced on this page. Up to {MAX_SELECTION}.
             </p>
           </div>
           <button
@@ -197,9 +193,7 @@ export function HeadlineExercisesModal({
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {loading && (
-            <p className="text-sm text-[var(--muted)]">Loading catalog…</p>
-          )}
+          {loading && <p className="text-sm text-[var(--muted)]">Loading catalog…</p>}
           {!loading && error && (
             <div className="mb-3 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
               {error}
@@ -230,9 +224,7 @@ export function HeadlineExercisesModal({
                           <li key={`${muscleGroup}:${ex.id}`}>
                             <label
                               className={`flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm transition hover:bg-[var(--surface)] ${
-                                disabled
-                                  ? "cursor-not-allowed opacity-50"
-                                  : ""
+                                disabled ? "cursor-not-allowed opacity-50" : ""
                               }`}
                             >
                               <input

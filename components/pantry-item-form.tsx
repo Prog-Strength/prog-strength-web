@@ -19,6 +19,7 @@ export function PantryItemForm({
   error,
   onSubmit,
   onCancel,
+  onDelete,
 }: {
   initial?: Partial<PantryItemPayload>;
   submitLabel: string;
@@ -26,15 +27,14 @@ export function PantryItemForm({
   error?: string | null;
   onSubmit: (payload: PantryItemPayload) => void;
   onCancel?: () => void;
+  onDelete?: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [calories, setCalories] = useState(initial?.calories?.toString() ?? "");
   const [proteinG, setProteinG] = useState(initial?.protein_g?.toString() ?? "");
   const [fatG, setFatG] = useState(initial?.fat_g?.toString() ?? "");
   const [carbsG, setCarbsG] = useState(initial?.carbs_g?.toString() ?? "");
-  const [servingSize, setServingSize] = useState(
-    initial?.serving_size?.toString() ?? "1",
-  );
+  const [servingSize, setServingSize] = useState(initial?.serving_size?.toString() ?? "1");
   const [servingUnit, setServingUnit] = useState(initial?.serving_unit ?? "");
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -86,9 +86,7 @@ export function PantryItemForm({
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs">
-          <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Name
-          </span>
+          <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">Name</span>
           <input
             type="text"
             value={name}
@@ -136,9 +134,7 @@ export function PantryItemForm({
         <MacroField label="Carbs (g)" value={carbsG} onChange={setCarbsG} disabled={busy} />
       </div>
 
-      {shownError && (
-        <p className="text-xs text-[var(--danger)]">{shownError}</p>
-      )}
+      {shownError && <p className="text-xs text-[var(--danger)]">{shownError}</p>}
 
       <div className="flex items-center justify-end gap-2">
         {onCancel && (
@@ -149,6 +145,16 @@ export function PantryItemForm({
             className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
           >
             Cancel
+          </button>
+        )}
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={busy}
+            className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:opacity-80 disabled:opacity-50"
+          >
+            Delete
           </button>
         )}
         <button
@@ -176,9 +182,7 @@ function MacroField({
 }) {
   return (
     <label className="flex flex-col gap-1 text-xs">
-      <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
-        {label}
-      </span>
+      <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">{label}</span>
       <input
         type="number"
         min={0}
