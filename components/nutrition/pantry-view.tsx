@@ -84,6 +84,7 @@ export function PantryView({
 
       <input
         type="search"
+        aria-label="Search pantry items"
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
