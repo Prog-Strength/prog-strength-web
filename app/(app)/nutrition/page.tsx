@@ -197,7 +197,9 @@ export default function NutritionPage() {
 
           <DateTileStrip value={date} onChange={setDate} />
 
-          {goals && <MacroGoalRings totals={totals} goals={goals} />}
+          {goals && (
+            <MacroGoalRings totals={totals} goals={goals} date={date} />
+          )}
 
           {/* Small toolbar sitting above the meal sections. White
               icon-text buttons (no fill, no border) keep the page's

@@ -47,6 +47,7 @@ const COLORS = {
 export function MacroGoalRings({
   totals,
   goals,
+  date,
 }: {
   totals: {
     protein_g: number;
@@ -55,19 +56,29 @@ export function MacroGoalRings({
     calories: number;
   };
   goals: MacroGoals;
+  /** The local date the parent page is viewing. Drives the section
+   * header so the rings can't drift out of sync with the surrounding
+   * meal sections and date strip — the page owns the single source
+   * of truth, this component just reads. */
+  date: Date;
 }) {
   const goalsAreSet = goals.created_at !== null;
+  const headerLabel = formatDateHeading(date);
+  // The empty-state copy reads slightly different on past dates —
+  // "see how close today was" makes more sense than "is" once the
+  // day's over.
+  const emptyCopyTense = sameLocalDay(date, new Date()) ? "is" : "was";
 
   return (
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
       <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-        Today
+        {headerLabel}
       </h2>
 
       {!goalsAreSet && (
         <p className="mb-3 text-xs text-[var(--muted)]">
           Set targets for protein, carbs, fat, and calories to see how
-          close today is.
+          close {headerLabel.toLowerCase()} {emptyCopyTense}.
         </p>
       )}
 
@@ -216,4 +227,35 @@ function Ring({
 function formatGrams(n: number): string {
   // Avoid "180.0" for clean integers; round to one decimal otherwise.
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+/**
+ * Section heading for the rings. Anchored on the page's selected date
+ * so the user always knows which day's macros they're looking at.
+ * "Today" / "Yesterday" are friendly shortcuts; anything further back
+ * gets a "Wed, May 28" style label (with the year appended only when
+ * different from the current year, to keep the common case compact).
+ */
+function formatDateHeading(date: Date): string {
+  const today = new Date();
+  if (sameLocalDay(date, today)) return "Today";
+
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (sameLocalDay(date, yesterday)) return "Yesterday";
+
+  const sameYear = date.getFullYear() === today.getFullYear();
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+function sameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
