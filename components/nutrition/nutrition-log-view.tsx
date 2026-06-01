@@ -157,14 +157,28 @@ function MealSection({
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
-              <th className="py-1.5 pr-3 text-left font-semibold">Time</th>
-              <th className="py-1.5 pr-3 text-left font-semibold">Item</th>
-              <th className="py-1.5 pr-3 text-right font-semibold">Serv</th>
-              <th className="py-1.5 pr-3 text-right font-semibold">Cal</th>
-              <th className="py-1.5 pr-3 text-right font-semibold">P</th>
-              <th className="py-1.5 pr-3 text-right font-semibold">F</th>
-              <th className="py-1.5 pr-3 text-right font-semibold">C</th>
-              <th className="py-1.5 text-right font-semibold">
+              <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
+                Time
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
+                Item
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                Serv
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                Cal
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                P
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                F
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                C
+              </th>
+              <th scope="col" className="py-1.5 text-right font-semibold">
                 <span className="sr-only">Actions</span>
               </th>
             </tr>
@@ -180,13 +194,15 @@ function MealSection({
                   <td className="py-2 pr-3 text-left text-xs text-[var(--muted)] tabular-nums">
                     {formatLocalTime(e.consumed_at)}
                   </td>
-                  <td className="py-2 pr-3 text-left">
-                    <span className="truncate font-medium">{name}</span>
-                    {e.recipe_id && (
-                      <span className="ml-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
-                        recipe
-                      </span>
-                    )}
+                  <td className="max-w-0 py-2 pr-3 text-left">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium">{name}</span>
+                      {e.recipe_id && (
+                        <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                          recipe
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.quantity)}</td>
                   <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.calories)}</td>
