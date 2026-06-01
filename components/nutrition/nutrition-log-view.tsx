@@ -13,22 +13,23 @@ const MEAL_LABELS: Record<MealType, string> = {
 };
 
 /**
- * The meal-bucketed daily log for /nutrition. Pulled out of the page
- * so the page-level shell can render it alongside Pantry and Recipes
- * views without duplicating the meal-sections markup.
+ * The meal-bucketed daily log for /nutrition. Renders one compact
+ * table per meal so a full day fits on screen without paging. Per-row
+ * pencil/trash buttons hand the entry up to the page, which owns the
+ * edit/delete modals.
  */
 export function NutritionLogView({
   entries,
   pantryByID,
   recipeByID,
-  rowBusyID,
+  onEdit,
   onDelete,
 }: {
   entries: NutritionLogEntry[] | null;
   pantryByID: Map<string, PantryItem>;
   recipeByID: Map<string, Recipe>;
-  rowBusyID: string | null;
-  onDelete: (id: string) => void;
+  onEdit: (entry: NutritionLogEntry) => void;
+  onDelete: (entry: NutritionLogEntry) => void;
 }) {
   if (entries === null) {
     return <p className="text-sm text-[var(--muted)]">Loading…</p>;
@@ -38,24 +39,42 @@ export function NutritionLogView({
       entries={entries}
       pantryByID={pantryByID}
       recipeByID={recipeByID}
-      rowBusyID={rowBusyID}
+      onEdit={onEdit}
       onDelete={onDelete}
     />
   );
+}
+
+/**
+ * Resolve the display name for a log entry. Exported so the page can
+ * label the edit and delete modals with the same name the row shows.
+ */
+export function resolveItemName(
+  entry: NutritionLogEntry,
+  pantryByID: Map<string, PantryItem>,
+  recipeByID: Map<string, Recipe>,
+): string {
+  if (entry.pantry_item_id) {
+    return pantryByID.get(entry.pantry_item_id)?.name ?? "Unknown item";
+  }
+  if (entry.recipe_id) {
+    return recipeByID.get(entry.recipe_id)?.name ?? "Unknown recipe";
+  }
+  return "Untitled entry";
 }
 
 function MealSections({
   entries,
   pantryByID,
   recipeByID,
-  rowBusyID,
+  onEdit,
   onDelete,
 }: {
   entries: NutritionLogEntry[];
   pantryByID: Map<string, PantryItem>;
   recipeByID: Map<string, Recipe>;
-  rowBusyID: string | null;
-  onDelete: (id: string) => void;
+  onEdit: (entry: NutritionLogEntry) => void;
+  onDelete: (entry: NutritionLogEntry) => void;
 }) {
   const byMeal = useMemo(() => {
     const m: Record<MealType, NutritionLogEntry[]> = {
@@ -85,7 +104,7 @@ function MealSections({
           entries={byMeal[m]}
           pantryByID={pantryByID}
           recipeByID={recipeByID}
-          rowBusyID={rowBusyID}
+          onEdit={onEdit}
           onDelete={onDelete}
         />
       ))}
@@ -98,15 +117,15 @@ function MealSection({
   entries,
   pantryByID,
   recipeByID,
-  rowBusyID,
+  onEdit,
   onDelete,
 }: {
   meal: MealType;
   entries: NutritionLogEntry[];
   pantryByID: Map<string, PantryItem>;
   recipeByID: Map<string, Recipe>;
-  rowBusyID: string | null;
-  onDelete: (id: string) => void;
+  onEdit: (entry: NutritionLogEntry) => void;
+  onDelete: (entry: NutritionLogEntry) => void;
 }) {
   const subtotal = useMemo(() => {
     const t = { calories: 0, protein_g: 0, fat_g: 0, carbs_g: 0 };
@@ -135,75 +154,90 @@ function MealSection({
         </p>
       </header>
       {entries.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {entries.map((e) => {
-            const name = e.pantry_item_id
-              ? (pantryByID.get(e.pantry_item_id)?.name ?? "Unknown item")
-              : e.recipe_id
-                ? (recipeByID.get(e.recipe_id)?.name ?? "Unknown recipe")
-                : "Untitled entry";
-            return (
-              <li key={e.id}>
-                <LogEntryRow
-                  entry={e}
-                  itemName={name}
-                  isRecipe={!!e.recipe_id}
-                  busy={rowBusyID === e.id}
-                  onDelete={() => onDelete(e.id)}
-                />
-              </li>
-            );
-          })}
-        </ul>
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
+              <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
+                Time
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
+                Item
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                Serv
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                Cal
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                P
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                F
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+                C
+              </th>
+              <th scope="col" className="py-1.5 text-right font-semibold">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e) => {
+              const name = resolveItemName(e, pantryByID, recipeByID);
+              return (
+                <tr
+                  key={e.id}
+                  className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface)]"
+                >
+                  <td className="py-2 pr-3 text-left text-xs text-[var(--muted)] tabular-nums">
+                    {formatLocalTime(e.consumed_at)}
+                  </td>
+                  <td className="max-w-0 py-2 pr-3 text-left">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium">{name}</span>
+                      {e.recipe_id && (
+                        <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                          recipe
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.quantity)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.calories)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {formatNumber(e.protein_g)}g
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.fat_g)}g</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.carbs_g)}g</td>
+                  <td className="py-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onEdit(e)}
+                        aria-label="Edit entry"
+                        className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+                      >
+                        <PencilIcon />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(e)}
+                        aria-label="Delete entry"
+                        className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--background)] hover:text-[var(--danger)]"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
     </section>
-  );
-}
-
-function LogEntryRow({
-  entry,
-  itemName,
-  isRecipe,
-  busy,
-  onDelete,
-}: {
-  entry: NutritionLogEntry;
-  itemName: string;
-  isRecipe: boolean;
-  busy: boolean;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-      <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
-        <p className="truncate text-sm font-medium">
-          {itemName}{" "}
-          <span className="text-xs text-[var(--muted)] tabular-nums">
-            × {formatNumber(entry.quantity)}
-            {isRecipe && (
-              <span className="ml-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
-                recipe
-              </span>
-            )}
-          </span>
-        </p>
-        <p className="text-xs text-[var(--muted)] tabular-nums">
-          {formatNumber(entry.calories)} cal · P {formatNumber(entry.protein_g)}g · F{" "}
-          {formatNumber(entry.fat_g)}g · C {formatNumber(entry.carbs_g)}g
-          <span className="ml-2 text-[10px] uppercase tracking-wider">
-            {formatLocalTime(entry.consumed_at)}
-          </span>
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={busy}
-        className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-2 py-1 text-xs text-[var(--danger)] hover:opacity-80 disabled:opacity-50"
-      >
-        Delete
-      </button>
-    </div>
   );
 }
 
@@ -212,4 +246,43 @@ function formatLocalTime(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
 }
