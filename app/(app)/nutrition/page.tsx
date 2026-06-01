@@ -250,6 +250,12 @@ function NutritionPageInner() {
             </div>
             <div className="flex items-center gap-5">
               <ToolbarButton
+                onClick={() => setView("log")}
+                icon={<LogIcon />}
+                label="Log"
+                active={view === "log"}
+              />
+              <ToolbarButton
                 onClick={() => setView("pantry")}
                 icon={<JarIcon />}
                 label="Pantry"
@@ -430,6 +436,27 @@ function ListIcon() {
       <circle cx="4" cy="6" r="0.5" fill="currentColor" />
       <circle cx="4" cy="12" r="0.5" fill="currentColor" />
       <circle cx="4" cy="18" r="0.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function LogIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <rect x="6" y="3" width="12" height="18" rx="1.5" />
+      <path d="M9 3v2h6V3" />
+      <path d="M9 10h6" />
+      <path d="M9 14h6" />
+      <path d="M9 18h4" />
     </svg>
   );
 }
