@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   createNutritionLogEntry,
-  deleteNutritionLogEntry,
   getMacroGoals,
   listNutritionLog,
   listPantryItems,
@@ -20,7 +19,9 @@ import { DateTileStrip } from "@/components/date-tile-strip";
 import { MacroGoalRings } from "@/components/macro-goal-rings";
 import { MacroGoalsModal } from "@/components/macro-goals-modal";
 import { QuickAddModal } from "@/components/quick-add-modal";
-import { NutritionLogView } from "@/components/nutrition/nutrition-log-view";
+import { NutritionLogView, resolveItemName } from "@/components/nutrition/nutrition-log-view";
+import { LogEntryEditModal } from "@/components/nutrition/log-entry-edit-modal";
+import { LogEntryDeleteModal } from "@/components/nutrition/log-entry-delete-modal";
 import { PantryView } from "@/components/nutrition/pantry-view";
 import { RecipesView } from "@/components/nutrition/recipes-view";
 
@@ -63,7 +64,8 @@ function NutritionPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
-  const [rowBusyID, setRowBusyID] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<NutritionLogEntry | null>(null);
+  const [deletingEntry, setDeletingEntry] = useState<NutritionLogEntry | null>(null);
 
   const requireToken = useCallback((): string | null => {
     const token = getToken();
@@ -187,20 +189,6 @@ function NutritionPageInner() {
       .finally(() => setLogBusy(false));
   }
 
-  function handleDelete(id: string) {
-    const token = requireToken();
-    if (!token) return;
-    setRowBusyID(id);
-    deleteNutritionLogEntry(token, id)
-      .then(() => {
-        setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
-      })
-      .catch((err: unknown) => {
-        handleApiError(err);
-      })
-      .finally(() => setRowBusyID(null));
-  }
-
   // Triggered by pantry-item mutations. Recipes' derived macros
   // depend on pantry items, so refresh both.
   const onPantryChanged = useCallback(() => {
@@ -275,8 +263,8 @@ function NutritionPageInner() {
               entries={entries}
               pantryByID={pantryByID}
               recipeByID={recipeByID}
-              rowBusyID={rowBusyID}
-              onDelete={handleDelete}
+              onEdit={(entry) => setEditingEntry(entry)}
+              onDelete={(entry) => setDeletingEntry(entry)}
             />
           )}
           {view === "pantry" && (
@@ -306,6 +294,32 @@ function NutritionPageInner() {
           error={logError}
           onLog={handleLog}
           onClose={() => setShowQuickAdd(false)}
+        />
+      )}
+      {editingEntry && (
+        <LogEntryEditModal
+          token={token}
+          entry={editingEntry}
+          itemName={resolveItemName(editingEntry, pantryByID, recipeByID)}
+          onSaved={(updated) => {
+            setEntries((prev) =>
+              prev ? prev.map((e) => (e.id === updated.id ? updated : e)) : prev,
+            );
+            setEditingEntry(null);
+          }}
+          onClose={() => setEditingEntry(null)}
+        />
+      )}
+      {deletingEntry && (
+        <LogEntryDeleteModal
+          token={token}
+          entry={deletingEntry}
+          itemName={resolveItemName(deletingEntry, pantryByID, recipeByID)}
+          onDeleted={(id) => {
+            setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
+            setDeletingEntry(null);
+          }}
+          onClose={() => setDeletingEntry(null)}
         />
       )}
     </main>
