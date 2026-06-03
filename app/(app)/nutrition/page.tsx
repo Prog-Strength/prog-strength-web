@@ -32,6 +32,11 @@ function parseView(raw: string | null): View {
   return "log";
 }
 
+// The browser's IANA timezone. Resolved once — it does not change during
+// a session. Sent to the nutrition read endpoints so the server resolves
+// the user-local calendar day.
+const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 /**
  * Nutrition — daily log + macro widget + Pantry/Recipes catalogs,
  * switched by the ?view= URL param.
@@ -93,9 +98,9 @@ function NutritionPageInner() {
     (d: Date) => {
       const token = requireToken();
       if (!token) return;
-      const since = d.toISOString();
-      const until = endOfLocalDay(d).toISOString();
-      listNutritionLog(token, { since, until }).then(setEntries).catch(handleApiError);
+      listNutritionLog(token, { date: toLocalYMD(d), timezone })
+        .then(setEntries)
+        .catch(handleApiError);
     },
     [requireToken, handleApiError],
   );
@@ -332,8 +337,12 @@ function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
 
-function endOfLocalDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0);
+/** Local calendar date as YYYY-MM-DD (NOT toISOString, which is UTC). */
+function toLocalYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function sameLocalDay(a: Date, b: Date): boolean {
