@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   createNutritionLogEntry,
+  getDailyMacros,
   getMacroGoals,
   listNutritionLog,
   listPantryItems,
@@ -37,6 +38,15 @@ function parseView(raw: string | null): View {
 // the user-local calendar day.
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+type MacroTotals = {
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+};
+
+const ZERO_TOTALS: MacroTotals = { calories: 0, protein_g: 0, fat_g: 0, carbs_g: 0 };
+
 /**
  * Nutrition — daily log + macro widget + Pantry/Recipes catalogs,
  * switched by the ?view= URL param.
@@ -61,6 +71,10 @@ function NutritionPageInner() {
 
   const [date, setDate] = useState<Date>(() => startOfLocalDay(new Date()));
   const [entries, setEntries] = useState<NutritionLogEntry[] | null>(null);
+  // Server-computed daily totals drive the ring widget. Sourced from
+  // /nutrition-log/daily rather than summed client-side so the same
+  // arithmetic powers the page and the chat agent's macros answer.
+  const [dailyTotals, setDailyTotals] = useState<MacroTotals>(ZERO_TOTALS);
   const [pantry, setPantry] = useState<PantryItem[] | null>(null);
   const [recipes, setRecipes] = useState<Recipe[] | null>(null);
   const [goals, setGoals] = useState<MacroGoals | null>(null);
@@ -105,6 +119,32 @@ function NutritionPageInner() {
     [requireToken, handleApiError],
   );
 
+  // The daily endpoint returns at most one bucket for a single-date
+  // query; an empty array means the day has no entries, which the
+  // rings render as zeros.
+  const fetchDailyTotals = useCallback(
+    (d: Date) => {
+      const token = requireToken();
+      if (!token) return;
+      getDailyMacros(token, { date: toLocalYMD(d), timezone })
+        .then((days) => {
+          const day = days[0];
+          setDailyTotals(
+            day
+              ? {
+                  calories: day.calories,
+                  protein_g: day.protein_g,
+                  fat_g: day.fat_g,
+                  carbs_g: day.carbs_g,
+                }
+              : ZERO_TOTALS,
+          );
+        })
+        .catch(handleApiError);
+    },
+    [requireToken, handleApiError],
+  );
+
   const fetchPantry = useCallback(() => {
     const token = requireToken();
     if (!token) return;
@@ -130,10 +170,11 @@ function NutritionPageInner() {
     fetchGoals();
   }, [fetchPantry, fetchRecipes, fetchGoals]);
 
-  // Date change: only the log entries depend on the date.
+  // Date change: refresh both the entries list and the day's totals.
   useEffect(() => {
     fetchEntries(date);
-  }, [date, fetchEntries]);
+    fetchDailyTotals(date);
+  }, [date, fetchEntries, fetchDailyTotals]);
 
   const pantryByID = useMemo(() => {
     const m = new Map<string, PantryItem>();
@@ -145,17 +186,6 @@ function NutritionPageInner() {
     for (const r of recipes ?? []) m.set(r.id, r);
     return m;
   }, [recipes]);
-
-  const totals = useMemo(() => {
-    const out = { calories: 0, protein_g: 0, fat_g: 0, carbs_g: 0 };
-    for (const e of entries ?? []) {
-      out.calories += e.calories;
-      out.protein_g += e.protein_g;
-      out.fat_g += e.fat_g;
-      out.carbs_g += e.carbs_g;
-    }
-    return out;
-  }, [entries]);
 
   function setView(next: View) {
     router.replace(next === "log" ? "/nutrition" : `/nutrition?view=${next}`);
@@ -180,6 +210,13 @@ function NutritionPageInner() {
     })
       .then((entry) => {
         setEntries((prev) => (prev ? [entry, ...prev] : [entry]));
+        // Refetch server-truth totals so the rings reflect the new
+        // entry (we optimistically update the list for instant
+        // feedback, but the rings come from /nutrition-log/daily).
+        // The entry always lands on the currently-viewed date — today
+        // via `new Date()` or noon on the viewed date via `date` —
+        // so a single refetch keyed on `date` covers both.
+        fetchDailyTotals(date);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -223,7 +260,7 @@ function NutritionPageInner() {
 
           <DateTileStrip value={date} onChange={setDate} />
 
-          {goals && <MacroGoalRings totals={totals} goals={goals} date={date} />}
+          {goals && <MacroGoalRings totals={dailyTotals} goals={goals} date={date} />}
 
           {/* Toolbar row: left group are actions, right group are view
               switches. The bottom border of this row doubles as the
@@ -310,6 +347,7 @@ function NutritionPageInner() {
             setEntries((prev) =>
               prev ? prev.map((e) => (e.id === updated.id ? updated : e)) : prev,
             );
+            fetchDailyTotals(date);
             setEditingEntry(null);
           }}
           onClose={() => setEditingEntry(null)}
@@ -322,6 +360,7 @@ function NutritionPageInner() {
           itemName={resolveItemName(deletingEntry, pantryByID, recipeByID)}
           onDeleted={(id) => {
             setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
+            fetchDailyTotals(date);
             setDeletingEntry(null);
           }}
           onClose={() => setDeletingEntry(null)}
