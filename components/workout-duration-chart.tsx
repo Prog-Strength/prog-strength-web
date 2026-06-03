@@ -16,6 +16,12 @@ import type { Workout } from "@/lib/api";
  * Total weekly training time over the active timeframe — the "did I
  * spend enough time lifting?" answer at the top of the Workouts page.
  *
+ * Deliberately chrome-less. This renders only the inner chart block
+ * (loading / empty / area) plus the truncated note — the analytics
+ * wrapper (WorkoutsAnalytics) owns the card border and the shared
+ * summary header (Total Time / Sessions / PRs) so the sibling views can
+ * sit under one set of totals.
+ *
  * Purely presentational. The workouts array, the timeframe's `days`,
  * and the truncation flags are passed in by the page so a single
  * fetch hydrates both this chart and the paginated list below.
@@ -45,29 +51,7 @@ export function WorkoutDurationChart({
   const summary = useMemo(() => summarize(workouts ?? [], days), [workouts, days]);
 
   return (
-    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-      <header className="flex items-baseline justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Time lifting
-          </p>
-          <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums">
-            {formatHours(summary.totalMinutes)}
-            {summary.openWorkouts > 0 && (
-              <span className="ml-2 text-sm font-normal text-[var(--muted)]">
-                + {summary.openWorkouts} open
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Sessions
-          </p>
-          <p className="mt-0.5 text-2xl font-semibold tabular-nums">{summary.sessionCount}</p>
-        </div>
-      </header>
-
+    <>
       <div className="mt-3" style={{ height: CHART_HEIGHT }}>
         {workouts === null ? (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted)]">
@@ -144,7 +128,7 @@ export function WorkoutDurationChart({
           chart yet.
         </p>
       )}
-    </section>
+    </>
   );
 }
 
