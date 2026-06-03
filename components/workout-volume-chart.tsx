@@ -11,44 +11,52 @@ import {
   YAxis,
 } from "recharts";
 import type { Workout } from "@/lib/api";
+import { workoutVolume } from "@/lib/workout-volume";
 
 /**
- * Total weekly training time over the active timeframe — the "did I
- * spend enough time lifting?" answer at the top of the Workouts page.
+ * Volume sibling of the duration chart: total weekly training volume
+ * (sum of reps × weight) over the active timeframe — the "am I moving
+ * enough weight?" answer alongside "did I spend enough time lifting?".
  *
- * Deliberately chrome-less. This renders only the inner chart block
- * (loading / empty / area) plus the truncated note — the analytics
- * wrapper (WorkoutsAnalytics) owns the card border and the shared
- * summary header (Total Time / Sessions / PRs) so the sibling views can
- * sit under one set of totals.
+ * Deliberately chrome-less. Unlike the duration chart this renders only
+ * the inner chart block (loading / empty / area) plus the truncated
+ * note — the analytics wrapper owns the card border and the shared
+ * header so the two views can sit under one set of totals.
  *
  * Purely presentational. The workouts array, the timeframe's `days`,
- * and the truncation flags are passed in by the page so a single
- * fetch hydrates both this chart and the paginated list below.
+ * and the truncation flags are passed in by the page so a single fetch
+ * hydrates both this chart and the paginated list below.
  */
 
 const CHART_HEIGHT = 200;
 
-export function WorkoutDurationChart({
+export function WorkoutVolumeChart({
   workouts,
   days,
+  displayUnit,
   truncated,
   fetchLimit,
 }: {
   // `null` while the parent is still loading. Empty array = no
-  // workouts in the window (rendered as an empty-state card).
+  // workouts in the window (rendered as an empty-state block).
   workouts: Workout[] | null;
   // Days back from now this window covers, or null for "all".
   // Drives the X-axis bucket span so empty weeks at the edge of the
   // window still appear as zero-points instead of clipping the line.
   days: number | null;
+  // The unit each set's weight is converted toward before summing, so
+  // the totals match the user's preference and the per-card badges.
+  displayUnit: "lb" | "kg";
   // True when the parent's fetch returned exactly `fetchLimit` rows
   // and the API may have more — the chart surfaces this so the user
   // understands why older data isn't included.
   truncated: boolean;
   fetchLimit: number;
 }) {
-  const summary = useMemo(() => summarize(workouts ?? [], days), [workouts, days]);
+  const summary = useMemo(
+    () => summarize(workouts ?? [], days, displayUnit),
+    [workouts, days, displayUnit],
+  );
 
   return (
     <>
@@ -57,7 +65,7 @@ export function WorkoutDurationChart({
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted)]">
             Loading…
           </div>
-        ) : summary.weeks.length === 0 || summary.totalMinutes === 0 ? (
+        ) : summary.weeks.length === 0 || summary.totalVolume === 0 ? (
           <div className="flex h-full items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--muted)]">
             No completed workouts in this window.
           </div>
@@ -65,7 +73,7 @@ export function WorkoutDurationChart({
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={summary.weeks} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
               <defs>
-                <linearGradient id="duration-fill" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="volume-fill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.32} />
                   <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
                 </linearGradient>
@@ -104,15 +112,20 @@ export function WorkoutDurationChart({
                   typeof v === "number" ? formatWeekRangeFromMonday(new Date(v)) : ""
                 }
                 formatter={(v) =>
-                  typeof v === "number" ? [formatHours(v), "Total"] : ["—", "Total"]
+                  typeof v === "number"
+                    ? [
+                        `${v.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${displayUnit}`,
+                        "Volume",
+                      ]
+                    : ["—", "Volume"]
                 }
               />
               <Area
                 type="monotone"
-                dataKey="minutes"
+                dataKey="volume"
                 stroke="#3b82f6"
                 strokeWidth={2}
-                fill="url(#duration-fill)"
+                fill="url(#volume-fill)"
                 isAnimationActive={false}
                 dot={{ r: 3, fill: "#3b82f6", stroke: "#3b82f6" }}
                 activeDot={{ r: 4 }}
@@ -140,29 +153,31 @@ type WeekPoint = {
   // Unix-ms timestamp of the Monday so recharts' numeric XAxis can
   // place each point linearly without us converting per-tick.
   t: number;
-  // Total minutes of completed training for the week.
-  minutes: number;
+  // Total training volume (reps × weight) for the week.
+  volume: number;
 };
 
 type Summary = {
-  totalMinutes: number;
-  sessionCount: number;
-  openWorkouts: number;
+  totalVolume: number;
   weeks: WeekPoint[];
 };
 
 /**
  * Buckets workouts into Monday-anchored weeks and totals each week's
- * completed-workout minutes. Weeks with no completed sessions still
- * appear so the line dips to zero — a multi-week gap shows up
- * visually rather than being smoothed away by adjacent points.
+ * training volume. Weeks with no sessions still appear so the line dips
+ * to zero — a multi-week gap shows up visually rather than being
+ * smoothed away by adjacent points.
+ *
+ * Unlike the duration chart this counts every workout in the window,
+ * not only completed ones: volume comes from logged sets, so an
+ * in-progress (no `ended_at`) session still has real volume to show.
  *
  * For bounded timeframes (7d/30d/90d) the bucket span is derived from
  * the timeframe so even an empty user sees a chart shaped like the
  * window. For the "all" timeframe (days === null) the span runs from
  * the oldest workout in the array to today.
  */
-function summarize(workouts: Workout[], days: number | null): Summary {
+function summarize(workouts: Workout[], days: number | null, displayUnit: "lb" | "kg"): Summary {
   const now = new Date();
   const since =
     days !== null
@@ -184,32 +199,21 @@ function summarize(workouts: Workout[], days: number | null): Summary {
       weekKey: key,
       weekStart: new Date(cursor),
       t: cursor.getTime(),
-      minutes: 0,
+      volume: 0,
     });
   }
 
-  let totalMinutes = 0;
-  let sessionCount = 0;
-  let openWorkouts = 0;
+  let totalVolume = 0;
   for (const w of workouts) {
-    sessionCount++;
-    const performedAt = new Date(w.performed_at);
-    if (!w.ended_at) {
-      openWorkouts++;
-      continue;
-    }
-    const durationMs = new Date(w.ended_at).getTime() - performedAt.getTime();
-    if (!Number.isFinite(durationMs) || durationMs <= 0) continue;
-    const minutes = durationMs / 60_000;
-    totalMinutes += minutes;
-    const bucket = weeksByKey.get(isoDate(startOfMonday(performedAt)));
-    if (bucket) bucket.minutes += minutes;
+    const volume = workoutVolume(w, displayUnit);
+    if (!Number.isFinite(volume) || volume <= 0) continue;
+    totalVolume += volume;
+    const bucket = weeksByKey.get(isoDate(startOfMonday(new Date(w.performed_at))));
+    if (bucket) bucket.volume += volume;
   }
 
   return {
-    totalMinutes,
-    sessionCount,
-    openWorkouts,
+    totalVolume,
     weeks: orderedKeys.map((k) => weeksByKey.get(k)!),
   };
 }
@@ -238,23 +242,9 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function formatHours(minutes: number): string {
-  if (minutes <= 0) return "0h";
-  const totalMinutes = Math.round(minutes);
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  if (hours === 0) return `${mins}m`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-}
-
-function formatYTick(minutes: number): string {
-  if (minutes <= 0) return "0";
-  if (minutes >= 60) {
-    const h = minutes / 60;
-    return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`;
-  }
-  return `${Math.round(minutes)}m`;
+function formatYTick(volume: number): string {
+  if (volume <= 0) return "0";
+  return Math.round(volume).toLocaleString();
 }
 
 function formatWeekRangeFromMonday(monday: Date): string {

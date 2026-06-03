@@ -268,6 +268,34 @@ export async function listHeadlineExerciseDefaults(
 }
 
 /**
+ * The authenticated user. `weight_unit` is the user's preferred display
+ * unit; bodyweight and workout-volume UIs convert history toward it.
+ */
+export type User = {
+  id: string;
+  email: string;
+  display_name?: string;
+  weight_unit: "lb" | "kg";
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * GET /me. Returns the authed user, including their preferred
+ * `weight_unit`. Throws if the response carries no user payload.
+ */
+export async function getMe(token: string): Promise<User> {
+  const resp = await fetch(`${config.apiUrl}/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<User | null>(resp, null);
+  if (!got) {
+    throw new Error("user not found");
+  }
+  return got;
+}
+
+/**
  * Two endpoints of a least-squares trendline, evaluated at the query's
  * `since` and `until`. The frontend connects them with a straight line;
  * the regression math lives on the server.

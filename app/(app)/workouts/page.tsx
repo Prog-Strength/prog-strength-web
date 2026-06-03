@@ -3,10 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import { deleteWorkout, listExercises, listWorkouts, type Exercise, type Workout } from "@/lib/api";
+import {
+  deleteWorkout,
+  getMe,
+  listExercises,
+  listWorkouts,
+  type Exercise,
+  type User,
+  type Workout,
+} from "@/lib/api";
 import { WorkoutModal } from "@/components/workout-modal";
 import { WorkoutDetails, hasMeaningfulName } from "@/components/workout-details";
-import { WorkoutDurationChart } from "@/components/workout-duration-chart";
+import { WorkoutsAnalytics } from "@/components/workouts-analytics";
+import { workoutVolume } from "@/lib/workout-volume";
 
 /**
  * Workouts overview. Lists the user's sessions for the selected
@@ -51,6 +60,7 @@ export default function WorkoutsPage() {
   // Tracks which rows have their readonly details panel open. Click on
   // the row body toggles; click on the pencil opens the edit modal.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [user, setUser] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Catalog only needs to load once — it's not user-scoped.
@@ -59,6 +69,24 @@ export default function WorkoutsPage() {
       .then(setExercises)
       .catch((err: Error) => setError(err.message));
   }, []);
+
+  // Current user loads once — drives the display unit (lb/kg) for volume.
+  // No redirect on a missing token here: the workouts effect already
+  // owns that, so we just bail to avoid a double-redirect.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    getMe(token)
+      .then(setUser)
+      .catch((err: Error) => {
+        if (err.message.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(err.message);
+      });
+  }, [router]);
 
   // One fetch per timeframe change. The list paginates over the
   // returned array client-side rather than firing a new request per
@@ -107,6 +135,7 @@ export default function WorkoutsPage() {
   const total = workouts?.length ?? 0;
   const hasMore = workouts ? page * PAGE_SIZE < workouts.length : false;
   const truncated = workouts ? workouts.length >= FETCH_LIMIT : false;
+  const displayUnit = user?.weight_unit ?? "lb";
 
   // Group the *visible page* by week, not the full timeframe. The chart
   // shows the full-timeframe summary; the list's per-week headers
@@ -184,8 +213,10 @@ export default function WorkoutsPage() {
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto flex max-w-3xl flex-col gap-6">
-          <WorkoutDurationChart
+          <WorkoutsAnalytics
             workouts={workouts}
+            exercises={exercises}
+            displayUnit={displayUnit}
             days={TIMEFRAMES.find((t) => t.id === timeframe)?.days ?? null}
             truncated={truncated}
             fetchLimit={FETCH_LIMIT}
@@ -218,6 +249,7 @@ export default function WorkoutsPage() {
                         onEdit={() => setEditing(w)}
                         onDelete={() => handleDelete(w)}
                         exerciseMap={exerciseMap}
+                        displayUnit={displayUnit}
                       />
                     ))}
                   </ul>
@@ -321,6 +353,7 @@ function WorkoutRow({
   onEdit,
   onDelete,
   exerciseMap,
+  displayUnit,
 }: {
   workout: Workout;
   expanded: boolean;
@@ -328,6 +361,7 @@ function WorkoutRow({
   onEdit: () => void;
   onDelete: () => void;
   exerciseMap: Map<string, Exercise>;
+  displayUnit: "lb" | "kg";
 }) {
   const named = hasMeaningfulName(workout.name);
   return (
@@ -364,7 +398,15 @@ function WorkoutRow({
             <p className="truncate text-xs text-[var(--muted)]">
               {named && `${formatDate(workout.performed_at)} · `}
               {formatDuration(workout.performed_at, workout.ended_at ?? null)} ·{" "}
-              {workout.exercises.length} {workout.exercises.length === 1 ? "exercise" : "exercises"}
+              {workout.exercises.length} {workout.exercises.length === 1 ? "exercise" : "exercises"}{" "}
+              ·{" "}
+              <span className="tabular-nums">
+                {workoutVolume(workout, displayUnit).toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })}{" "}
+                {displayUnit}
+              </span>{" "}
+              Total Volume
             </p>
             {workout.notes && (
               <p className="truncate text-xs text-[var(--muted)]">{workout.notes}</p>
