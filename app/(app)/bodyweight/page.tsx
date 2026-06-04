@@ -430,6 +430,12 @@ function ChartCard({
 
   const stats = useMemo(() => computeStats(entries, displayUnit), [entries, displayUnit]);
 
+  // Goal weight projected into the chart's display unit, so the y-axis
+  // domain and the goal-line ReferenceLine read off the same number.
+  // Null when no goal is set; the y-axis falls back to data-only bounds.
+  const goalInDisplayUnit =
+    goal && goal.weight > 0 ? convertWeight(goal.weight, goal.unit, displayUnit) : null;
+
   if (entries.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">
@@ -461,9 +467,22 @@ function ChartCard({
             <YAxis
               stroke="#a1a1aa"
               tick={{ fill: "#a1a1aa", fontSize: 11 }}
+              // When a goal is set, force it into the visible domain so
+              // it can't sit off-axis. The ±2 padding lets the dashed
+              // goal-line and its label clear the chart's top/bottom edge.
               domain={[
-                (dataMin: number) => Math.floor(dataMin - 2),
-                (dataMax: number) => Math.ceil(dataMax + 2),
+                (dataMin: number) =>
+                  Math.floor(
+                    goalInDisplayUnit !== null
+                      ? Math.min(dataMin, goalInDisplayUnit) - 2
+                      : dataMin - 2,
+                  ),
+                (dataMax: number) =>
+                  Math.ceil(
+                    goalInDisplayUnit !== null
+                      ? Math.max(dataMax, goalInDisplayUnit) + 2
+                      : dataMax + 2,
+                  ),
               ]}
               width={48}
               tickFormatter={(v: number) => `${Math.round(v)}`}
@@ -520,14 +539,14 @@ function ChartCard({
               dot={{ fill: COLOR_AVG, r: 3 }}
               isAnimationActive={false}
             />
-            {goal && goal.weight > 0 && (
+            {goalInDisplayUnit !== null && (
               <ReferenceLine
-                y={convertWeight(goal.weight, goal.unit, displayUnit)}
+                y={goalInDisplayUnit}
                 stroke="#10b981"
                 strokeDasharray="6 4"
                 strokeWidth={1.5}
                 label={{
-                  value: `Goal ${formatNumber(convertWeight(goal.weight, goal.unit, displayUnit))} ${displayUnit}`,
+                  value: `Goal ${formatNumber(goalInDisplayUnit)} ${displayUnit}`,
                   position: "right",
                   fill: "#10b981",
                   fontSize: 10,
@@ -540,7 +559,7 @@ function ChartCard({
       <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--muted)]">
         <Legend color={COLOR_AVG} label={`Daily avg (${displayUnit})`} />
         <Legend color={COLOR_RAW} label="Reading" scatter />
-        {goal && goal.weight > 0 && <Legend color="#10b981" label="Goal" dashed />}
+        {goalInDisplayUnit !== null && <Legend color="#10b981" label="Goal" dashed />}
       </div>
 
       {/* Stat tiles wrapped inside the same card. Sits directly under
