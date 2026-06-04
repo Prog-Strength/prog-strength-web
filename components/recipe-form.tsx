@@ -2,16 +2,20 @@
 
 import { useMemo, useState } from "react";
 import { formatNumber } from "@/lib/format";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import type { PantryItem, Recipe, RecipePayload } from "@/lib/api";
 
 /**
  * Reusable form for creating or editing a recipe. Components list is
  * mutable: add via the picker, adjust per-component quantity, reorder
- * with up/down arrows, remove with the trash button. Macros at the
- * top recompute from the selection as the user edits.
+ * with up/down arrows, remove with the trash icon. Macros at the top
+ * recompute live from the selection as the user edits.
  *
- * Used by the Recipes tab on /pantry. Same shape for new + edit; the
- * caller wires `initial` (omit for "new") and `onSubmit`.
+ * Layout follows the pantry-form vocabulary: flat surface (no nested
+ * card), section divider, ghost text-button for Add component, and a
+ * MacroPreview tile row colored against the shared MACRO_COLORS
+ * palette so the same protein-emerald / fat-pink / carbs-amber
+ * identity carries from the rings through to the recipe builder.
  */
 
 // Mirrors the API's MaxRecipeComponents constant. Worth duplicating
@@ -168,10 +172,7 @@ export function RecipeForm({
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
-    >
+    <form onSubmit={submit} className="flex flex-col gap-4">
       <label className="flex flex-col gap-1 text-xs">
         <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">Name</span>
         <input
@@ -180,29 +181,33 @@ export function RecipeForm({
           onChange={(e) => setName(e.target.value)}
           placeholder="Standard Breakfast"
           disabled={busy}
-          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
+          className={inputClass}
         />
       </label>
 
       <MacroPreview macros={macros} />
 
       <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Components ({components.length}/{MAX_COMPONENTS})
-          </p>
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="flex items-center gap-3 flex-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+              Components ({components.length}/{MAX_COMPONENTS})
+            </span>
+            <hr className="flex-1 border-[var(--border)]" />
+          </div>
           <button
             type="button"
             onClick={addComponent}
             disabled={busy || atCap}
-            className="rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:opacity-80 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)] transition hover:opacity-70 disabled:opacity-40"
           >
-            + Add component
+            <PlusIcon />
+            Add component
           </button>
         </div>
 
         {components.length === 0 ? (
-          <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-3 py-4 text-center text-xs text-[var(--muted)]">
+          <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-4 text-center text-xs text-[var(--muted)]">
             No components yet — add one to start.
           </p>
         ) : (
@@ -228,7 +233,7 @@ export function RecipeForm({
 
       {shownError && <p className="text-xs text-[var(--danger)]">{shownError}</p>}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-2 pt-1">
         {onCancel && (
           <button
             type="button"
@@ -261,6 +266,9 @@ export function RecipeForm({
   );
 }
 
+const inputClass =
+  "rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm transition focus:outline focus:outline-2 focus:outline-offset-0 focus:outline-[var(--accent)] disabled:opacity-60";
+
 function ComponentRow({
   component,
   pantry,
@@ -283,7 +291,7 @@ function ComponentRow({
   onMoveDown: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] p-2 sm:flex-row sm:items-end">
+    <div className="flex flex-col gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 sm:flex-row sm:items-end">
       <div className="flex flex-col gap-1 sm:hidden">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
           Item
@@ -293,7 +301,7 @@ function ComponentRow({
         value={component.pantry_item_id}
         onChange={(e) => onChange({ pantry_item_id: e.target.value })}
         disabled={disabled}
-        className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+        className="flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
       >
         {pantry.map((p) => (
           <option key={p.id} value={p.id}>
@@ -310,7 +318,7 @@ function ComponentRow({
           value={component.quantity}
           onChange={(e) => onChange({ quantity: Number(e.target.value) })}
           disabled={disabled}
-          className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums"
+          className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm tabular-nums"
         />
       </label>
       <div className="flex items-center gap-1">
@@ -337,9 +345,9 @@ function ComponentRow({
           onClick={onRemove}
           disabled={disabled}
           aria-label="Remove component"
-          className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-2 py-1 text-xs text-[var(--danger)] hover:opacity-80 disabled:opacity-50"
+          className="rounded p-1.5 text-[var(--danger)] transition hover:bg-[var(--background)] hover:opacity-80 disabled:opacity-50"
         >
-          ✕
+          <TrashIcon />
         </button>
       </div>
     </div>
@@ -352,20 +360,78 @@ function MacroPreview({
   macros: { calories: number; protein: number; fat: number; carbs: number };
 }) {
   return (
-    <div className="grid grid-cols-4 gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] p-2">
+    <div className="grid grid-cols-4 gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3">
       <Tile label="Cal" value={formatNumber(macros.calories)} />
-      <Tile label="Protein" value={`${formatNumber(macros.protein)}g`} />
-      <Tile label="Fat" value={`${formatNumber(macros.fat)}g`} />
-      <Tile label="Carbs" value={`${formatNumber(macros.carbs)}g`} />
+      <Tile label="Protein" value={`${formatNumber(macros.protein)}g`} tone="protein" />
+      <Tile label="Fat" value={`${formatNumber(macros.fat)}g`} tone="fat" />
+      <Tile label="Carbs" value={`${formatNumber(macros.carbs)}g`} tone="carbs" />
     </div>
   );
 }
 
-function Tile({ label, value }: { label: string; value: string }) {
+function Tile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "protein" | "fat" | "carbs";
+}) {
+  const color = tone ? MACRO_COLORS[tone] : null;
   return (
     <div className="text-center">
-      <p className="text-sm font-semibold tabular-nums">{value}</p>
-      <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">{label}</p>
+      <p className="text-sm font-semibold tabular-nums" style={color ? { color } : undefined}>
+        {value}
+      </p>
+      <p className="inline-flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--muted)]">
+        {color && (
+          <span
+            aria-hidden
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: color }}
+          />
+        )}
+        {label}
+      </p>
     </div>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+    </svg>
   );
 }

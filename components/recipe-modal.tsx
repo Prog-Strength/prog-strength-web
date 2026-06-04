@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import { RecipeForm } from "@/components/recipe-form";
+import { useToast } from "@/components/toast";
 
 /**
  * Modal wrapper around RecipeForm. Mirrors PantryItemModal: create or
@@ -40,6 +41,7 @@ type Props =
 export function RecipeModal(props: Props) {
   const { mode, token, pantry, onClose } = props;
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -68,6 +70,9 @@ export function RecipeModal(props: Props) {
         ? createRecipe(token, payload)
         : updateRecipe(token, props.initial.id, payload);
     op.then(() => {
+      toast.success(
+        mode === "create" ? `Added "${payload.name}" as a recipe.` : `Updated "${payload.name}".`,
+      );
       props.onSaved();
       onClose();
     })
@@ -79,16 +84,19 @@ export function RecipeModal(props: Props) {
           return;
         }
         setError(msg);
+        toast.error(`Couldn't save: ${msg}`);
       })
       .finally(() => setBusy(false));
   }
 
   function handleDeleteConfirm() {
     if (mode !== "edit") return;
+    const name = props.initial.name;
     setBusy(true);
     setError(null);
     deleteRecipe(token, props.initial.id)
       .then(() => {
+        toast.success(`Deleted "${name}".`);
         props.onDeleted();
         onClose();
       })
@@ -100,6 +108,7 @@ export function RecipeModal(props: Props) {
           return;
         }
         setError(msg);
+        toast.error(`Couldn't delete: ${msg}`);
       })
       .finally(() => setBusy(false));
   }

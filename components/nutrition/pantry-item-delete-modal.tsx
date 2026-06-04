@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { deletePantryItem, type PantryItem } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
+import { useToast } from "@/components/toast";
 
 /**
  * Confirm-and-delete modal for one pantry item. Parallels
@@ -24,6 +25,7 @@ export function PantryItemDeleteModal({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +50,7 @@ export function PantryItemDeleteModal({
     setError(null);
     deletePantryItem(token, item.id)
       .then(() => {
+        toast.success(`Deleted "${item.name}".`);
         onDeleted();
         onClose();
       })
@@ -59,6 +62,7 @@ export function PantryItemDeleteModal({
           return;
         }
         setError(msg);
+        toast.error(`Couldn't delete: ${msg}`);
       })
       .finally(() => setBusy(false));
   }

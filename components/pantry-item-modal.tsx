@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import { PantryItemForm } from "@/components/pantry-item-form";
+import { useToast } from "@/components/toast";
 
 /**
  * Modal wrapper around PantryItemForm. In create mode the modal calls
@@ -41,6 +42,7 @@ type Props =
 export function PantryItemModal(props: Props) {
   const { mode, token, onClose } = props;
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -69,6 +71,11 @@ export function PantryItemModal(props: Props) {
         ? createPantryItem(token, payload)
         : updatePantryItem(token, props.initial.id, payload);
     op.then(() => {
+      toast.success(
+        mode === "create"
+          ? `Added "${payload.name}" to your pantry.`
+          : `Updated "${payload.name}".`,
+      );
       props.onSaved();
       onClose();
     })
@@ -80,16 +87,19 @@ export function PantryItemModal(props: Props) {
           return;
         }
         setError(msg);
+        toast.error(`Couldn't save: ${msg}`);
       })
       .finally(() => setBusy(false));
   }
 
   function handleDeleteConfirm() {
     if (mode !== "edit") return;
+    const name = props.initial.name;
     setBusy(true);
     setError(null);
     deletePantryItem(token, props.initial.id)
       .then(() => {
+        toast.success(`Deleted "${name}".`);
         props.onDeleted();
         onClose();
       })
@@ -101,6 +111,7 @@ export function PantryItemModal(props: Props) {
           return;
         }
         setError(msg);
+        toast.error(`Couldn't delete: ${msg}`);
       })
       .finally(() => setBusy(false));
   }
