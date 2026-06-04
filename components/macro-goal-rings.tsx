@@ -1,21 +1,13 @@
 "use client";
 
 import type { MacroGoals } from "@/lib/api";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 
-// Per-macro accent colors lifted from the legacy MacroSummary tiles
-// so the visual language of "this is the protein number" carries over
-// from the prior design. Calories stays neutral (foreground) because
-// it was the headline tile and read white before.
-//
-// Tailwind palette hex values, inlined: SVG attributes can't accept
-// Tailwind class names, and the page consumes these as both SVG
-// stroke colors and CSS variables for the surrounding text. Keeping
-// them in one place means the ring stroke and the macro label share
-// the same exact pixel.
+// Calories isn't in MACRO_COLORS: it renders in the page foreground
+// here (and stays muted in the catalog / log views) by deliberate
+// design. See lib/macro-colors.ts for the why.
 const COLORS = {
-  protein: "#6ee7b7", // emerald-300
-  carbs: "#fcd34d", // amber-300
-  fat: "#f9a8d4", // pink-300
+  ...MACRO_COLORS,
   calories: "var(--foreground)",
 } as const;
 

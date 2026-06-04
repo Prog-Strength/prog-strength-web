@@ -3,17 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { type PantryItem, type Recipe } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import { RecipeModal } from "@/components/recipe-modal";
+import { RecipeDeleteModal } from "@/components/nutrition/recipe-delete-modal";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 40;
 
 type ModalTarget = null | { mode: "create" } | { mode: "edit"; id: string };
 
 /**
  * Recipes view rendered when /nutrition?view=recipes. Mirrors
- * PantryView: search, page-25 with letter headers within page, click
- * row to open edit modal. Threads the page-level pantry array through
- * to the RecipeModal so the form can render its component picker.
+ * PantryView: search, page-40 with letter headers, two-column grid
+ * under each header, inert info card with pencil + trash icons. Threads
+ * the page-level pantry array through to the RecipeModal so the form
+ * can render its component picker.
  */
 export function RecipesView({
   token,
@@ -29,6 +32,7 @@ export function RecipesView({
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<ModalTarget>(null);
+  const [deleting, setDeleting] = useState<Recipe | null>(null);
 
   const filtered = useMemo(() => {
     if (recipes === null) return null;
@@ -77,9 +81,10 @@ export function RecipesView({
         <button
           type="button"
           onClick={() => setModal({ mode: "create" })}
-          className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium hover:opacity-80"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70"
         >
-          + Add
+          <PlusIcon />
+          Add
         </button>
       </div>
 
@@ -113,13 +118,16 @@ export function RecipesView({
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
                   {g.letter}
                 </h3>
-                <ul className="flex flex-col gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {g.items.map((r) => (
-                    <li key={r.id}>
-                      <RecipeRow recipe={r} onClick={() => setModal({ mode: "edit", id: r.id })} />
-                    </li>
+                    <RecipeRow
+                      key={r.id}
+                      recipe={r}
+                      onEdit={() => setModal({ mode: "edit", id: r.id })}
+                      onDelete={() => setDeleting(r)}
+                    />
                   ))}
-                </ul>
+                </div>
               </div>
             ))}
           </div>
@@ -156,26 +164,67 @@ export function RecipesView({
       {modal?.mode === "edit" && !editingRecipe && (
         <CloseStaleModal onClose={() => setModal(null)} />
       )}
+
+      {deleting && (
+        <RecipeDeleteModal
+          token={token}
+          recipe={deleting}
+          onDeleted={onChanged}
+          onClose={() => setDeleting(null)}
+        />
+      )}
     </section>
   );
 }
 
-function RecipeRow({ recipe, onClick }: { recipe: Recipe; onClick: () => void }) {
+function RecipeRow({
+  recipe,
+  onEdit,
+  onDelete,
+}: {
+  recipe: Recipe;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left transition hover:opacity-90"
-    >
-      <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
         <p className="truncate text-sm font-medium">{recipe.name}</p>
-        <p className="text-xs text-[var(--muted)] tabular-nums">
-          {formatNumber(recipe.macros.calories)} cal · P {formatNumber(recipe.macros.protein_g)}g ·
-          F {formatNumber(recipe.macros.fat_g)}g · C {formatNumber(recipe.macros.carbs_g)}g
-          <span className="ml-2 text-[10px] uppercase tracking-wider">per batch</span>
+        <p className="truncate text-xs text-[var(--muted)] tabular-nums">
+          {formatNumber(recipe.macros.calories)} cal ·{" "}
+          <span style={{ color: MACRO_COLORS.protein }} className="font-semibold">
+            P
+          </span>{" "}
+          {formatNumber(recipe.macros.protein_g)} ·{" "}
+          <span style={{ color: MACRO_COLORS.fat }} className="font-semibold">
+            F
+          </span>{" "}
+          {formatNumber(recipe.macros.fat_g)} ·{" "}
+          <span style={{ color: MACRO_COLORS.carbs }} className="font-semibold">
+            C
+          </span>{" "}
+          {formatNumber(recipe.macros.carbs_g)}
         </p>
       </div>
-    </button>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label={`Edit ${recipe.name}`}
+          className="rounded p-1.5 text-[var(--muted)] transition hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+        >
+          <PencilIcon />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label={`Delete ${recipe.name}`}
+          className="rounded p-1.5 text-[var(--danger)] transition hover:bg-[var(--background)] hover:opacity-80"
+        >
+          <TrashIcon />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -228,4 +277,60 @@ function CloseStaleModal({ onClose }: { onClose: () => void }) {
 function bucketLetter(name: string): string {
   const first = name.trim().charAt(0).toUpperCase();
   return /[A-Z]/.test(first) ? first : "#";
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
 }
