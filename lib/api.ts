@@ -872,6 +872,60 @@ export async function deleteBodyweightEntry(token: string, id: string): Promise<
   }
 }
 
+export type BodyweightGoal = {
+  weight: number;
+  unit: "lb" | "kg";
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export async function getBodyweightGoal(token: string): Promise<BodyweightGoal> {
+  const resp = await fetch(`${config.apiUrl}/me/bodyweight-goal`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<BodyweightGoal>(resp, {
+    weight: 0,
+    unit: "lb",
+    created_at: null,
+    updated_at: null,
+  });
+}
+
+export async function putBodyweightGoal(
+  token: string,
+  goal: { weight: number; unit: "lb" | "kg" },
+): Promise<BodyweightGoal> {
+  const resp = await fetch(`${config.apiUrl}/me/bodyweight-goal`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(goal),
+  });
+  const saved = await unwrap<BodyweightGoal | null>(resp, null);
+  if (!saved) throw new Error("API did not return the saved bodyweight goal");
+  return saved;
+}
+
+export async function updateBodyweightEntry(
+  token: string,
+  id: string,
+  payload: { weight?: number; unit?: "lb" | "kg"; measured_at?: string },
+): Promise<BodyweightEntry> {
+  const resp = await fetch(`${config.apiUrl}/bodyweight/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const updated = await unwrap<BodyweightEntry | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated bodyweight entry");
+  return updated;
+}
+
 // --- Recipes ------------------------------------------------------
 
 /**
