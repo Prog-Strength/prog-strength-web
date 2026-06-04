@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteRecipe, type Recipe } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
+import { useToast } from "@/components/toast";
 
 /**
  * Confirm-and-delete modal for one recipe. Mirrors
@@ -23,6 +24,7 @@ export function RecipeDeleteModal({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +49,7 @@ export function RecipeDeleteModal({
     setError(null);
     deleteRecipe(token, recipe.id)
       .then(() => {
+        toast.success(`Deleted "${recipe.name}".`);
         onDeleted();
         onClose();
       })
@@ -58,6 +61,7 @@ export function RecipeDeleteModal({
           return;
         }
         setError(msg);
+        toast.error(`Couldn't delete: ${msg}`);
       })
       .finally(() => setBusy(false));
   }
