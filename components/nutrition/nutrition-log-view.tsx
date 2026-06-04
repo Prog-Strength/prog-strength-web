@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { MealType, NutritionLogEntry, PantryItem, Recipe } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 
 const MEAL_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 const MEAL_LABELS: Record<MealType, string> = {
@@ -147,8 +148,19 @@ function MealSection({
             <span className="italic">No entries</span>
           ) : (
             <>
-              {formatNumber(subtotal.calories)} cal · P {formatNumber(subtotal.protein_g)}g · F{" "}
-              {formatNumber(subtotal.fat_g)}g · C {formatNumber(subtotal.carbs_g)}g
+              {formatNumber(subtotal.calories)} cal ·{" "}
+              <span style={{ color: MACRO_COLORS.protein }} className="font-semibold">
+                P
+              </span>{" "}
+              {formatNumber(subtotal.protein_g)}g ·{" "}
+              <span style={{ color: MACRO_COLORS.fat }} className="font-semibold">
+                F
+              </span>{" "}
+              {formatNumber(subtotal.fat_g)}g ·{" "}
+              <span style={{ color: MACRO_COLORS.carbs }} className="font-semibold">
+                C
+              </span>{" "}
+              {formatNumber(subtotal.carbs_g)}g
             </>
           )}
         </p>
@@ -158,9 +170,6 @@ function MealSection({
           <thead>
             <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
               <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
-                Time
-              </th>
-              <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
                 Item
               </th>
               <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
@@ -169,13 +178,25 @@ function MealSection({
               <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
                 Cal
               </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+              <th
+                scope="col"
+                className="py-1.5 pr-3 text-right font-semibold"
+                style={{ color: MACRO_COLORS.protein }}
+              >
                 P
               </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+              <th
+                scope="col"
+                className="py-1.5 pr-3 text-right font-semibold"
+                style={{ color: MACRO_COLORS.fat }}
+              >
                 F
               </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+              <th
+                scope="col"
+                className="py-1.5 pr-3 text-right font-semibold"
+                style={{ color: MACRO_COLORS.carbs }}
+              >
                 C
               </th>
               <th scope="col" className="py-1.5 text-right font-semibold">
@@ -191,12 +212,9 @@ function MealSection({
                   key={e.id}
                   className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface)]"
                 >
-                  <td className="py-2 pr-3 text-left text-xs text-[var(--muted)] tabular-nums">
-                    {formatLocalTime(e.consumed_at)}
-                  </td>
-                  <td className="max-w-0 py-2 pr-3 text-left">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-medium">{name}</span>
+                  <td className="py-2 pr-3 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{name}</span>
                       {e.recipe_id && (
                         <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
                           recipe
@@ -239,13 +257,6 @@ function MealSection({
       )}
     </section>
   );
-}
-
-function formatLocalTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function PencilIcon() {
