@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { clearToken, getToken } from "@/lib/auth";
 import { BrandMark } from "@/components/brand-mark";
+import { ChatHistoryDrawer } from "@/components/chat/chat-history-drawer";
 import { config } from "@/lib/config";
 import { parseSSE } from "@/lib/stream";
 import {
@@ -86,6 +86,11 @@ export default function ChatPage() {
   // by default; survives component-level re-renders but not refresh
   // (per the voice-chat SOW's "session-only" lean).
   const [voiceMode, setVoiceMode] = useState(false);
+  // History drawer (replaces the deleted /chat/history route). The
+  // drawer fetches the sessions list lazily on first open and on
+  // every subsequent open so the list is fresh after the user lands
+  // a new turn in the current conversation.
+  const [historyOpen, setHistoryOpen] = useState(false);
   // True while the mic button is held and the Web Speech API is
   // actively listening. Drives the pulsing-red mic visual.
   const [listening, setListening] = useState(false);
@@ -596,12 +601,15 @@ export default function ChatPage() {
           >
             + New chat
           </button>
-          <Link
-            href="/chat/history"
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            aria-expanded={historyOpen}
+            aria-controls="chat-history-drawer"
             className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium transition hover:text-[var(--foreground)]"
           >
             History
-          </Link>
+          </button>
         </div>
       </header>
       <div ref={scrollerRef} className="flex-1 overflow-y-auto px-6 py-6" aria-live="polite">
@@ -695,6 +703,12 @@ export default function ChatPage() {
           </button>
         </div>
       </footer>
+
+      <ChatHistoryDrawer
+        open={historyOpen}
+        activeSessionId={sessionId}
+        onClose={() => setHistoryOpen(false)}
+      />
     </main>
   );
 }
