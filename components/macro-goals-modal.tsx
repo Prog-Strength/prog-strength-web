@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { putMacroGoals, type MacroGoals } from "@/lib/api";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 
 // Mirrors the API's MaxMacroGrams / MaxCalories. Duplicated so the
 // form can show an inline error without a roundtrip; the API
@@ -147,9 +148,24 @@ export function MacroGoalsModal({
             value={protein}
             onChange={setProtein}
             disabled={saving}
+            tone="protein"
           />
-          <GoalField label="Carbs" unit="g" value={carbs} onChange={setCarbs} disabled={saving} />
-          <GoalField label="Fat" unit="g" value={fat} onChange={setFat} disabled={saving} />
+          <GoalField
+            label="Fat"
+            unit="g"
+            value={fat}
+            onChange={setFat}
+            disabled={saving}
+            tone="fat"
+          />
+          <GoalField
+            label="Carbs"
+            unit="g"
+            value={carbs}
+            onChange={setCarbs}
+            disabled={saving}
+            tone="carbs"
+          />
           <GoalField
             label="Calories"
             unit="kcal"
@@ -185,7 +201,7 @@ export function MacroGoalsModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:opacity-80 disabled:opacity-50"
+            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -193,7 +209,7 @@ export function MacroGoalsModal({
             type="button"
             onClick={save}
             disabled={saving}
-            className="rounded-md bg-[var(--foreground)] px-3 py-1.5 text-sm font-semibold text-[var(--background)] hover:opacity-80 disabled:opacity-50"
+            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save"}
           </button>
@@ -210,6 +226,7 @@ function GoalField({
   onChange,
   hint,
   disabled,
+  tone,
 }: {
   label: string;
   unit: string;
@@ -217,10 +234,24 @@ function GoalField({
   onChange: (v: string) => void;
   hint?: React.ReactNode;
   disabled?: boolean;
+  /** When set, paints the label with a color dot and the input with a
+   * 2px colored left border keyed to MACRO_COLORS — matches the
+   * pantry-item-form treatment so every macro surface across the
+   * nutrition page reads from one palette. Calories stays neutral
+   * (no tone) by deliberate design; calories has no ring color. */
+  tone?: "protein" | "fat" | "carbs";
 }) {
+  const color = tone ? MACRO_COLORS[tone] : null;
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+      <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+        {color && (
+          <span
+            aria-hidden
+            className="inline-block h-2 w-2 rounded-full"
+            style={{ background: color }}
+          />
+        )}
         {label}
       </span>
       <div className="flex items-center gap-2">
@@ -232,7 +263,8 @@ function GoalField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-[var(--foreground)]/30 disabled:opacity-50"
+          className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm tabular-nums transition focus:outline focus:outline-2 focus:outline-offset-0 focus:outline-[var(--accent)] disabled:opacity-60"
+          style={color ? { borderLeftWidth: "2px", borderLeftColor: color } : undefined}
         />
         <span className="text-xs text-[var(--muted)]">{unit}</span>
       </div>
