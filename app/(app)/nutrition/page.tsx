@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
+  createCustomNutritionLogEntry,
   createNutritionLogEntry,
   getMacroGoals,
   listNutritionLog,
@@ -24,6 +25,7 @@ import { LogEntryEditModal } from "@/components/nutrition/log-entry-edit-modal";
 import { LogEntryDeleteModal } from "@/components/nutrition/log-entry-delete-modal";
 import { PantryView } from "@/components/nutrition/pantry-view";
 import { RecipesView } from "@/components/nutrition/recipes-view";
+import { useToast } from "@/components/toast";
 
 type View = "log" | "pantry" | "recipes";
 
@@ -58,6 +60,7 @@ function NutritionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const view = parseView(searchParams.get("view"));
+  const toast = useToast();
 
   const [date, setDate] = useState<Date>(() => startOfLocalDay(new Date()));
   const [entries, setEntries] = useState<NutritionLogEntry[] | null>(null);
@@ -162,24 +165,49 @@ function NutritionPageInner() {
   }
 
   function handleLog(
-    source: { kind: "pantry" | "recipe"; id: string },
-    quantity: number,
+    source:
+      | { kind: "pantry"; id: string; quantity: number }
+      | { kind: "recipe"; id: string; quantity: number }
+      | {
+          kind: "custom";
+          name: string;
+          calories: number;
+          protein_g: number;
+          fat_g: number;
+          carbs_g: number;
+        },
     meal: MealType,
+    consumedAt: string,
   ): Promise<void> {
     const token = requireToken();
     if (!token) return Promise.reject(new Error("not signed in"));
     setLogBusy(true);
     setLogError(null);
-    const isToday = sameLocalDay(date, new Date());
-    const consumedAt = isToday ? new Date() : new Date(date.getTime() + 12 * 60 * 60 * 1000);
-    return createNutritionLogEntry(token, {
-      ...(source.kind === "pantry" ? { pantry_item_id: source.id } : { recipe_id: source.id }),
-      quantity,
-      meal,
-      consumed_at: consumedAt.toISOString(),
-    })
+
+    const created =
+      source.kind === "custom"
+        ? createCustomNutritionLogEntry(token, {
+            name: source.name,
+            calories: source.calories,
+            protein_g: source.protein_g,
+            fat_g: source.fat_g,
+            carbs_g: source.carbs_g,
+            meal,
+            consumed_at: consumedAt,
+          })
+        : createNutritionLogEntry(token, {
+            ...(source.kind === "pantry"
+              ? { pantry_item_id: source.id }
+              : { recipe_id: source.id }),
+            quantity: source.quantity,
+            meal,
+            consumed_at: consumedAt,
+          });
+
+    return created
       .then((entry) => {
         setEntries((prev) => (prev ? [entry, ...prev] : [entry]));
+        toast.success(source.kind === "custom" ? `Logged "${source.name}".` : "Logged.");
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -295,6 +323,7 @@ function NutritionPageInner() {
         <QuickAddModal
           pantry={pantry ?? []}
           recipes={recipes ?? []}
+          date={date}
           busy={logBusy}
           error={logError}
           onLog={handleLog}
@@ -343,14 +372,6 @@ function toLocalYMD(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function sameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
 }
 
 // --- Toolbar bits --------------------------------------------------

@@ -193,7 +193,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function MacroField({
+export function MacroField({
   label,
   value,
   onChange,
