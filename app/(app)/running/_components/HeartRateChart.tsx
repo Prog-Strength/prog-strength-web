@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,15 +18,22 @@ export type ChartPoint = { distance: number; value: number | null };
  * Heart-rate-vs-distance line. Shares a `syncId` with the pace and
  * elevation charts so hovering any one of them moves a synced cursor
  * across all three. Renders a placeholder when no point carries HR.
+ *
+ * When `avgHr` is provided, a dashed horizontal reference line is drawn
+ * at that bpm so the operator can see at a glance how each segment of
+ * the run sat relative to their average effort — a visual answer to
+ * "was I above or below my average through this stretch?"
  */
 export function HeartRateChart({
   data,
   syncId,
   unitLabel,
+  avgHr,
 }: {
   data: ChartPoint[];
   syncId: string;
   unitLabel: string;
+  avgHr?: number | null;
 }) {
   const hasData = data.some((d) => d.value != null);
   if (!hasData) {
@@ -65,6 +73,21 @@ export function HeartRateChart({
             labelFormatter={(v) => `${Number(v).toFixed(2)} ${unitLabel}`}
             formatter={(v) => [`${Math.round(Number(v))} bpm`, "Heart rate"]}
           />
+          {avgHr != null && (
+            <ReferenceLine
+              y={avgHr}
+              stroke="#a1a1aa"
+              strokeDasharray="4 3"
+              strokeWidth={1}
+              ifOverflow="extendDomain"
+              label={{
+                value: `Avg ${avgHr} bpm`,
+                position: "insideTopRight",
+                fill: "#a1a1aa",
+                fontSize: 10,
+              }}
+            />
+          )}
           <Line
             dataKey="value"
             stroke="#f87171"

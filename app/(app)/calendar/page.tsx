@@ -3,32 +3,54 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import { listExercises, listWorkouts, type Exercise, type Workout } from "@/lib/api";
+import {
+  listExercises,
+  listRunningSessions,
+  listWorkouts,
+  type Exercise,
+  type RunningSession,
+  type Workout,
+} from "@/lib/api";
+import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { WorkoutDetailsModal, hasMeaningfulName } from "@/components/workout-details";
 
 /**
- * Month-grid calendar with workout markers. Same data source as the
- * Workouts page (`listWorkouts`) — workouts are grouped by local-date
- * key so multiple sessions on the same day land in the same cell.
+ * Month-grid calendar. Renders BOTH workouts (lifting) and running
+ * sessions on the same day cells, with distinct pill colors so a
+ * two-a-day reads as "lift + run stacked" at a glance.
  *
- * Known limit (shared with the Workouts page): the API caps `/workouts`
- * at 50 most-recent rows and the handler doesn't yet expose
- * since/until query params. For a user with >50 workouts the older
- * months will appear empty. Fix when this actually matters.
+ * Both endpoints support `since`/`until`, so each cursor change refetches
+ * exactly the visible 6-week window — older months no longer come back
+ * empty just because the unbounded first page didn't reach them.
  */
 
-const MAX_VISIBLE_PILLS = 2;
+// Three pills fit comfortably and cover the realistic case of a morning
+// run plus two lifts (or vice versa). Anything more rolls into "+N more"
+// to keep cells from growing tall enough to deform the grid.
+const MAX_VISIBLE_PILLS = 3;
 // Monday-first ordering. Keep this in sync with buildMonthGrid's
 // mondayOffset math — flipping one without the other shears the grid.
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/**
+ * One thing the user did that day. Pills render in start-time order so
+ * a morning run sits above an afternoon lift. The discriminant lets
+ * `DayCell` route to the right pill renderer + click handler without
+ * the cell needing to know the underlying shape.
+ */
+type CalendarEvent =
+  | { kind: "workout"; startMs: number; workout: Workout }
+  | { kind: "run"; startMs: number; run: RunningSession };
+
 export default function CalendarPage() {
   const router = useRouter();
+  const { formatDistance, unitLabel } = useDistanceUnit();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
+  const [runs, setRuns] = useState<RunningSession[] | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   // Calendar is read-only by design — clicking a pill opens the shared
-  // WorkoutDetailsModal, not the edit modal. Edits happen from the
-  // Workouts page where the pencil button lives.
+  // WorkoutDetailsModal for lifts; clicking a run pill navigates to the
+  // run detail page (runs have a richer detail surface than a modal).
   const [viewing, setViewing] = useState<Workout | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Cursor identifies which month we're viewing. year + 0-indexed month
@@ -39,24 +61,15 @@ export default function CalendarPage() {
     return { year: now.getFullYear(), month: now.getMonth() };
   });
 
+  // Exercise catalog fetches once — it's shared across all months.
   useEffect(() => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
     }
-    // Catalog fetched alongside workouts so the readonly view has the
-    // exercise-name + muscle-group data it needs without a second
-    // round-trip when the user clicks a pill.
-    // Calendar pulls the first page (default limit). Server-side
-    // timeframe filtering by visible month is a future enhancement —
-    // today the calendar fetches the most recent page and renders any
-    // entries that fall in the visible month.
-    Promise.all([listWorkouts(token), listExercises()])
-      .then(([page, es]) => {
-        setWorkouts(page.items);
-        setExercises(es);
-      })
+    listExercises()
+      .then(setExercises)
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
           clearToken();
@@ -67,55 +80,108 @@ export default function CalendarPage() {
       });
   }, [router]);
 
+  // Refetch workouts + runs each time the cursor changes, scoped to the
+  // visible 6-week grid. Bounds are computed in *local* time then
+  // serialized to UTC — start_time is stored UTC but the grid is
+  // bucketed by local-date, and we want the bounds to comfortably cover
+  // the visible cells including the prev/next-month trailing days.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    const { sinceISO, untilISO } = gridFetchBounds(cursor.year, cursor.month);
+    Promise.all([
+      listWorkouts(token, { since: sinceISO, until: untilISO, limit: 100 }),
+      listRunningSessions(token, { since: sinceISO, until: untilISO }),
+    ])
+      .then(([wPage, rPage]) => {
+        setWorkouts(wPage.items);
+        setRuns(rPage.sessions);
+      })
+      .catch((err: Error) => {
+        if (err.message.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(err.message);
+      });
+  }, [cursor, router]);
+
   // Lookup map for the shared WorkoutDetails component — resolves
   // exercise_id slugs to catalog entries for name + muscle pills.
   const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
 
-  // Bucket workouts by local-date key so the cell lookup is O(1) per
+  // Bucket every event by local-date key so the cell lookup is O(1) per
   // day during render. Key is `YYYY-M-D` in *local* time — the user's
-  // perception of "what day did I work out" is local-tz, even if the
-  // RFC3339 timestamps came across in UTC.
-  const workoutsByDate = useMemo(() => {
-    const map = new Map<string, Workout[]>();
-    if (!workouts) return map;
-    for (const w of workouts) {
-      const key = localDateKey(new Date(w.performed_at));
+  // perception of "what day was that" is local-tz, even if the RFC3339
+  // timestamps came across in UTC. Within each day, events sort by
+  // start time so morning shows above evening.
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, CalendarEvent[]>();
+    for (const w of workouts ?? []) {
+      const start = new Date(w.performed_at);
+      const key = localDateKey(start);
+      const ev: CalendarEvent = { kind: "workout", startMs: start.getTime(), workout: w };
       const list = map.get(key);
-      if (list) list.push(w);
-      else map.set(key, [w]);
+      if (list) list.push(ev);
+      else map.set(key, [ev]);
     }
-    // Sort each day's workouts by start time so stacked pills read
-    // morning → evening top-to-bottom.
+    for (const r of runs ?? []) {
+      const start = new Date(r.start_time);
+      const key = localDateKey(start);
+      const ev: CalendarEvent = { kind: "run", startMs: start.getTime(), run: r };
+      const list = map.get(key);
+      if (list) list.push(ev);
+      else map.set(key, [ev]);
+    }
     for (const list of map.values()) {
-      list.sort((a, b) => new Date(a.performed_at).getTime() - new Date(b.performed_at).getTime());
+      list.sort((a, b) => a.startMs - b.startMs);
     }
     return map;
-  }, [workouts]);
+  }, [workouts, runs]);
 
   const days = useMemo(() => buildMonthGrid(cursor.year, cursor.month), [cursor]);
 
-  // Stats for the currently-viewed month: total tracked duration and
-  // activity count. "Tracked duration" is the sum across workouts that
-  // have an ended_at — workouts with no end time count toward the
-  // activity total but not the duration (so the duration tile shows
-  // only the hours the user actually clocked, not estimates).
+  // Stats for the currently-viewed month, computed only from events
+  // whose LOCAL date falls inside the cursor month. The fetched window
+  // is slightly wider (it covers the visible grid's trailing days from
+  // adjacent months), so the filter here keeps the tiles honest.
+  //
+  // "Lift Time" only counts workouts that have an ended_at — workouts
+  // with no end time still contribute to the activity count but not to
+  // duration (we don't want to fabricate durations for un-clocked
+  // sessions). Runs always carry a duration_seconds, so Run Time is
+  // unconditional.
   const monthStats = useMemo(() => {
-    let count = 0;
-    let totalMinutes = 0;
-    if (!workouts) return { count, totalMinutes };
-    for (const w of workouts) {
-      const d = new Date(w.performed_at);
-      if (d.getFullYear() !== cursor.year || d.getMonth() !== cursor.month) {
-        continue;
-      }
-      count += 1;
-      if (w.ended_at) {
-        const ms = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
-        if (ms > 0) totalMinutes += Math.round(ms / 60000);
+    let activities = 0;
+    let liftMinutes = 0;
+    let runMinutes = 0;
+    let runMeters = 0;
+    if (workouts) {
+      for (const w of workouts) {
+        const d = new Date(w.performed_at);
+        if (d.getFullYear() !== cursor.year || d.getMonth() !== cursor.month) continue;
+        activities += 1;
+        if (w.ended_at) {
+          const ms = new Date(w.ended_at).getTime() - d.getTime();
+          if (ms > 0) liftMinutes += Math.round(ms / 60000);
+        }
       }
     }
-    return { count, totalMinutes };
-  }, [workouts, cursor]);
+    if (runs) {
+      for (const r of runs) {
+        const d = new Date(r.start_time);
+        if (d.getFullYear() !== cursor.year || d.getMonth() !== cursor.month) continue;
+        activities += 1;
+        runMinutes += Math.round(r.duration_seconds / 60);
+        runMeters += r.distance_meters;
+      }
+    }
+    return { activities, liftMinutes, runMinutes, runMeters };
+  }, [workouts, runs, cursor]);
 
   const monthLabel = useMemo(
     () =>
@@ -168,16 +234,25 @@ export default function CalendarPage() {
             </div>
           )}
 
-          {/* Month-level stats above the grid. Duration only counts
-              workouts with an ended_at (i.e. ones the user actually
-              clocked); activity count includes all workouts in the
-              month regardless. The discrepancy is intentional — we
-              don't want to fabricate durations for un-clocked sessions. */}
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <StatTile value={formatTotalDuration(monthStats.totalMinutes)} label="Total time" />
+          {/* Four month-level stat tiles. Lift Time and Activities show
+              today's existing signals; Run Time and Run Distance surface
+              the new running data so the calendar isn't workout-biased.
+              2-up on narrow screens, 4-up from md so the grid below
+              doesn't have to fight for vertical space on a phone. */}
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <StatTile value={formatTotalDuration(monthStats.liftMinutes)} label="Lift Time" />
+            <StatTile value={formatTotalDuration(monthStats.runMinutes)} label="Run Time" />
             <StatTile
-              value={monthStats.count.toString()}
-              label={monthStats.count === 1 ? "Activity" : "Activities"}
+              value={
+                monthStats.runMeters > 0
+                  ? `${formatDistance(monthStats.runMeters)} ${unitLabel}`
+                  : "—"
+              }
+              label="Run Distance"
+            />
+            <StatTile
+              value={monthStats.activities.toString()}
+              label={monthStats.activities === 1 ? "Activity" : "Activities"}
             />
           </div>
 
@@ -198,7 +273,7 @@ export default function CalendarPage() {
             {days.map((day) => {
               const inMonth = day.getMonth() === cursor.month;
               const key = localDateKey(day);
-              const dayWorkouts = workoutsByDate.get(key) ?? [];
+              const dayEvents = eventsByDate.get(key) ?? [];
               const isToday = key === todayKey;
               return (
                 <DayCell
@@ -206,8 +281,9 @@ export default function CalendarPage() {
                   day={day}
                   inMonth={inMonth}
                   isToday={isToday}
-                  workouts={dayWorkouts}
-                  onPillClick={(w) => setViewing(w)}
+                  events={dayEvents}
+                  onWorkoutClick={(w) => setViewing(w)}
+                  onRunClick={(r) => router.push(`/running/${r.id}`)}
                 />
               );
             })}
@@ -230,20 +306,22 @@ function DayCell({
   day,
   inMonth,
   isToday,
-  workouts,
-  onPillClick,
+  events,
+  onWorkoutClick,
+  onRunClick,
 }: {
   day: Date;
   inMonth: boolean;
   isToday: boolean;
-  workouts: Workout[];
-  onPillClick: (w: Workout) => void;
+  events: CalendarEvent[];
+  onWorkoutClick: (w: Workout) => void;
+  onRunClick: (r: RunningSession) => void;
 }) {
-  const visible = workouts.slice(0, MAX_VISIBLE_PILLS);
-  const hiddenCount = workouts.length - visible.length;
+  const visible = events.slice(0, MAX_VISIBLE_PILLS);
+  const hiddenCount = events.length - visible.length;
 
   // Cell skeleton: every cell has a fixed minimum height so the grid
-  // rows stay visually balanced even when a day has no workouts. The
+  // rows stay visually balanced even when a day has no events. The
   // accent ring on today's cell stays inside the border to avoid
   // shifting any adjacent cells.
   const baseClasses = "flex min-h-[88px] flex-col gap-1 rounded-md border p-1.5 transition";
@@ -253,30 +331,42 @@ function DayCell({
   const labelClasses = inMonth ? "text-[var(--foreground)]" : "text-[var(--muted)] opacity-60";
 
   return (
-    <div
-      className={`${baseClasses} ${stateClasses}`}
-      aria-label={`${day.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })}${
-        workouts.length > 0
-          ? `, ${workouts.length} ${workouts.length === 1 ? "workout" : "workouts"}`
-          : ""
-      }`}
-    >
+    <div className={`${baseClasses} ${stateClasses}`} aria-label={ariaLabelFor(day, events)}>
       <div className={`px-1 text-xs font-medium ${labelClasses}`}>{day.getDate()}</div>
       <div className="flex flex-col gap-1">
-        {visible.map((w) => (
-          <WorkoutPill key={w.id} workout={w} onClick={() => onPillClick(w)} />
-        ))}
+        {visible.map((ev) =>
+          ev.kind === "workout" ? (
+            <WorkoutPill
+              key={`w-${ev.workout.id}`}
+              workout={ev.workout}
+              onClick={() => onWorkoutClick(ev.workout)}
+            />
+          ) : (
+            <RunPill key={`r-${ev.run.id}`} run={ev.run} onClick={() => onRunClick(ev.run)} />
+          ),
+        )}
         {hiddenCount > 0 && (
           <span className="px-1 text-[10px] text-[var(--muted)]">+{hiddenCount} more</span>
         )}
       </div>
     </div>
   );
+}
+
+function ariaLabelFor(day: Date, events: CalendarEvent[]): string {
+  const dateLabel = day.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  if (events.length === 0) return dateLabel;
+  const lifts = events.filter((e) => e.kind === "workout").length;
+  const runs = events.filter((e) => e.kind === "run").length;
+  const parts: string[] = [];
+  if (lifts > 0) parts.push(`${lifts} ${lifts === 1 ? "workout" : "workouts"}`);
+  if (runs > 0) parts.push(`${runs} ${runs === 1 ? "run" : "runs"}`);
+  return `${dateLabel}, ${parts.join(", ")}`;
 }
 
 function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => void }) {
@@ -297,6 +387,31 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
       onClick={onClick}
       title={named ? `${time} · ${workout.name}` : time}
       className="truncate rounded bg-[var(--accent)] px-1.5 py-0.5 text-left text-[10px] font-medium text-[var(--accent-fg)] transition hover:opacity-90"
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Distinct from `WorkoutPill` by color (teal vs accent) so a stacked
+ * run + lift reads as two different things at a glance, not just two
+ * sessions of the same kind. Clicking navigates to the run's detail
+ * page rather than opening an in-place modal: runs have charts and
+ * trackpoints that a modal can't surface without becoming its own page.
+ */
+function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
+  const time = new Date(run.start_time).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const label = run.name?.trim() ? run.name : time;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${time} · Run${run.name ? ` · ${run.name}` : ""}`}
+      className="truncate rounded bg-teal-500/20 px-1.5 py-0.5 text-left text-[10px] font-medium text-teal-300 transition hover:bg-teal-500/30"
     >
       {label}
     </button>
@@ -337,10 +452,10 @@ function NavButton({
 }
 
 /**
- * Single info tile shown above the calendar grid. Two of these live
- * side by side ("Total time" / "Activities"). Value is rendered large
- * and prominent; label is small uppercase muted text so it reads as
- * metadata, not as primary content.
+ * Single info tile shown above the calendar grid. Four of these sit in
+ * a row (Lift Time, Run Time, Run Distance, Activities). Value is
+ * rendered large and prominent; label is small uppercase muted text so
+ * it reads as metadata, not as primary content.
  */
 function StatTile({ value, label }: { value: string; label: string }) {
   return (
@@ -376,6 +491,28 @@ function buildMonthGrid(year: number, month: number): Date[] {
     days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
   }
   return days;
+}
+
+/**
+ * UTC ISO bounds that comfortably cover the visible 6-week grid. The
+ * grid spans the Monday of the week containing the 1st through the
+ * following 41 days; we send those as `since` / `until` (half-open) so
+ * an event on the very last visible day is still inside the window.
+ *
+ * The bounds are computed from *local* midnight then serialized as
+ * UTC; an event happening just before/after the visible grid that
+ * crosses midnight locally is still pulled in because the API range
+ * is a touch wider than the strict visible cells.
+ */
+function gridFetchBounds(year: number, month: number): { sinceISO: string; untilISO: string } {
+  const grid = buildMonthGrid(year, month);
+  const first = grid[0];
+  const last = grid[grid.length - 1];
+  const since = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+  // until = day after the last visible day at local midnight → fully
+  // includes any event happening on the last visible day.
+  const until = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1);
+  return { sinceISO: since.toISOString(), untilISO: until.toISOString() };
 }
 
 /**
