@@ -255,9 +255,12 @@ function NutritionPageInner() {
 
           {/* Toolbar row: left group are actions, right group are view
               switches. The bottom border of this row doubles as the
-              separator between the toolbar and the body below. */}
-          <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
-            <div className="flex items-center gap-5">
+              separator between the toolbar and the body below. On
+              mobile (< sm:) the labels collapse to icon-only to fit
+              all five controls comfortably within the viewport;
+              aria-label keeps the icons accessible. */}
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
+            <div className="flex items-center gap-3 sm:gap-5">
               <ToolbarButton
                 onClick={() => setShowQuickAdd(true)}
                 icon={<PlusIcon />}
@@ -269,7 +272,7 @@ function NutritionPageInner() {
                 label={goals?.created_at ? "Edit Macros" : "Set Macros"}
               />
             </div>
-            <div className="flex items-center gap-5">
+            <div className="flex items-center gap-3 sm:gap-5">
               <ToolbarButton
                 onClick={() => setView("log")}
                 icon={<LogIcon />}
@@ -397,13 +400,19 @@ function ToolbarButton({
     <button
       type="button"
       onClick={onClick}
+      // aria-label keeps the control discoverable when the visible
+      // text label is hidden below sm:. Padding bumps to p-1.5 on
+      // mobile so the icon-only tap target stays comfortable; on
+      // sm: and up the inline-flex with the visible label is its own
+      // hit target so the padding goes back to 0.
+      aria-label={label}
       className={
-        "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 " +
+        "inline-flex items-center gap-1.5 p-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 sm:p-0 " +
         (active ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3" : "")
       }
     >
       {icon}
-      {label}
+      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }
