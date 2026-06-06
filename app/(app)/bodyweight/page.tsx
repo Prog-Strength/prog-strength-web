@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   CartesianGrid,
@@ -24,6 +24,7 @@ import {
   type BodyweightEntry,
   type BodyweightGoal,
 } from "@/lib/api";
+import { BodyweightActionSheet } from "@/components/bodyweight/bodyweight-action-sheet";
 
 /**
  * Bodyweight — chart-first layout with the daily-average trend line as
@@ -62,6 +63,15 @@ const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
 
 export default function BodyweightPage() {
   const router = useRouter();
+  // Subscribed to Tailwind's sm: breakpoint (640px) via matchMedia.
+  // Drives the chart's responsive y-axis width + goal-label position
+  // and the table↔card layout swap below sm:. Hook plumbing sits at
+  // module scope below — same pattern as components/date-tile-strip.tsx.
+  const isMobile = useSyncExternalStore(
+    subscribeMobileQuery,
+    getMobileSnapshot,
+    getMobileServerSnapshot,
+  );
   const [entries, setEntries] = useState<BodyweightEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
@@ -79,6 +89,11 @@ export default function BodyweightPage() {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalBusy, setGoalBusy] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
+  // Mobile action sheet target. When set, tapping a row card on mobile
+  // opens BodyweightActionSheet, which then routes to the existing
+  // edit / delete modals. Desktop never sets this — the row's pencil
+  // and trash icons fire onEdit / onDelete directly.
+  const [actionTarget, setActionTarget] = useState<BodyweightEntry | null>(null);
 
   const refetch = useCallback(() => {
     const token = getToken();
@@ -256,7 +271,7 @@ export default function BodyweightPage() {
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
+      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-3 py-4 sm:px-6">
         <h1 className="text-lg font-semibold tracking-tight">Bodyweight</h1>
         <p className="text-xs text-[var(--muted)]">
           Multi-per-day OK — log morning + evening readings, the chart shows the daily-average trend
@@ -264,7 +279,7 @@ export default function BodyweightPage() {
         </p>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-6">
         <div className="mx-auto flex max-w-4xl flex-col gap-6">
           {error && (
             <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
@@ -278,6 +293,7 @@ export default function BodyweightPage() {
             entries={entriesInRange}
             displayUnit={displayUnit}
             goal={hasGoal ? goal : null}
+            isMobile={isMobile}
           />
 
           <section className="flex flex-col gap-3">
@@ -302,6 +318,7 @@ export default function BodyweightPage() {
                 entries={pageEntries}
                 onEdit={(entry) => setEditingEntry(entry)}
                 onDelete={(entry) => setDeletingEntry(entry)}
+                onTapRow={(entry) => setActionTarget(entry)}
                 page={page}
                 totalPages={totalPages}
                 onPageChange={setPage}
@@ -360,6 +377,23 @@ export default function BodyweightPage() {
           }}
         />
       )}
+
+      {actionTarget && (
+        <BodyweightActionSheet
+          entry={actionTarget}
+          onEdit={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            setEditingEntry(target);
+          }}
+          onDelete={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            setDeletingEntry(target);
+          }}
+          onClose={() => setActionTarget(null)}
+        />
+      )}
     </main>
   );
 }
@@ -401,10 +435,12 @@ function ChartCard({
   entries,
   displayUnit,
   goal,
+  isMobile,
 }: {
   entries: BodyweightEntry[];
   displayUnit: "lb" | "kg";
   goal: BodyweightGoal | null;
+  isMobile: boolean;
 }) {
   const { rawPoints, avgPoints } = useMemo(() => {
     const raw = entries.map((e) => ({
@@ -445,11 +481,22 @@ function ChartCard({
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:p-4">
       <h3 className="text-base font-semibold tracking-tight">Bodyweight</h3>
       <div className="h-[320px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart margin={{ top: 12, right: 16, bottom: 8, left: 0 }}>
+          {/* Mobile shrinks right margin (the goal label moves inside
+              the plot area so it no longer needs gutter), and y-axis
+              tick width drops from 48 to 32. Together those buy ~32px
+              of canvas width back for the line graph itself. */}
+          <ComposedChart
+            margin={{
+              top: 12,
+              right: isMobile ? 8 : 16,
+              bottom: 8,
+              left: 0,
+            }}
+          >
             <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
             <XAxis
               dataKey="t"
@@ -457,12 +504,20 @@ function ChartCard({
               domain={["dataMin", "dataMax"]}
               stroke="#a1a1aa"
               tick={{ fill: "#a1a1aa", fontSize: 11 }}
-              tickFormatter={(v: number) =>
-                new Date(v).toLocaleDateString("en-US", {
+              // Mobile uses a numeric date (6/4) instead of "Jun 4"
+              // so ticks don't collide on a narrow x-axis; minTickGap
+              // also prevents recharts from packing them in too tight.
+              minTickGap={isMobile ? 24 : 12}
+              tickFormatter={(v: number) => {
+                const d = new Date(v);
+                if (isMobile) {
+                  return `${d.getMonth() + 1}/${d.getDate()}`;
+                }
+                return d.toLocaleDateString("en-US", {
                   month: "short",
                   day: "numeric",
-                })
-              }
+                });
+              }}
             />
             <YAxis
               stroke="#a1a1aa"
@@ -484,7 +539,7 @@ function ChartCard({
                       : dataMax + 2,
                   ),
               ]}
-              width={48}
+              width={isMobile ? 32 : 48}
               tickFormatter={(v: number) => `${Math.round(v)}`}
             />
             <Tooltip
@@ -546,8 +601,14 @@ function ChartCard({
                 strokeDasharray="6 4"
                 strokeWidth={1.5}
                 label={{
-                  value: `Goal ${formatNumber(goalInDisplayUnit)} ${displayUnit}`,
-                  position: "right",
+                  // Mobile shows the value inside the top-right of the
+                  // plot area so the chart isn't forced to reserve right
+                  // gutter for "Goal 175 lb" text. Desktop keeps the
+                  // hanging-right label since there's room for it.
+                  value: isMobile
+                    ? `${formatNumber(goalInDisplayUnit)} ${displayUnit}`
+                    : `Goal ${formatNumber(goalInDisplayUnit)} ${displayUnit}`,
+                  position: isMobile ? "insideTopRight" : "right",
                   fill: "#10b981",
                   fontSize: 10,
                 }}
@@ -804,10 +865,16 @@ function GoalAffordance({ goal, onClick }: { goal: BodyweightGoal | null; onClic
     <button
       type="button"
       onClick={onClick}
+      aria-label={
+        goal ? `Goal ${formatNumber(goal.weight)} ${goal.unit} — tap to edit` : "Set goal weight"
+      }
       className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-sm transition hover:bg-white/5"
     >
       <TargetIcon />
-      <span className="text-[var(--muted)]">Goal:</span>
+      {/* "Goal:" prefix hides on mobile so the target icon + value
+          alone fit comfortably next to the Log button on a phone-width
+          toolbar. The aria-label preserves the full phrase. */}
+      <span className="hidden text-[var(--muted)] sm:inline">Goal:</span>
       {goal ? (
         <span className="font-semibold tabular-nums">
           {formatNumber(goal.weight)} {goal.unit}
@@ -844,6 +911,7 @@ function BodyweightTable({
   entries,
   onEdit,
   onDelete,
+  onTapRow,
   page,
   totalPages,
   onPageChange,
@@ -852,6 +920,7 @@ function BodyweightTable({
   entries: BodyweightEntry[];
   onEdit: (entry: BodyweightEntry) => void;
   onDelete: (entry: BodyweightEntry) => void;
+  onTapRow: (entry: BodyweightEntry) => void;
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
@@ -859,7 +928,10 @@ function BodyweightTable({
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-      <table className="w-full text-sm">
+      {/* Desktop: 4-column table. Pixel-identical to the pre-mobile
+          version — the only change is `hidden sm:table` to hide it
+          below the breakpoint. */}
+      <table className="hidden w-full text-sm sm:table">
         <thead>
           <tr className="border-b border-[var(--border)] text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
             <th className="px-4 py-2 text-left">Date</th>
@@ -892,6 +964,37 @@ function BodyweightTable({
           ))}
         </tbody>
       </table>
+
+      {/* Mobile: button-card per reading. Weight + unit lead, the
+          compact date/time stack sits on the right. The whole card is
+          the tap target — opens BodyweightActionSheet for Edit / Delete
+          (the action column couldn't survive on a phone viewport
+          without crowding the reading itself). */}
+      <ul className="flex flex-col divide-y divide-[var(--border)]/50 sm:hidden">
+        {entries.map((e) => (
+          <li key={e.id}>
+            <button
+              type="button"
+              onClick={() => onTapRow(e)}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition active:bg-white/5"
+              aria-label={`${formatNumber(e.weight)} ${e.unit} on ${formatMobileRowDate(
+                e.measured_at,
+              )} — tap to edit or delete`}
+            >
+              <span className="text-sm font-semibold tabular-nums">
+                {formatNumber(e.weight)} <span className="text-[var(--muted)]">{e.unit}</span>
+              </span>
+              <span className="flex flex-col items-end text-right tabular-nums">
+                <span className="text-xs">{formatMobileRowDate(e.measured_at)}</span>
+                <span className="text-[10px] text-[var(--muted)]">
+                  {formatRowTime(e.measured_at)}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+
       {totalPages > 1 && (
         <Pagination
           page={page}
@@ -916,24 +1019,38 @@ function Pagination({
   totalCount: number;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--background)] px-4 py-2 text-xs text-[var(--muted)]">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)] sm:px-4">
       <p className="tabular-nums">
         Page {page} of {totalPages} · {totalCount} total
       </p>
       <div className="flex items-center gap-1">
-        <PaginationBtn label="« First" disabled={page === 1} onClick={() => onPageChange(1)} />
         <PaginationBtn
-          label="‹ Prev"
+          glyph="«"
+          word="First"
+          ariaLabel="First page"
+          disabled={page === 1}
+          onClick={() => onPageChange(1)}
+        />
+        <PaginationBtn
+          glyph="‹"
+          word="Prev"
+          ariaLabel="Previous page"
           disabled={page === 1}
           onClick={() => onPageChange(page - 1)}
         />
         <PaginationBtn
-          label="Next ›"
+          glyph="›"
+          word="Next"
+          ariaLabel="Next page"
+          wordFirst
           disabled={page === totalPages}
           onClick={() => onPageChange(page + 1)}
         />
         <PaginationBtn
-          label="Last »"
+          glyph="»"
+          word="Last"
+          ariaLabel="Last page"
+          wordFirst
           disabled={page === totalPages}
           onClick={() => onPageChange(totalPages)}
         />
@@ -942,23 +1059,47 @@ function Pagination({
   );
 }
 
+/**
+ * Pagination button. On mobile shows just the chevron glyph; at sm:+
+ * adds the word label ("« First", "Next ›") so the four-button row
+ * doesn't overflow a phone-width footer. `wordFirst` puts the glyph
+ * on the right for "Next" / "Last" so the arrow reads in the direction
+ * of travel.
+ */
 function PaginationBtn({
-  label,
+  glyph,
+  word,
+  ariaLabel,
   disabled,
   onClick,
+  wordFirst,
 }: {
-  label: string;
+  glyph: string;
+  word: string;
+  ariaLabel: string;
   disabled?: boolean;
   onClick: () => void;
+  wordFirst?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
     >
-      {label}
+      {wordFirst ? (
+        <>
+          <span className="hidden sm:inline">{word} </span>
+          {glyph}
+        </>
+      ) : (
+        <>
+          {glyph}
+          <span className="hidden sm:inline"> {word}</span>
+        </>
+      )}
     </button>
   );
 }
@@ -1732,9 +1873,49 @@ function formatRowDate(iso: string): string {
   });
 }
 
+/** Compact two-line-friendly date for the mobile card list:
+ * `Wed Jun 4`. Drops the comma the desktop row uses ("Wed, Jun 4")
+ * so the line wraps less awkwardly inside a narrow column. */
+function formatMobileRowDate(iso: string): string {
+  const d = new Date(iso);
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  const day = d.getDate();
+  return `${weekday} ${month} ${day}`;
+}
+
 function formatRowTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+// --- useSyncExternalStore plumbing for the mobile media query -----
+//
+// Tailwind's sm: breakpoint is 640px, so the mobile query matches
+// viewports up to 639px inclusive. Hoisted to module scope so React
+// gets a stable subscribe function reference across renders, which
+// avoids re-subscribing on every render. Mirrors the same plumbing
+// in components/date-tile-strip.tsx — when a third consumer arrives
+// this can move into a shared hook.
+
+const MOBILE_QUERY = "(max-width: 639px)";
+
+function subscribeMobileQuery(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia(MOBILE_QUERY);
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+
+function getMobileSnapshot(): boolean {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function getMobileServerSnapshot(): boolean {
+  // SSR default: desktop layout. The hook re-renders to the actual
+  // viewport's value on hydration, so a mobile user sees a single
+  // brief flash of the desktop layout before it snaps to the card list.
+  return false;
 }
