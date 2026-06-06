@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { MealType, NutritionLogEntry, PantryItem, Recipe } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { MACRO_COLORS } from "@/lib/macro-colors";
+import { EntryActionSheet } from "@/components/nutrition/entry-action-sheet";
 
 const MEAL_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 const MEAL_LABELS: Record<MealType, string> = {
@@ -142,6 +143,14 @@ function MealSection({
     return t;
   }, [entries]);
 
+  // The mobile layout collapses the desktop row's two icon-action
+  // buttons into a single tap on the whole row, surfacing Edit /
+  // Delete as a small action sheet so the row itself stays a
+  // dedicated name + macros surface. State lives here per-section
+  // because the action sheet is a modal — only one can be open
+  // anywhere on the page at a time.
+  const [actionTarget, setActionTarget] = useState<NutritionLogEntry | null>(null);
+
   return (
     <section className="flex flex-col gap-2">
       <header className="flex items-baseline justify-between gap-3">
@@ -169,7 +178,7 @@ function MealSection({
         </p>
       </header>
       {entries.length > 0 && (
-        <table className="w-full border-collapse text-sm">
+        <table className="hidden w-full border-collapse text-sm sm:table">
           <thead>
             <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
               <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
@@ -257,6 +266,66 @@ function MealSection({
             })}
           </tbody>
         </table>
+      )}
+
+      {entries.length > 0 && (
+        <ul className="flex flex-col gap-2 sm:hidden">
+          {entries.map((e) => {
+            const name = resolveItemName(e, pantryByID, recipeByID);
+            return (
+              <li key={e.id}>
+                <button
+                  type="button"
+                  onClick={() => setActionTarget(e)}
+                  className="flex w-full flex-col gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left transition active:opacity-80"
+                  aria-label={`${name} — tap to edit or delete`}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+                    {e.recipe_id && (
+                      <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                        recipe
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[var(--muted)] tabular-nums">
+                    {formatNumber(e.calories)} cal ·{" "}
+                    <span style={{ color: MACRO_COLORS.protein }} className="font-semibold">
+                      P
+                    </span>{" "}
+                    {formatNumber(e.protein_g)}g ·{" "}
+                    <span style={{ color: MACRO_COLORS.fat }} className="font-semibold">
+                      F
+                    </span>{" "}
+                    {formatNumber(e.fat_g)}g ·{" "}
+                    <span style={{ color: MACRO_COLORS.carbs }} className="font-semibold">
+                      C
+                    </span>{" "}
+                    {formatNumber(e.carbs_g)}g
+                  </p>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {actionTarget && (
+        <EntryActionSheet
+          entry={actionTarget}
+          itemName={resolveItemName(actionTarget, pantryByID, recipeByID)}
+          onEdit={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            onEdit(target);
+          }}
+          onDelete={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            onDelete(target);
+          }}
+          onClose={() => setActionTarget(null)}
+        />
       )}
     </section>
   );
