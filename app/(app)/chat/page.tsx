@@ -16,8 +16,45 @@ import {
   patchChatSessionTitle,
   type ChatMessage as PersistedChatMessage,
 } from "@/lib/api";
-import { generateChatTitle } from "@/lib/agent";
+import { blobToBase64, generateChatTitle, type ContentBlock } from "@/lib/agent";
 import { getSpeechRecognitionCtor, startSpeechSession, type SpeechSession } from "@/lib/speech";
+import { useToast } from "@/components/toast";
+
+// Image-attach constraints (photo-meal-logging SOW). 5 MB cap keeps the
+// base64 payload posted to the agent reasonable; the three MIME types are
+// the formats Claude vision accepts. Both validated client-side with a
+// toast on rejection.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+// The narrowed media type used in the image content block + the chip
+// state. Keeping it as a named type avoids `as never` casts at the call
+// sites that build the agent payload.
+type ImageMediaType = "image/jpeg" | "image/png" | "image/webp";
+
+/**
+ * Validate a picked/dropped/pasted File. Rejects the wrong MIME type and
+ * oversize files with a specific toast; on success returns the blob and
+ * its narrowed media type. Pure aside from the toast side-effect so the
+ * three entry points (picker, drop, paste) share one validation path.
+ */
+function acceptImageFile(
+  file: File,
+  toast: ReturnType<typeof useToast>,
+): { blob: Blob; mediaType: ImageMediaType } | null {
+  if (!ALLOWED_TYPES.has(file.type)) {
+    toast.error("Use JPG, PNG, or WebP.");
+    return null;
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    toast.error("Image must be under 5 MB.");
+    return null;
+  }
+  // file.type is one of ALLOWED_TYPES here, which are exactly the
+  // ImageMediaType members — narrow via a guarded assignment, no cast.
+  const mediaType = file.type as ImageMediaType;
+  return { blob: file, mediaType };
+}
 
 /**
  * A tool the agent invoked during a single assistant turn. State
@@ -32,7 +69,11 @@ type ToolCall = {
 
 type Message = {
   role: "user" | "assistant";
-  content: string;
+  // Plain string for assistant turns and text-only user turns (exactly
+  // as persisted). A user turn that carried an image holds a
+  // ContentBlock[] in-memory so the bubble can paint the image inline —
+  // this never gets persisted (the API stores the placeholder string).
+  content: string | ContentBlock[];
   // Only populated on assistant messages — the tools the agent
   // invoked while producing this turn. Order reflects call order.
   tools?: ToolCall[];
@@ -55,6 +96,7 @@ export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlSessionId = searchParams.get("session");
+  const toast = useToast();
 
   // The active session id. Set immediately on mount: either from the
   // URL (resume) or a fresh client-minted UUID (new chat). For the
@@ -80,6 +122,20 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // The image staged for the next turn. `previewUrl` is an
+  // object URL for the chip thumbnail (revoked on replace/dismiss/send).
+  // `blob` is base64-encoded into the agent payload at send time; the
+  // raw bytes never touch state beyond this. null = no image staged.
+  const [pendingImage, setPendingImage] = useState<{
+    blob: Blob;
+    previewUrl: string;
+    filename: string;
+    mediaType: ImageMediaType;
+  } | null>(null);
+  // The hidden <input type="file"> the paperclip button proxies clicks
+  // to. A ref (not state) because we only ever imperatively .click() it.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Voice mode: when on, the page asks the agent's /speak endpoint
   // for an mp3 of each completed assistant turn and plays it. Off
@@ -318,9 +374,46 @@ export default function ChatPage() {
     });
   }, [stopPlayback]);
 
+  // Validate + stage an image picked from any source (picker, drag-drop,
+  // paste). Revokes the previous chip's object URL before minting a fresh
+  // one so replacing an attachment doesn't leak the old preview.
+  const onSelectImage = useCallback(
+    (file: File) => {
+      const accepted = acceptImageFile(file, toast);
+      if (!accepted) return;
+      setPendingImage((prev) => {
+        if (prev) URL.revokeObjectURL(prev.previewUrl);
+        return {
+          blob: accepted.blob,
+          previewUrl: URL.createObjectURL(accepted.blob),
+          filename: file.name,
+          mediaType: accepted.mediaType,
+        };
+      });
+    },
+    [toast],
+  );
+
+  // Drop the staged image and revoke its preview URL.
+  const onDismissImage = useCallback(() => {
+    setPendingImage((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }, []);
+
+  // Revoke any staged preview URL on unmount so navigating away with an
+  // un-sent attachment doesn't leak the object URL.
+  useEffect(() => {
+    return () => {
+      if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const send = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || streaming || loading || !sessionId) return;
+    if ((!trimmed && !pendingImage) || streaming || loading || !sessionId) return;
 
     const token = getToken();
     if (!token) {
@@ -353,14 +446,55 @@ export default function ChatPage() {
       setSessionPersisted(true);
     }
 
+    // Snapshot the staged image before any awaits so the rest of this
+    // turn works against a stable value even if the user stages another
+    // one mid-send. The chip state is cleared once the stream starts.
+    const turnImage = pendingImage;
+
+    // The current user turn's content. With an image it becomes a
+    // multimodal block list (image first, then text — Claude requires a
+    // text block alongside the image, so an empty caption becomes a
+    // single space). Text-only turns stay a plain string, exactly as
+    // today. The image bytes are base64-encoded here and only here.
+    const userContent: string | ContentBlock[] = turnImage
+      ? [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: turnImage.mediaType,
+              data: await blobToBase64(turnImage.blob),
+            },
+          },
+          { type: "text", text: trimmed || " " },
+        ]
+      : trimmed;
+
+    // The string form persisted to the API and used for title
+    // generation. Image bytes never reach the API — the stored record is
+    // the `[image attached] …` placeholder.
+    const persistedUserContent = turnImage
+      ? trimmed
+        ? `[image attached] ${trimmed}`
+        : "[image attached]"
+      : trimmed;
+
     // Optimistic update: append the user's message and a placeholder
     // assistant message we'll fill as deltas arrive. Setting both at
-    // once avoids a flash where the user message renders alone.
-    const userMsg: Message = { role: "user", content: trimmed };
+    // once avoids a flash where the user message renders alone. The user
+    // message carries the multimodal content so the bubble paints the
+    // image inline (from the block's base64, not the chip's blob URL).
+    const userMsg: Message = { role: "user", content: userContent };
     const placeholder: Message = { role: "assistant", content: "", tools: [] };
     const nextMessages = [...messages, userMsg];
     setMessages([...nextMessages, placeholder]);
     setInput("");
+    // The image is now baked into userContent + the optimistic message;
+    // clear the composer chip and revoke its preview URL.
+    if (turnImage) {
+      URL.revokeObjectURL(turnImage.previewUrl);
+      setPendingImage(null);
+    }
     setStreaming(true);
 
     // Cancel any audio queue / playback left over from a prior turn
@@ -488,7 +622,7 @@ export default function ChatPage() {
         const toolsJSON = toolsLog.length > 0 ? JSON.stringify(toolsLog) : undefined;
         try {
           await appendChatTurn(token, sessionId, {
-            user: { content: trimmed },
+            user: { content: persistedUserContent },
             assistant: {
               content: assistantText,
               model: chosenModel,
@@ -508,7 +642,7 @@ export default function ChatPage() {
           // appears in the sidebar/history list whenever the PATCH
           // lands. Local fallback mirrors the agent's so the stored
           // title is sane even if the agent /title endpoint fails.
-          void titleAndPatch(token, sessionId, trimmed, assistantText);
+          void titleAndPatch(token, sessionId, persistedUserContent, assistantText);
         }
 
         // Voice playback (when voiceMode is on) now rides on the
@@ -550,6 +684,7 @@ export default function ChatPage() {
     sessionPersisted,
     loading,
     voiceMode,
+    pendingImage,
     stopPlayback,
     drainAudioQueue,
   ]);
@@ -651,7 +786,49 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <footer className="border-t border-[var(--border)] px-6 py-4">
+      <footer
+        className="border-t border-[var(--border)] px-6 py-4"
+        // The whole footer is a drop target. preventDefault on dragOver
+        // is what actually enables the drop (the browser blocks it
+        // otherwise); on drop we route the first dropped file through the
+        // same validation path as the picker, and preventDefault stops
+        // the browser from navigating to the image.
+        onDragOver={(e) => {
+          e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (streaming || loading || !sessionId) return;
+          const file = e.dataTransfer.files?.[0];
+          if (file) onSelectImage(file);
+        }}
+      >
+        {pendingImage && (
+          // Staged-image chip above the textarea: thumbnail + truncated
+          // filename + dismiss. The thumbnail uses the chip's own object
+          // URL (the scrollback bubble uses the base64 data URL instead).
+          <div className="mx-auto flex max-w-2xl items-center gap-2 px-1 pb-1">
+            <div className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element -- blob/object URL preview; next/image can't optimize and would force a remote loader */}
+              <img
+                src={pendingImage.previewUrl}
+                alt=""
+                className="h-10 w-10 rounded object-cover"
+              />
+              <span className="max-w-[180px] truncate text-xs text-[var(--muted)]">
+                {pendingImage.filename}
+              </span>
+              <button
+                type="button"
+                onClick={onDismissImage}
+                aria-label="Remove image"
+                className="text-[var(--muted)] transition hover:text-[var(--foreground)]"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         <div className="mx-auto flex max-w-2xl items-end gap-2">
           {SPEECH_SUPPORTED && (
             // Push-and-hold mic. mouseLeave is treated as "release"
@@ -684,10 +861,48 @@ export default function ChatPage() {
               <MicIcon />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={streaming || loading || !sessionId}
+            aria-label="Attach image"
+            title="Attach image"
+            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] transition hover:text-[var(--foreground)] disabled:opacity-40"
+          >
+            <PaperclipIcon />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onSelectImage(file);
+              // Reset so picking the same file twice in a row still fires
+              // onChange (the value is unchanged otherwise).
+              e.currentTarget.value = "";
+            }}
+          />
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={(e) => {
+              // Pull the first image/* item off the clipboard (a pasted
+              // screenshot) and route it through the same validation
+              // path. Text pastes fall through to the default handler.
+              for (const item of e.clipboardData.items) {
+                if (item.type.startsWith("image/")) {
+                  const file = item.getAsFile();
+                  if (file) {
+                    e.preventDefault();
+                    onSelectImage(file);
+                  }
+                  break;
+                }
+              }
+            }}
             placeholder={loading ? "Loading…" : listening ? "Listening…" : "Message Prog Strength…"}
             rows={1}
             className="min-h-[44px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
@@ -696,7 +911,12 @@ export default function ChatPage() {
           <button
             type="button"
             onClick={send}
-            disabled={streaming || loading || !sessionId || input.trim().length === 0}
+            disabled={
+              streaming ||
+              loading ||
+              !sessionId ||
+              (input.trim().length === 0 && pendingImage === null)
+            }
             className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
           >
             {streaming ? "…" : "Send"}
@@ -789,15 +1009,17 @@ function MessageBubble({
   model,
 }: {
   role: "user" | "assistant";
-  content: string;
+  content: string | ContentBlock[];
   tools?: ToolCall[];
   model?: string;
 }) {
   const isUser = role === "user";
   const hasTools = !isUser && tools && tools.length > 0;
   const hasModel = !isUser && !!model;
-  const hasContent = content.length > 0;
   const hasMetadata = hasTools || hasModel;
+  // For the typing-placeholder decision only the string-content emptiness
+  // matters — a block list always has visible content (the image).
+  const hasContent = typeof content === "string" ? content.length > 0 : true;
 
   // User messages render as plain text (the user didn't intentionally
   // write Markdown when typing). Assistant messages render through
@@ -820,7 +1042,12 @@ function MessageBubble({
             {hasTools && tools.map((t, i) => <ToolPill key={i} tool={t} />)}
           </div>
         )}
-        {!hasContent && !hasMetadata ? (
+        {typeof content !== "string" ? (
+          // Multimodal user turn (in-flight, this session only): paint the
+          // image inline from its base64 data URL — NOT the composer's
+          // blob URL, which is revoked on send — and the caption below.
+          <ImageMessage blocks={content} />
+        ) : !hasContent && !hasMetadata ? (
           // No text and no metadata yet — show the typing placeholder.
           // Once any signal arrives (model_chosen, tool start, text)
           // the metadata row acts as the in-progress indicator.
@@ -831,6 +1058,34 @@ function MessageBubble({
           <AssistantMarkdown content={content} />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Render an in-flight multimodal user turn: the attached image (from its
+ * base64 data URL) above the caption text. Only the current session's
+ * optimistic user messages take this path — persisted turns come back as
+ * the `[image attached] …` string and render as plain text. The image
+ * block is always present (the composer guarantees it); the text block's
+ * text may be a single space for an image-only send, in which case we
+ * render no caption line.
+ */
+function ImageMessage({ blocks }: { blocks: ContentBlock[] }) {
+  const image = blocks.find((b) => b.type === "image");
+  const text = blocks.find((b) => b.type === "text");
+  const caption = text && text.text.trim().length > 0 ? text.text : null;
+  return (
+    <div className="flex flex-col gap-2">
+      {image && (
+        // eslint-disable-next-line @next/next/no-img-element -- in-memory base64 data URL; next/image can't optimize and would force a remote loader
+        <img
+          src={`data:${image.source.media_type};base64,${image.source.data}`}
+          alt="Attached"
+          className="max-h-64 max-w-full rounded-md object-contain"
+        />
+      )}
+      {caption && <span>{caption}</span>}
     </div>
   );
 }
@@ -945,6 +1200,27 @@ function MicIcon() {
       <path d="M5 11a7 7 0 0 0 14 0" />
       <path d="M12 18v3" />
       <path d="M9 21h6" />
+    </svg>
+  );
+}
+
+function PaperclipIcon() {
+  // Standard paperclip, matching the mic icon's vocabulary (1.75 stroke,
+  // rounded joins). 16px to sit a touch larger than the mic in the same
+  // 44px button.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 8.5l-9.2 9.2a4 4 0 0 1-5.66-5.66l9.2-9.2a2.667 2.667 0 0 1 3.77 3.77l-9.2 9.2a1.333 1.333 0 0 1-1.89-1.89l8.49-8.49" />
     </svg>
   );
 }
