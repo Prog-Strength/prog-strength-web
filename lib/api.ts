@@ -1337,16 +1337,21 @@ export class DuplicateRunError extends Error {
 
 /**
  * GET /running/sessions. Returns one page of the authed user's runs,
- * most recent first. Pass `before` (a cursor from a prior page's
- * `next_before`) to page backward, and `limit` to size the page.
+ * most recent first. Two mutually exclusive query patterns:
+ *   - cursor pagination: `limit` + `before` (a prior page's `next_before`)
+ *   - date range:        `since` + `until` (half-open `[since, until)`)
+ * The calendar uses the range form to fetch a whole month at once; the
+ * run list uses the cursor form. Mixing returns 400 from the API.
  */
 export async function listRunningSessions(
   token: string,
-  opts: { limit?: number; before?: string } = {},
+  opts: { limit?: number; before?: string; since?: string; until?: string } = {},
 ): Promise<RunningSessionsPage> {
   const params = new URLSearchParams();
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
   if (opts.before) params.set("before", opts.before);
+  if (opts.since) params.set("since", opts.since);
+  if (opts.until) params.set("until", opts.until);
   const qs = params.toString();
   const resp = await fetch(`${config.apiUrl}/running/sessions${qs ? `?${qs}` : ""}`, {
     headers: { Authorization: `Bearer ${token}` },

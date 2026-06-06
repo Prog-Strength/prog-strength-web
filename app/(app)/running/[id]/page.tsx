@@ -245,7 +245,12 @@ export default function RunningDetailPage() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <HeartRateChart data={hrData} syncId="run" unitLabel={unitLabel} />
+            <HeartRateChart
+              data={hrData}
+              syncId="run"
+              unitLabel={unitLabel}
+              avgHr={session.avg_heart_rate_bpm}
+            />
             <PaceChart data={paceData} syncId="run" unitLabel={unitLabel} />
           </div>
           <ElevationChart data={elevData} syncId="run" unitLabel={unitLabel} />
