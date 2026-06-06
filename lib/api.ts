@@ -276,6 +276,9 @@ export type User = {
   email: string;
   display_name?: string;
   weight_unit: "lb" | "kg";
+  // Preferred display unit for running distances/paces. Drives the
+  // DistanceUnitContext seed and the settings toggle.
+  distance_unit: "mi" | "km";
   created_at: string;
   updated_at: string;
 };
@@ -293,6 +296,35 @@ export async function getMe(token: string): Promise<User> {
     throw new Error("user not found");
   }
   return got;
+}
+
+/**
+ * PATCH /me. Partial update of the authed user's profile/preferences;
+ * omit a field to leave it unchanged. Returns the updated user so the
+ * caller can splice it into local state / re-seed contexts without a
+ * follow-up GET.
+ */
+export async function updateMe(
+  token: string,
+  patch: {
+    display_name?: string;
+    weight_unit?: "lb" | "kg";
+    distance_unit?: "mi" | "km";
+  },
+): Promise<User> {
+  const resp = await fetch(`${config.apiUrl}/me`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(patch),
+  });
+  const updated = await unwrap<User | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated user");
+  }
+  return updated;
 }
 
 /**
@@ -1223,6 +1255,241 @@ export async function appendChatTurn(
   const appended = await unwrap<ChatSessionWithMessages | null>(resp, null);
   if (!appended) throw new Error("API did not return the appended turn");
   return appended;
+}
+
+// --- Running (TCX import) -----------------------------------------
+
+/**
+ * One imported run. Distances/elevations are stored in meters and paces
+ * in seconds-per-kilometer server-side; the DistanceUnitContext converts
+ * toward the user's preferred unit at render time. `trackpoints` is only
+ * present on the per-id detail GET — the list endpoint omits it to keep
+ * payloads small. See prog-strength-docs/sows/running-tracking-via-tcx-import.md.
+ */
+export type RunningSession = {
+  id: string;
+  garmin_activity_id: string;
+  name: string | null;
+  start_time: string; // RFC3339
+  distance_meters: number;
+  duration_seconds: number;
+  avg_pace_sec_per_km: number;
+  best_pace_sec_per_km: number | null;
+  avg_heart_rate_bpm: number | null;
+  max_heart_rate_bpm: number | null;
+  total_calories: number | null;
+  elevation_gain_meters: number | null;
+  created_at: string;
+  // Present only on the detail GET; absent in list responses.
+  trackpoints?: RunningTrackpoint[];
+};
+
+/** One sampled point along a run's track, ordered by `sequence`. */
+export type RunningTrackpoint = {
+  sequence: number;
+  elapsed_seconds: number;
+  distance_meters: number;
+  heart_rate_bpm: number | null;
+  pace_sec_per_km: number | null;
+  elevation_meters: number | null;
+};
+
+/** Aggregate running stats for the dashboard header tiles. */
+export type RunningMetrics = {
+  current_week: {
+    distance_meters: number;
+    run_count: number;
+    delta_pct_vs_prior_week: number | null;
+  };
+  current_month: {
+    distance_meters: number;
+    run_count: number;
+  };
+  recent_avg_pace_sec_per_km: number | null;
+  all_time: {
+    distance_meters: number;
+    run_count: number;
+  };
+};
+
+/** One page of running sessions plus the cursor for the next page. */
+export type RunningSessionsPage = {
+  sessions: RunningSession[];
+  // Opaque cursor (a start_time) to pass as `before` for the next page;
+  // null when there are no older sessions.
+  next_before: string | null;
+};
+
+/**
+ * Thrown by `importRunningTcx` when the API returns 409 — the activity
+ * was already imported. Carries the existing session's id so the import
+ * modal can render an "already in your log" message with a View run link
+ * instead of a generic error.
+ */
+export class DuplicateRunError extends Error {
+  existingSessionId: string;
+  constructor(message: string, existingSessionId: string) {
+    super(message);
+    this.name = "DuplicateRunError";
+    this.existingSessionId = existingSessionId;
+  }
+}
+
+/**
+ * GET /running/sessions. Returns one page of the authed user's runs,
+ * most recent first. Pass `before` (a cursor from a prior page's
+ * `next_before`) to page backward, and `limit` to size the page.
+ */
+export async function listRunningSessions(
+  token: string,
+  opts: { limit?: number; before?: string } = {},
+): Promise<RunningSessionsPage> {
+  const params = new URLSearchParams();
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.before) params.set("before", opts.before);
+  const qs = params.toString();
+  const resp = await fetch(`${config.apiUrl}/running/sessions${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<RunningSessionsPage>(resp, { sessions: [], next_before: null });
+}
+
+/**
+ * GET /running/sessions/{id}. Returns a single run owned by the authed
+ * user, including its `trackpoints`. 404 if the ID doesn't exist or
+ * belongs to another user.
+ */
+export async function getRunningSession(token: string, id: string): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/running/sessions/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<RunningSession | null>(resp, null);
+  if (!got) {
+    throw new Error("running session not found");
+  }
+  return got;
+}
+
+/**
+ * GET /running/metrics. `timezone` is an IANA name (e.g.
+ * "America/New_York"); the server uses it to bucket "this week" / "this
+ * month". Call sites should pass
+ * `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+ */
+export async function getRunningMetrics(token: string, timezone: string): Promise<RunningMetrics> {
+  const params = new URLSearchParams({ timezone });
+  const resp = await fetch(`${config.apiUrl}/running/metrics?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<RunningMetrics>(resp, {
+    current_week: { distance_meters: 0, run_count: 0, delta_pct_vs_prior_week: null },
+    current_month: { distance_meters: 0, run_count: 0 },
+    recent_avg_pace_sec_per_km: null,
+    all_time: { distance_meters: 0, run_count: 0 },
+  });
+}
+
+/**
+ * PATCH /running/sessions/{id}. Renames the run; returns the updated
+ * session so the caller can splice it into local state.
+ */
+export async function renameRunningSession(
+  token: string,
+  id: string,
+  name: string,
+): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/running/sessions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name }),
+  });
+  const updated = await unwrap<RunningSession | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated running session");
+  }
+  return updated;
+}
+
+/**
+ * DELETE /running/sessions/{id}. 204 on success (no body); throws the
+ * API's `error` envelope on non-2xx.
+ */
+export async function deleteRunningSession(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/running/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * POST /running/sessions/imports. Uploads a Garmin .tcx file as
+ * multipart/form-data under the field `file` and returns the created
+ * session.
+ *
+ * We deliberately do NOT set a Content-Type header — the browser fills
+ * in `multipart/form-data; boundary=...` for the FormData body, and
+ * setting it manually would omit the boundary and break parsing.
+ *
+ * Error mapping:
+ *  - 409 → DuplicateRunError carrying `existing_session_id` so the
+ *    modal can link to the run already in the user's log.
+ *  - 413 → friendly "File is too large (max 10 MB)." message.
+ *  - 415 / 400 → the server's `error` text (unsupported/invalid file).
+ *  - other non-2xx → `error` text or `HTTP {status}`.
+ */
+export async function importRunningTcx(token: string, file: File): Promise<RunningSession> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch(`${config.apiUrl}/running/sessions/imports`, {
+    method: "POST",
+    // No Content-Type: the browser sets the multipart boundary itself.
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  if (resp.status === 409) {
+    let body: { error?: string; code?: string; existing_session_id?: string } = {};
+    try {
+      body = await resp.json();
+    } catch {
+      // fall through to defaults below
+    }
+    throw new DuplicateRunError(
+      body.error || "This run is already in your log.",
+      body.existing_session_id ?? "",
+    );
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 413) {
+      throw new Error("File is too large (max 10 MB).");
+    }
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+
+  const created = await unwrap<RunningSession | null>(resp, null);
+  if (!created) {
+    throw new Error("API did not return the imported running session");
+  }
+  return created;
 }
 
 /**

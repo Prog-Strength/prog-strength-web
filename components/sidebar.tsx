@@ -30,6 +30,10 @@ const NAV: NavItem[] = [
   // Pantry and Recipes live inside /nutrition as tabbed views, so the
   // sidebar surfaces only the parent entry.
   { href: "/nutrition", label: "Nutrition", icon: <PlateIcon /> },
+  // Running slots between the food/nutrition cluster and the analysis
+  // views — it's cardio logging that lives alongside the daily-tracking
+  // loop and feeds the same "how am I trending?" question Progress asks.
+  { href: "/running", label: "Running", icon: <RunIcon /> },
   // Bodyweight pairs with nutrition — same conceptual "did I eat /
   // weigh the right amount today?" loop. Slotted right after the
   // food pair so the daily-tracking views cluster together.
@@ -41,6 +45,9 @@ const NAV: NavItem[] = [
   // Personal Records sits at the end as the "trophy case" view —
   // built on top of every other source of data in the app.
   { href: "/personal-records", label: "Personal Records", icon: <TrophyIcon /> },
+  // Settings anchors the very bottom of the nav — a destination users
+  // reach for occasionally (units, preferences), not a daily view.
+  { href: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
 const COLLAPSE_KEY = "ps_sidebar_collapsed";
@@ -348,6 +355,58 @@ function ScaleIcon() {
       <rect x="3" y="6" width="18" height="14" rx="2" />
       <circle cx="12" cy="13" r="3" />
       <path d="M9 10h6" />
+    </svg>
+  );
+}
+
+function RunIcon() {
+  // A running figure mid-stride — head, leaning torso, and bent
+  // arm/leg lines. Reads as "running / activity" at 16x16 without an
+  // emoji, and stays distinct from the other line glyphs.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="14" cy="5" r="1.6" />
+      <path d="M7 21l3-5 3 2 1 3" />
+      <path d="M13 13l-1.5-3.5 3-1.5 2.5 2 2 1" />
+      <path d="M4 11l3-1 3 1" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  // Standard gear: a center hub plus eight short teeth. The universal
+  // shorthand for settings/preferences.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3" />
+      <path d="M12 19v3" />
+      <path d="M2 12h3" />
+      <path d="M19 12h3" />
+      <path d="M4.9 4.9l2.1 2.1" />
+      <path d="M17 17l2.1 2.1" />
+      <path d="M19.1 4.9L17 7" />
+      <path d="M7 17l-2.1 2.1" />
     </svg>
   );
 }
