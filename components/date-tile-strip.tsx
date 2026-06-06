@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 
 /**
  * Horizontal row of date tiles for picking which day's nutrition log
@@ -28,15 +28,32 @@ export function DateTileStrip({
   value,
   onChange,
   daysVisible = 7,
+  mobileDaysVisible = 3,
 }: {
   /** The currently-selected local date. Compared by y/m/d, not by Date instance identity. */
   value: Date;
   onChange: (d: Date) => void;
-  /** How many consecutive days the strip renders. Default 7 = a week at a glance. */
+  /** How many consecutive days the strip renders on sm: and up. Default 7 = a week at a glance. */
   daysVisible?: number;
+  /** How many tiles the strip renders below sm: (640px). Default 3 so a phone screen has comfortable tap targets without cramming weekday labels. */
+  mobileDaysVisible?: number;
 }) {
   const today = startOfLocalDay(new Date());
   const todayKey = ymd(today);
+
+  // Responsive tile count. useSyncExternalStore subscribes to the
+  // matchMedia "change" event directly — cleaner than an effect that
+  // snapshots window.matchMedia into useState, and avoids the
+  // setState-in-effect anti-pattern the lint rules flag. SSR snapshot
+  // returns false (desktop layout) so the server-rendered HTML
+  // matches the most common case; the hook re-renders to the correct
+  // value on hydration.
+  const isMobile = useSyncExternalStore(
+    subscribeMobileQuery,
+    getMobileSnapshot,
+    getMobileServerSnapshot,
+  );
+  const effectiveDaysVisible = isMobile ? mobileDaysVisible : daysVisible;
 
   // `windowEnd` is the rightmost-visible date. Default to today on
   // mount so users land on the current week. Chevrons mutate this
@@ -47,7 +64,7 @@ export function DateTileStrip({
 
   const dates = useMemo(() => {
     const out: Date[] = [];
-    for (let i = daysVisible - 1; i >= 0; i--) {
+    for (let i = effectiveDaysVisible - 1; i >= 0; i--) {
       out.push(addDays(windowEnd, -i));
     }
     return out;
@@ -55,7 +72,7 @@ export function DateTileStrip({
     // the *Key strings collapse to the same identifier on the same
     // local day so the memo stays stable across re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowEndKey, daysVisible]);
+  }, [windowEndKey, effectiveDaysVisible]);
 
   const todayInWindow = sameLocalDay(windowEnd, today);
 
@@ -63,13 +80,13 @@ export function DateTileStrip({
     // Backwards is unbounded — users can scroll as far back as they
     // care to. Shift by the full window so each click is "show me
     // the previous row of dates" rather than a 1-day nudge.
-    setWindowEnd(addDays(windowEnd, -daysVisible));
+    setWindowEnd(addDays(windowEnd, -effectiveDaysVisible));
   }
   function shiftForward() {
     // Cap at today on the right edge so we never present future
     // tiles users can't have logged anything against. minDate keeps
     // the cap honest even when the user's gone back several rows.
-    setWindowEnd(minDate(addDays(windowEnd, daysVisible), today));
+    setWindowEnd(minDate(addDays(windowEnd, effectiveDaysVisible), today));
   }
   function jumpToToday() {
     setWindowEnd(today);
@@ -84,7 +101,7 @@ export function DateTileStrip({
 
       <div
         className="grid flex-1 gap-2"
-        style={{ gridTemplateColumns: `repeat(${daysVisible}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${effectiveDaysVisible}, minmax(0, 1fr))` }}
         role="radiogroup"
         aria-label="Pick a date to view"
       >
@@ -291,4 +308,31 @@ function minDate(a: Date, b: Date): Date {
 /** y-m-d string for memo keys + React list keys; collapses two Date instances on the same local day to the same identifier. */
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+// --- useSyncExternalStore plumbing for the mobile media query ------
+//
+// Tailwind's sm: breakpoint is 640px, so the mobile query matches
+// viewports up to 639px inclusive. Hoisted to module scope so React
+// gets a stable subscribe function reference across renders, which
+// avoids re-subscribing on every render.
+
+const MOBILE_QUERY = "(max-width: 639px)";
+
+function subscribeMobileQuery(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia(MOBILE_QUERY);
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+
+function getMobileSnapshot(): boolean {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function getMobileServerSnapshot(): boolean {
+  // SSR default: desktop layout. The hook re-renders to the actual
+  // viewport's value on hydration, so a mobile user sees a single
+  // brief flash of the desktop strip before it snaps to 3 tiles.
+  return false;
 }
