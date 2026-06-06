@@ -706,44 +706,54 @@ export default function ChatPage() {
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-6 py-3">
+      <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-6">
         <h1 className="text-sm font-semibold tracking-tight">Chat</h1>
-        <div className="flex items-center gap-2">
+        {/* Three pill controls. Below sm: the text labels collapse to
+            icon-only so the row doesn't outgrow a phone viewport;
+            aria-label preserves discoverability. The pills keep their
+            border + rounded-full chrome at all sizes so they read as
+            controls even without a label. */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <button
             type="button"
             onClick={toggleVoiceMode}
             aria-pressed={voiceMode}
+            aria-label={voiceMode ? "Turn voice mode off" : "Turn voice mode on"}
             title={
               voiceMode
                 ? "Voice mode on — agent replies play as audio"
                 : "Voice mode off — turn on to hear agent replies"
             }
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition sm:px-3 ${
               voiceMode
                 ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
                 : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
             }`}
           >
-            <span className="inline-flex items-center gap-1.5">
-              <SpeakerIcon muted={!voiceMode} />
-              <span>{voiceMode ? "Voice on" : "Voice off"}</span>
-            </span>
+            <SpeakerIcon muted={!voiceMode} />
+            <span className="hidden sm:inline">{voiceMode ? "Voice on" : "Voice off"}</span>
           </button>
           <button
             type="button"
             onClick={startNewChat}
-            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium transition hover:text-[var(--foreground)]"
+            aria-label="Start a new chat"
+            title="Start a new chat"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium transition hover:text-[var(--foreground)] sm:px-3"
           >
-            + New chat
+            <PlusIcon />
+            <span className="hidden sm:inline">New chat</span>
           </button>
           <button
             type="button"
             onClick={() => setHistoryOpen(true)}
             aria-expanded={historyOpen}
             aria-controls="chat-history-drawer"
-            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium transition hover:text-[var(--foreground)]"
+            aria-label="Open chat history"
+            title="Open chat history"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium transition hover:text-[var(--foreground)] sm:px-3"
           >
-            History
+            <HistoryIcon />
+            <span className="hidden sm:inline">History</span>
           </button>
         </div>
       </header>
@@ -787,7 +797,7 @@ export default function ChatPage() {
       </div>
 
       <footer
-        className="border-t border-[var(--border)] px-6 py-4"
+        className="border-t border-[var(--border)] px-3 py-3 sm:px-6 sm:py-4"
         // The whole footer is a drop target. preventDefault on dragOver
         // is what actually enables the drop (the browser blocks it
         // otherwise); on drop we route the first dropped file through the
@@ -905,7 +915,13 @@ export default function ChatPage() {
             }}
             placeholder={loading ? "Loading…" : listening ? "Listening…" : "Message Prog Strength…"}
             rows={1}
-            className="min-h-[44px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+            // field-sizing-content lets the textarea grow with typed
+            // content up to max-h, so the user can see what they wrote
+            // before sending. Falls back to the rows=1 + min-h floor
+            // on older browsers (pre-Chrome 123 / Safari 17.4 / FF 130).
+            // max-h-[200px] caps growth so a runaway paste still scrolls
+            // internally rather than swallowing the whole composer.
+            className="min-h-[44px] max-h-[200px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] field-sizing-content focus:border-[var(--accent)] focus:outline-none"
             disabled={streaming || loading || !sessionId}
           />
           <button
@@ -917,9 +933,21 @@ export default function ChatPage() {
               !sessionId ||
               (input.trim().length === 0 && pendingImage === null)
             }
-            className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
+            aria-label="Send message"
+            // Mobile: 44×44 icon-only square that matches the mic and
+            // paperclip's hit-target. Desktop (sm: and up): grows to
+            // fit the "Send" text + the existing px-4 / py-2.5
+            // padding, restoring the desktop look pixel-for-pixel.
+            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40 sm:w-auto sm:px-4 sm:py-2.5"
           >
-            {streaming ? "…" : "Send"}
+            {streaming ? (
+              "…"
+            ) : (
+              <>
+                <SendIcon />
+                <span className="hidden sm:inline">Send</span>
+              </>
+            )}
           </button>
         </div>
       </footer>
@@ -1200,6 +1228,71 @@ function MicIcon() {
       <path d="M5 11a7 7 0 0 0 14 0" />
       <path d="M12 18v3" />
       <path d="M9 21h6" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  // Used by the header's "New chat" pill. 12px so it sits naturally
+  // next to the 12px text label without towering over it.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  // Clock face + counterclockwise arrow at top-left — the common
+  // "past activity" idiom. Same 12px height as PlusIcon so both
+  // header pills (New chat / History) read as a matching pair.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  // Paper-plane icon used inside the Send button on mobile (sm: and
+  // above the button shows the "Send" text instead). 16px so the
+  // glyph is large enough to be tappable on its own without a label.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M22 2 11 13" />
+      <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
     </svg>
   );
 }
