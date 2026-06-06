@@ -521,6 +521,7 @@ export type NutritionLogEntry = {
   consumed_at: string;
   pantry_item_id?: string | null;
   recipe_id?: string | null;
+  custom_meal_name: string | null;
   quantity: number;
   calories: number;
   protein_g: number;
@@ -543,11 +544,36 @@ export type CreateLogEntryPayload = {
   consumed_at?: string; // RFC3339; server defaults to now
 };
 
-/** Payload for editing a log entry. Omit a field to leave it unchanged. */
+/**
+ * Payload for creating a custom (one-off) log entry — a meal the user
+ * typed in directly, not backed by a saved pantry item or recipe. The
+ * macros are the totals as consumed (quantity is always 1 server-side).
+ */
+export type CreateCustomLogEntryPayload = {
+  name: string;
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  meal: MealType;
+  consumed_at?: string; // RFC3339; server defaults to now
+};
+
+/**
+ * Payload for editing a log entry. Omit a field to leave it unchanged.
+ * The `name`/`calories`/`protein_g`/`fat_g`/`carbs_g` fields are only
+ * accepted for custom entries; the server rejects them for pantry- or
+ * recipe-backed rows.
+ */
 export type UpdateLogEntryPayload = {
   quantity?: number;
   consumed_at?: string;
   meal?: MealType;
+  name?: string;
+  calories?: number;
+  protein_g?: number;
+  fat_g?: number;
+  carbs_g?: number;
 };
 
 /** Per-day aggregate from GET /nutrition-log/daily. */
@@ -673,6 +699,28 @@ export async function createNutritionLogEntry(
   payload: CreateLogEntryPayload,
 ): Promise<NutritionLogEntry> {
   const resp = await fetch(`${config.apiUrl}/nutrition-log`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<NutritionLogEntry | null>(resp, null);
+  if (!created) throw new Error("API did not return the created log entry");
+  return created;
+}
+
+/**
+ * POST /nutrition-log/custom. Logs a one-off meal the user typed in,
+ * not backed by a saved pantry item or recipe. Mirrors
+ * `createNutritionLogEntry`'s fetch/unwrap pattern.
+ */
+export async function createCustomNutritionLogEntry(
+  token: string,
+  payload: CreateCustomLogEntryPayload,
+): Promise<NutritionLogEntry> {
+  const resp = await fetch(`${config.apiUrl}/nutrition-log/custom`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

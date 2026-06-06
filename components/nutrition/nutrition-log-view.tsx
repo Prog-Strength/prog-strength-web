@@ -61,6 +61,9 @@ export function resolveItemName(
   if (entry.recipe_id) {
     return recipeByID.get(entry.recipe_id)?.name ?? "Unknown recipe";
   }
+  if (entry.custom_meal_name) {
+    return entry.custom_meal_name;
+  }
   return "Untitled entry";
 }
 
