@@ -401,13 +401,19 @@ function ToolbarButton({
       type="button"
       onClick={onClick}
       // aria-label keeps the control discoverable when the visible
-      // text label is hidden below sm:. Padding bumps to p-1.5 on
-      // mobile so the icon-only tap target stays comfortable; on
-      // sm: and up the inline-flex with the visible label is its own
-      // hit target so the padding goes back to 0.
+      // text label is hidden below sm:. Padding deliberately stays
+      // at 0 here: the active state's `pb-3 -mb-[14px] border-b-2`
+      // math depends on the button having no base padding so the
+      // 12px bottom padding + 14px negative margin together align
+      // the underline with the parent row's bottom border. A
+      // p-1.5 sm:p-0 attempt (or any p-* shorthand) gets overridden
+      // by the responsive `sm:p-0` after the active class's pb-3,
+      // which both drifts the underline and makes the button appear
+      // to "depress" on click. Icon-only is a comfortable tap target
+      // on mobile without extra padding.
       aria-label={label}
       className={
-        "inline-flex items-center gap-1.5 p-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 sm:p-0 " +
+        "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 " +
         (active ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3" : "")
       }
     >
