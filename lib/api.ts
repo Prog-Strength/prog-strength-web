@@ -1257,23 +1257,44 @@ export async function appendChatTurn(
   return appended;
 }
 
-// --- Running (TCX import) -----------------------------------------
+// --- Activities (TCX import) --------------------------------------
+//
+// The API generalized the prior running-only domain into a sport-agnostic
+// activity domain (see api migration 015). Routes moved from /running/*
+// to /activities/*. The TS names on this side are kept as `RunningSession`
+// + `RunningSessionsPage` for now: the web app is still a running app, the
+// pages still live at /running/*, and renaming the user-facing routes is
+// product work separate from this API cutover. Walks and rides will land
+// in the API but the UI treats anything non-running as out of scope until
+// a follow-up.
+
+/** Sport-agnostic activity type stored on every API row. */
+export type ActivityType = "running" | "walking" | "cycling" | "other";
+
+/** How an activity entered the system. */
+export type IngestSource = "manual_tcx" | "garmin_api";
 
 /**
- * One imported run. Distances/elevations are stored in meters and paces
- * in seconds-per-kilometer server-side; the DistanceUnitContext converts
- * toward the user's preferred unit at render time. `trackpoints` is only
- * present on the per-id detail GET — the list endpoint omits it to keep
- * payloads small. See prog-strength-docs/sows/running-tracking-via-tcx-import.md.
+ * One imported activity (today: a run; tomorrow: also walks/rides).
+ * Distances/elevations are stored in meters and paces in seconds-per-
+ * kilometer server-side; the DistanceUnitContext converts toward the
+ * user's preferred unit at render time. `trackpoints` is only present
+ * on the per-id detail GET — the list endpoint omits it to keep payloads
+ * small. See prog-strength-docs/sows/running-tracking-via-tcx-import.md.
+ *
+ * `avg_pace_sec_per_km` is nullable: pace is meaningful only for running
+ * activities; cycling/walking rows return null.
  */
 export type RunningSession = {
   id: string;
-  garmin_activity_id: string;
+  activity_type: ActivityType;
+  ingest_source: IngestSource;
+  source_activity_id: string;
   name: string | null;
   start_time: string; // RFC3339
   distance_meters: number;
   duration_seconds: number;
-  avg_pace_sec_per_km: number;
+  avg_pace_sec_per_km: number | null;
   best_pace_sec_per_km: number | null;
   avg_heart_rate_bpm: number | null;
   max_heart_rate_bpm: number | null;
@@ -1284,7 +1305,7 @@ export type RunningSession = {
   trackpoints?: RunningTrackpoint[];
 };
 
-/** One sampled point along a run's track, ordered by `sequence`. */
+/** One sampled point along an activity's track, ordered by `sequence`. */
 export type RunningTrackpoint = {
   sequence: number;
   elapsed_seconds: number;
@@ -1294,7 +1315,11 @@ export type RunningTrackpoint = {
   elevation_meters: number | null;
 };
 
-/** Aggregate running stats for the dashboard header tiles. */
+/**
+ * Aggregate running stats for the dashboard header tiles. The API
+ * filters to activity_type='running' before aggregating, so walks and
+ * rides don't contribute to these numbers.
+ */
 export type RunningMetrics = {
   current_week: {
     distance_meters: number;
@@ -1312,36 +1337,40 @@ export type RunningMetrics = {
   };
 };
 
-/** One page of running sessions plus the cursor for the next page. */
+/**
+ * One page of activities plus the cursor for the next page. The wire
+ * field is `activities` (server-renamed from the prior `sessions` in API
+ * migration 015); the TS name stays `activities` to match.
+ */
 export type RunningSessionsPage = {
-  sessions: RunningSession[];
+  activities: RunningSession[];
   // Opaque cursor (a start_time) to pass as `before` for the next page;
-  // null when there are no older sessions.
+  // null when there are no older activities.
   next_before: string | null;
 };
 
 /**
  * Thrown by `importRunningTcx` when the API returns 409 — the activity
- * was already imported. Carries the existing session's id so the import
+ * was already imported. Carries the existing activity's id so the import
  * modal can render an "already in your log" message with a View run link
  * instead of a generic error.
  */
 export class DuplicateRunError extends Error {
-  existingSessionId: string;
-  constructor(message: string, existingSessionId: string) {
+  existingActivityId: string;
+  constructor(message: string, existingActivityId: string) {
     super(message);
     this.name = "DuplicateRunError";
-    this.existingSessionId = existingSessionId;
+    this.existingActivityId = existingActivityId;
   }
 }
 
 /**
- * GET /running/sessions. Returns one page of the authed user's runs,
+ * GET /activities. Returns one page of the authed user's activities,
  * most recent first. Two mutually exclusive query patterns:
  *   - cursor pagination: `limit` + `before` (a prior page's `next_before`)
  *   - date range:        `since` + `until` (half-open `[since, until)`)
  * The calendar uses the range form to fetch a whole month at once; the
- * run list uses the cursor form. Mixing returns 400 from the API.
+ * activity list uses the cursor form. Mixing returns 400 from the API.
  */
 export async function listRunningSessions(
   token: string,
@@ -1353,37 +1382,38 @@ export async function listRunningSessions(
   if (opts.since) params.set("since", opts.since);
   if (opts.until) params.set("until", opts.until);
   const qs = params.toString();
-  const resp = await fetch(`${config.apiUrl}/running/sessions${qs ? `?${qs}` : ""}`, {
+  const resp = await fetch(`${config.apiUrl}/activities${qs ? `?${qs}` : ""}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return unwrap<RunningSessionsPage>(resp, { sessions: [], next_before: null });
+  return unwrap<RunningSessionsPage>(resp, { activities: [], next_before: null });
 }
 
 /**
- * GET /running/sessions/{id}. Returns a single run owned by the authed
+ * GET /activities/{id}. Returns a single activity owned by the authed
  * user, including its `trackpoints`. 404 if the ID doesn't exist or
  * belongs to another user.
  */
 export async function getRunningSession(token: string, id: string): Promise<RunningSession> {
-  const resp = await fetch(`${config.apiUrl}/running/sessions/${encodeURIComponent(id)}`, {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const got = await unwrap<RunningSession | null>(resp, null);
   if (!got) {
-    throw new Error("running session not found");
+    throw new Error("activity not found");
   }
   return got;
 }
 
 /**
- * GET /running/metrics. `timezone` is an IANA name (e.g.
+ * GET /activities/running-metrics. `timezone` is an IANA name (e.g.
  * "America/New_York"); the server uses it to bucket "this week" / "this
  * month". Call sites should pass
- * `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+ * `Intl.DateTimeFormat().resolvedOptions().timeZone`. The API filters
+ * to running activities only; non-running rows don't contribute.
  */
 export async function getRunningMetrics(token: string, timezone: string): Promise<RunningMetrics> {
   const params = new URLSearchParams({ timezone });
-  const resp = await fetch(`${config.apiUrl}/running/metrics?${params.toString()}`, {
+  const resp = await fetch(`${config.apiUrl}/activities/running-metrics?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return unwrap<RunningMetrics>(resp, {
@@ -1395,15 +1425,15 @@ export async function getRunningMetrics(token: string, timezone: string): Promis
 }
 
 /**
- * PATCH /running/sessions/{id}. Renames the run; returns the updated
- * session so the caller can splice it into local state.
+ * PATCH /activities/{id}. Renames the activity; returns the updated row
+ * so the caller can splice it into local state.
  */
 export async function renameRunningSession(
   token: string,
   id: string,
   name: string,
 ): Promise<RunningSession> {
-  const resp = await fetch(`${config.apiUrl}/running/sessions/${encodeURIComponent(id)}`, {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -1413,17 +1443,17 @@ export async function renameRunningSession(
   });
   const updated = await unwrap<RunningSession | null>(resp, null);
   if (!updated) {
-    throw new Error("API did not return the updated running session");
+    throw new Error("API did not return the updated activity");
   }
   return updated;
 }
 
 /**
- * DELETE /running/sessions/{id}. 204 on success (no body); throws the
- * API's `error` envelope on non-2xx.
+ * DELETE /activities/{id}. 204 on success (no body); throws the API's
+ * `error` envelope on non-2xx.
  */
 export async function deleteRunningSession(token: string, id: string): Promise<void> {
-  const resp = await fetch(`${config.apiUrl}/running/sessions/${encodeURIComponent(id)}`, {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1439,17 +1469,16 @@ export async function deleteRunningSession(token: string, id: string): Promise<v
 }
 
 /**
- * POST /running/sessions/imports. Uploads a Garmin .tcx file as
- * multipart/form-data under the field `file` and returns the created
- * session.
+ * POST /activities/tcx. Uploads a Garmin .tcx file as multipart/form-data
+ * under the field `file` and returns the created activity.
  *
  * We deliberately do NOT set a Content-Type header — the browser fills
  * in `multipart/form-data; boundary=...` for the FormData body, and
  * setting it manually would omit the boundary and break parsing.
  *
  * Error mapping:
- *  - 409 → DuplicateRunError carrying `existing_session_id` so the
- *    modal can link to the run already in the user's log.
+ *  - 409 → DuplicateRunError carrying `existing_activity_id` so the
+ *    modal can link to the activity already in the user's log.
  *  - 413 → friendly "File is too large (max 10 MB)." message.
  *  - 415 / 400 → the server's `error` text (unsupported/invalid file).
  *  - other non-2xx → `error` text or `HTTP {status}`.
@@ -1457,7 +1486,7 @@ export async function deleteRunningSession(token: string, id: string): Promise<v
 export async function importRunningTcx(token: string, file: File): Promise<RunningSession> {
   const form = new FormData();
   form.append("file", file);
-  const resp = await fetch(`${config.apiUrl}/running/sessions/imports`, {
+  const resp = await fetch(`${config.apiUrl}/activities/tcx`, {
     method: "POST",
     // No Content-Type: the browser sets the multipart boundary itself.
     headers: { Authorization: `Bearer ${token}` },
@@ -1465,15 +1494,15 @@ export async function importRunningTcx(token: string, file: File): Promise<Runni
   });
 
   if (resp.status === 409) {
-    let body: { error?: string; code?: string; existing_session_id?: string } = {};
+    let body: { error?: string; code?: string; existing_activity_id?: string } = {};
     try {
       body = await resp.json();
     } catch {
       // fall through to defaults below
     }
     throw new DuplicateRunError(
-      body.error || "This run is already in your log.",
-      body.existing_session_id ?? "",
+      body.error || "This activity is already in your log.",
+      body.existing_activity_id ?? "",
     );
   }
 
@@ -1492,7 +1521,7 @@ export async function importRunningTcx(token: string, file: File): Promise<Runni
 
   const created = await unwrap<RunningSession | null>(resp, null);
   if (!created) {
-    throw new Error("API did not return the imported running session");
+    throw new Error("API did not return the imported activity");
   }
   return created;
 }

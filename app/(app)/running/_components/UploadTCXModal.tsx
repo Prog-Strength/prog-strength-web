@@ -64,7 +64,7 @@ export function UploadTCXModal({
       })
       .catch((err: unknown) => {
         if (err instanceof DuplicateRunError) {
-          setDuplicateId(err.existingSessionId);
+          setDuplicateId(err.existingActivityId);
           return;
         }
         const msg = err instanceof Error ? err.message : String(err);

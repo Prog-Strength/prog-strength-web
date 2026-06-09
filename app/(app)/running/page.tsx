@@ -62,7 +62,7 @@ export default function RunningPage() {
       .then(([m, page]) => {
         setError(null);
         setMetrics(m);
-        setSessions(page.sessions);
+        setSessions(page.activities);
         setNextBefore(page.next_before);
       })
       .catch((err: unknown) => {
@@ -81,7 +81,7 @@ export default function RunningPage() {
     setLoadingMore(true);
     listRunningSessions(token, { limit: PAGE_SIZE, before: nextBefore })
       .then((page) => {
-        setSessions((prev) => [...(prev ?? []), ...page.sessions]);
+        setSessions((prev) => [...(prev ?? []), ...page.activities]);
         setNextBefore(page.next_before);
       })
       .catch((err: unknown) => {
