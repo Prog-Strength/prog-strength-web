@@ -181,7 +181,7 @@ export function ActivitiesCombinedChart({
 
       {truncated && (
         <p className="mt-2 text-[11px] text-[var(--muted)]">
-          Showing the most recent {fetchLimit} sessions. Older data isn&apos;t included in this
+          Showing the most recent {fetchLimit} workouts. Older data isn&apos;t included in this
           chart yet.
         </p>
       )}
