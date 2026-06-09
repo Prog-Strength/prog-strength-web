@@ -10,64 +10,58 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { Workout } from "@/lib/api";
+import type { RunningSession } from "@/lib/api";
 import { formatHours, formatWeekRangeFromMonday, formatYTick } from "@/lib/chart-format";
 import { buildWeeklyBuckets, type WeekBucket } from "@/lib/weekly-buckets";
 
 /**
- * Total weekly training time over the active timeframe — the "did I
- * spend enough time lifting?" answer at the top of the Workouts page.
+ * Total weekly running time over the active timeframe — the "how long
+ * did I run?" answer at the top of the Running view.
  *
- * Deliberately chrome-less. This renders only the inner chart block
- * (loading / empty / area) plus the truncated note — the analytics
- * wrapper (WorkoutsAnalytics) owns the card border and the shared
- * summary header (Total Time / Sessions / PRs) so the sibling views can
- * sit under one set of totals.
- *
- * Purely presentational. The workouts array, the timeframe's `days`,
- * and the truncation flags are passed in by the page so a single
- * fetch hydrates both this chart and the paginated list below.
+ * Structurally identical to RunningMileageChart (and WorkoutDurationChart)
+ * but the Y datum is minutes: the axis uses formatYTick (m/h) and the
+ * tooltip uses formatHours. Deliberately chrome-less; the analytics
+ * wrapper owns the card border and summary header.
  */
 
 const CHART_HEIGHT = 200;
 
-export function WorkoutDurationChart({
-  workouts,
+export function RunningTimeChart({
+  sessions,
   days,
   truncated,
   fetchLimit,
 }: {
-  // `null` while the parent is still loading. Empty array = no
-  // workouts in the window (rendered as an empty-state card).
-  workouts: Workout[] | null;
+  // `null` while the parent is still loading. Empty array = no runs in
+  // the window (rendered as an empty-state card).
+  sessions: RunningSession[] | null;
   // Days back from now this window covers, or null for "all".
-  // Drives the X-axis bucket span so empty weeks at the edge of the
-  // window still appear as zero-points instead of clipping the line.
   days: number | null;
-  // True when the parent's fetch returned exactly `fetchLimit` rows
-  // and the API may have more — the chart surfaces this so the user
-  // understands why older data isn't included.
+  // True when the parent's fetch hit `fetchLimit` and may have more.
   truncated: boolean;
   fetchLimit: number;
+  // Accepted for prop parity with the mileage chart; unused here since
+  // the time series is unit-agnostic.
+  distanceUnit?: "mi" | "km";
 }) {
-  const summary = useMemo(() => summarize(workouts ?? [], days), [workouts, days]);
+  const summary = useMemo(() => summarize(sessions ?? [], days), [sessions, days]);
 
   return (
     <>
       <div className="mt-3" style={{ height: CHART_HEIGHT }}>
-        {workouts === null ? (
+        {sessions === null ? (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted)]">
             Loading…
           </div>
         ) : summary.weeks.length === 0 || summary.totalMinutes === 0 ? (
           <div className="flex h-full items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--muted)]">
-            No completed workouts in this window.
+            No runs in this window.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={summary.weeks} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
               <defs>
-                <linearGradient id="duration-fill" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="running-time-fill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.32} />
                   <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
                 </linearGradient>
@@ -114,7 +108,7 @@ export function WorkoutDurationChart({
                 dataKey="minutes"
                 stroke="#3b82f6"
                 strokeWidth={2}
-                fill="url(#duration-fill)"
+                fill="url(#running-time-fill)"
                 isAnimationActive={false}
                 dot={{ r: 3, fill: "#3b82f6", stroke: "#3b82f6" }}
                 activeDot={{ r: 4 }}
@@ -137,7 +131,7 @@ export function WorkoutDurationChart({
 // --- aggregation --------------------------------------------------
 
 type WeekAccumulator = {
-  // Total minutes of completed training for the week.
+  // Total minutes spent running in the week.
   minutes: number;
 };
 
@@ -145,53 +139,29 @@ type WeekPoint = WeekBucket<WeekAccumulator>;
 
 type Summary = {
   totalMinutes: number;
-  sessionCount: number;
-  openWorkouts: number;
   weeks: WeekPoint[];
 };
 
 /**
- * Buckets workouts into Monday-anchored weeks and totals each week's
- * completed-workout minutes. Weeks with no completed sessions still
- * appear so the line dips to zero — a multi-week gap shows up
- * visually rather than being smoothed away by adjacent points.
- *
- * For bounded timeframes (7d/30d/90d) the bucket span is derived from
- * the timeframe so even an empty user sees a chart shaped like the
- * window. For the "all" timeframe (days === null) the span runs from
- * the oldest workout in the array to today.
+ * Buckets runs into Monday-anchored weeks and totals each week's minutes
+ * (duration_seconds / 60). Weeks with no runs still appear (zero-filled)
+ * so gaps are visible as dips.
  */
-function summarize(workouts: Workout[], days: number | null): Summary {
-  const weeks = buildWeeklyBuckets<Workout, WeekAccumulator>({
-    items: workouts,
+function summarize(sessions: RunningSession[], days: number | null): Summary {
+  const weeks = buildWeeklyBuckets<RunningSession, WeekAccumulator>({
+    items: sessions,
     days,
-    getTimestamp: (w) => new Date(w.performed_at),
+    getTimestamp: (s) => new Date(s.start_time),
     factory: () => ({ minutes: 0 }),
-    accumulate: (bucket, w) => {
-      // Only completed workouts with a positive span contribute minutes;
-      // weeks outside the window simply never receive a bucket here.
-      if (!w.ended_at) return;
-      const durationMs = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
-      if (!Number.isFinite(durationMs) || durationMs <= 0) return;
-      bucket.minutes += durationMs / 60_000;
+    accumulate: (bucket, s) => {
+      bucket.minutes += s.duration_seconds / 60;
     },
   });
 
-  // Totals count every workout passed in (matching the previous pass),
-  // independent of whether its week falls inside the bucket window.
   let totalMinutes = 0;
-  let sessionCount = 0;
-  let openWorkouts = 0;
-  for (const w of workouts) {
-    sessionCount++;
-    if (!w.ended_at) {
-      openWorkouts++;
-      continue;
-    }
-    const durationMs = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
-    if (!Number.isFinite(durationMs) || durationMs <= 0) continue;
-    totalMinutes += durationMs / 60_000;
+  for (const s of sessions) {
+    totalMinutes += s.duration_seconds / 60;
   }
 
-  return { totalMinutes, sessionCount, openWorkouts, weeks };
+  return { totalMinutes, weeks };
 }

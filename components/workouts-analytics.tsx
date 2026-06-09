@@ -5,6 +5,8 @@ import type { Exercise, Workout } from "@/lib/api";
 import { WorkoutDurationChart } from "@/components/workout-duration-chart";
 import { WorkoutVolumeChart } from "@/components/workout-volume-chart";
 import { MuscleGroupRadarChart } from "@/components/muscle-group-radar-chart";
+import { ViewButton } from "@/components/view-button";
+import { formatHours } from "@/lib/chart-format";
 
 /**
  * Owns the top-of-page analytics card on the Workouts page: the card
@@ -128,35 +130,6 @@ export function WorkoutsAnalytics({
   );
 }
 
-function ViewButton({
-  label,
-  active,
-  onClick,
-  children,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      aria-pressed={active}
-      className={`rounded-md px-2 py-1 transition ${
-        active
-          ? "bg-[var(--accent)] text-[var(--accent-fg)]"
-          : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 // --- icons --------------------------------------------------------
 // Hand-rolled inline SVGs in the same idiom as the page's existing
 // glyphs (viewBox 0 0 24 24, currentColor stroke). No icon library.
@@ -220,16 +193,4 @@ function RadarIcon() {
       <circle cx="12" cy="12" r="1" />
     </svg>
   );
-}
-
-// --- helpers ------------------------------------------------------
-
-function formatHours(minutes: number): string {
-  if (minutes <= 0) return "0h";
-  const totalMinutes = Math.round(minutes);
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  if (hours === 0) return `${mins}m`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
 }
