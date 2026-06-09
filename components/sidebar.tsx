@@ -24,16 +24,17 @@ const NAV: NavItem[] = [
   // Chat history used to be a sibling entry here; it now lives as a
   // drawer inside the chat page so the sidebar has one fewer row.
   { href: "/chat", label: "Chat", icon: <ChatIcon /> },
-  { href: "/workouts", label: "Workouts", icon: <DumbbellIcon /> },
+  // Workouts and Running used to be separate siblings; they're now
+  // consolidated into one Activities entry with URL-backed sub-views
+  // (/activities?view=workouts|running). The active-highlight logic is
+  // unchanged — /activities?view=… has pathname /activities so the
+  // entry lights up regardless of the active sub-view.
+  { href: "/activities", label: "Activities", icon: <ActivityIcon /> },
   { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
   // Pantry and Recipes live inside /nutrition as tabbed views, so the
   // sidebar surfaces only the parent entry.
   { href: "/nutrition", label: "Nutrition", icon: <PlateIcon /> },
-  // Running slots between the food/nutrition cluster and the analysis
-  // views — it's cardio logging that lives alongside the daily-tracking
-  // loop and feeds the same "how am I trending?" question Progress asks.
-  { href: "/running", label: "Running", icon: <RunIcon /> },
   // Bodyweight pairs with nutrition — same conceptual "did I eat /
   // weigh the right amount today?" loop. Slotted right after the
   // food pair so the daily-tracking views cluster together.
@@ -200,7 +201,9 @@ function ChatIcon() {
   );
 }
 
-function DumbbellIcon() {
+function ActivityIcon() {
+  // Pulse/heartbeat waveform — the universal "activity" glyph. Anchors
+  // the consolidated Activities entry (Workouts + Running + Overview).
   return (
     <svg
       viewBox="0 0 24 24"
@@ -213,11 +216,7 @@ function DumbbellIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M6.5 6.5v11" />
-      <path d="M17.5 6.5v11" />
-      <path d="M3.5 9v6" />
-      <path d="M20.5 9v6" />
-      <path d="M6.5 12h11" />
+      <polyline points="3 12 7 12 10 5 14 19 17 12 21 12" />
     </svg>
   );
 }
@@ -355,30 +354,6 @@ function ScaleIcon() {
       <rect x="3" y="6" width="18" height="14" rx="2" />
       <circle cx="12" cy="13" r="3" />
       <path d="M9 10h6" />
-    </svg>
-  );
-}
-
-function RunIcon() {
-  // A running figure mid-stride — head, leaning torso, and bent
-  // arm/leg lines. Reads as "running / activity" at 16x16 without an
-  // emoji, and stays distinct from the other line glyphs.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="14" cy="5" r="1.6" />
-      <path d="M7 21l3-5 3 2 1 3" />
-      <path d="M13 13l-1.5-3.5 3-1.5 2.5 2 2 1" />
-      <path d="M4 11l3-1 3 1" />
     </svg>
   );
 }

@@ -132,7 +132,7 @@ export default function RunningDetailPage() {
     try {
       await deleteRunningSession(token, id);
       toast.success("Run deleted.");
-      router.push("/running");
+      router.push("/activities?view=running");
     } catch (err) {
       if (handleAuthError(err)) return;
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -144,7 +144,10 @@ export default function RunningDetailPage() {
     return (
       <CenteredMessage>
         <p className="text-sm font-medium">Run not found</p>
-        <Link href="/running" className="mt-2 text-xs text-[var(--accent)] hover:underline">
+        <Link
+          href="/activities?view=running"
+          className="mt-2 text-xs text-[var(--accent)] hover:underline"
+        >
           ← Back to runs
         </Link>
       </CenteredMessage>
@@ -157,7 +160,10 @@ export default function RunningDetailPage() {
         <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
           {error}
         </div>
-        <Link href="/running" className="mt-3 text-xs text-[var(--accent)] hover:underline">
+        <Link
+          href="/activities?view=running"
+          className="mt-3 text-xs text-[var(--accent)] hover:underline"
+        >
           ← Back to runs
         </Link>
       </CenteredMessage>
@@ -176,7 +182,7 @@ export default function RunningDetailPage() {
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
         <Link
-          href="/running"
+          href="/activities?view=running"
           className="w-fit text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
         >
           ← Runs
