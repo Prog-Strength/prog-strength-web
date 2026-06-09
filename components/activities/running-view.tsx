@@ -87,7 +87,7 @@ export function RunningView({
       .then(([m, page]) => {
         setError(null);
         setMetrics(m);
-        setSessions(page.sessions);
+        setSessions(page.activities);
       })
       .catch((err: unknown) => {
         if (handleAuthError(err)) return;

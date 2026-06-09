@@ -65,7 +65,7 @@ export function ActivitiesOverviewView({
       .then(([wp, sp]) => {
         setError(null);
         setWorkouts(wp.items);
-        setSessions(sp.sessions);
+        setSessions(sp.activities);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
