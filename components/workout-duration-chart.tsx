@@ -11,6 +11,8 @@ import {
   YAxis,
 } from "recharts";
 import type { Workout } from "@/lib/api";
+import { formatHours, formatWeekRangeFromMonday, formatYTick } from "@/lib/chart-format";
+import { buildWeeklyBuckets, type WeekBucket } from "@/lib/weekly-buckets";
 
 /**
  * Total weekly training time over the active timeframe — the "did I
@@ -134,15 +136,12 @@ export function WorkoutDurationChart({
 
 // --- aggregation --------------------------------------------------
 
-type WeekPoint = {
-  weekKey: string;
-  weekStart: Date;
-  // Unix-ms timestamp of the Monday so recharts' numeric XAxis can
-  // place each point linearly without us converting per-tick.
-  t: number;
+type WeekAccumulator = {
   // Total minutes of completed training for the week.
   minutes: number;
 };
+
+type WeekPoint = WeekBucket<WeekAccumulator>;
 
 type Summary = {
   totalMinutes: number;
@@ -163,113 +162,36 @@ type Summary = {
  * the oldest workout in the array to today.
  */
 function summarize(workouts: Workout[], days: number | null): Summary {
-  const now = new Date();
-  const since =
-    days !== null
-      ? new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-      : workouts.length > 0
-        ? new Date(Math.min(...workouts.map((w) => new Date(w.performed_at).getTime())))
-        : now;
+  const weeks = buildWeeklyBuckets<Workout, WeekAccumulator>({
+    items: workouts,
+    days,
+    getTimestamp: (w) => new Date(w.performed_at),
+    factory: () => ({ minutes: 0 }),
+    accumulate: (bucket, w) => {
+      // Only completed workouts with a positive span contribute minutes;
+      // weeks outside the window simply never receive a bucket here.
+      if (!w.ended_at) return;
+      const durationMs = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
+      if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+      bucket.minutes += durationMs / 60_000;
+    },
+  });
 
-  const weeksByKey = new Map<string, WeekPoint>();
-  const orderedKeys: string[] = [];
-  for (
-    let cursor = startOfMonday(since);
-    cursor.getTime() <= startOfMonday(now).getTime();
-    cursor = addDays(cursor, 7)
-  ) {
-    const key = isoDate(cursor);
-    orderedKeys.push(key);
-    weeksByKey.set(key, {
-      weekKey: key,
-      weekStart: new Date(cursor),
-      t: cursor.getTime(),
-      minutes: 0,
-    });
-  }
-
+  // Totals count every workout passed in (matching the previous pass),
+  // independent of whether its week falls inside the bucket window.
   let totalMinutes = 0;
   let sessionCount = 0;
   let openWorkouts = 0;
   for (const w of workouts) {
     sessionCount++;
-    const performedAt = new Date(w.performed_at);
     if (!w.ended_at) {
       openWorkouts++;
       continue;
     }
-    const durationMs = new Date(w.ended_at).getTime() - performedAt.getTime();
+    const durationMs = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
     if (!Number.isFinite(durationMs) || durationMs <= 0) continue;
-    const minutes = durationMs / 60_000;
-    totalMinutes += minutes;
-    const bucket = weeksByKey.get(isoDate(startOfMonday(performedAt)));
-    if (bucket) bucket.minutes += minutes;
+    totalMinutes += durationMs / 60_000;
   }
 
-  return {
-    totalMinutes,
-    sessionCount,
-    openWorkouts,
-    weeks: orderedKeys.map((k) => weeksByKey.get(k)!),
-  };
-}
-
-// --- helpers ------------------------------------------------------
-
-function startOfMonday(d: Date): Date {
-  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  // getDay: 0 = Sunday, 1 = Monday, … 6 = Saturday.
-  // Monday-anchored offset: Sun→6, Mon→0, Tue→1, …
-  const offset = (local.getDay() + 6) % 7;
-  local.setDate(local.getDate() - offset);
-  return local;
-}
-
-function addDays(d: Date, n: number): Date {
-  const out = new Date(d);
-  out.setDate(out.getDate() + n);
-  return out;
-}
-
-function isoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function formatHours(minutes: number): string {
-  if (minutes <= 0) return "0h";
-  const totalMinutes = Math.round(minutes);
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  if (hours === 0) return `${mins}m`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-}
-
-function formatYTick(minutes: number): string {
-  if (minutes <= 0) return "0";
-  if (minutes >= 60) {
-    const h = minutes / 60;
-    return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`;
-  }
-  return `${Math.round(minutes)}m`;
-}
-
-function formatWeekRangeFromMonday(monday: Date): string {
-  const sunday = new Date(monday);
-  sunday.setDate(sunday.getDate() + 6);
-  const sameMonth = monday.getMonth() === sunday.getMonth();
-  const monStr = monday.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-  const sunStr = sameMonth
-    ? String(sunday.getDate())
-    : sunday.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      });
-  return `${monStr} – ${sunStr}`;
+  return { totalMinutes, sessionCount, openWorkouts, weeks };
 }

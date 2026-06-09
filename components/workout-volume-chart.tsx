@@ -11,7 +11,9 @@ import {
   YAxis,
 } from "recharts";
 import type { Workout } from "@/lib/api";
+import { formatWeekRangeFromMonday } from "@/lib/chart-format";
 import { workoutVolume } from "@/lib/workout-volume";
+import { buildWeeklyBuckets, type WeekBucket } from "@/lib/weekly-buckets";
 
 /**
  * Volume sibling of the duration chart: total weekly training volume
@@ -147,15 +149,12 @@ export function WorkoutVolumeChart({
 
 // --- aggregation --------------------------------------------------
 
-type WeekPoint = {
-  weekKey: string;
-  weekStart: Date;
-  // Unix-ms timestamp of the Monday so recharts' numeric XAxis can
-  // place each point linearly without us converting per-tick.
-  t: number;
+type WeekAccumulator = {
   // Total training volume (reps × weight) for the week.
   volume: number;
 };
+
+type WeekPoint = WeekBucket<WeekAccumulator>;
 
 type Summary = {
   totalVolume: number;
@@ -178,88 +177,33 @@ type Summary = {
  * the oldest workout in the array to today.
  */
 function summarize(workouts: Workout[], days: number | null, displayUnit: "lb" | "kg"): Summary {
-  const now = new Date();
-  const since =
-    days !== null
-      ? new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-      : workouts.length > 0
-        ? new Date(Math.min(...workouts.map((w) => new Date(w.performed_at).getTime())))
-        : now;
+  const weeks = buildWeeklyBuckets<Workout, WeekAccumulator>({
+    items: workouts,
+    days,
+    getTimestamp: (w) => new Date(w.performed_at),
+    factory: () => ({ volume: 0 }),
+    accumulate: (bucket, w) => {
+      const volume = workoutVolume(w, displayUnit);
+      if (!Number.isFinite(volume) || volume <= 0) return;
+      bucket.volume += volume;
+    },
+  });
 
-  const weeksByKey = new Map<string, WeekPoint>();
-  const orderedKeys: string[] = [];
-  for (
-    let cursor = startOfMonday(since);
-    cursor.getTime() <= startOfMonday(now).getTime();
-    cursor = addDays(cursor, 7)
-  ) {
-    const key = isoDate(cursor);
-    orderedKeys.push(key);
-    weeksByKey.set(key, {
-      weekKey: key,
-      weekStart: new Date(cursor),
-      t: cursor.getTime(),
-      volume: 0,
-    });
-  }
-
+  // Total counts every workout with positive volume passed in (matching
+  // the previous pass), independent of its week's bucket window.
   let totalVolume = 0;
   for (const w of workouts) {
     const volume = workoutVolume(w, displayUnit);
     if (!Number.isFinite(volume) || volume <= 0) continue;
     totalVolume += volume;
-    const bucket = weeksByKey.get(isoDate(startOfMonday(new Date(w.performed_at))));
-    if (bucket) bucket.volume += volume;
   }
 
-  return {
-    totalVolume,
-    weeks: orderedKeys.map((k) => weeksByKey.get(k)!),
-  };
+  return { totalVolume, weeks };
 }
 
 // --- helpers ------------------------------------------------------
 
-function startOfMonday(d: Date): Date {
-  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  // getDay: 0 = Sunday, 1 = Monday, … 6 = Saturday.
-  // Monday-anchored offset: Sun→6, Mon→0, Tue→1, …
-  const offset = (local.getDay() + 6) % 7;
-  local.setDate(local.getDate() - offset);
-  return local;
-}
-
-function addDays(d: Date, n: number): Date {
-  const out = new Date(d);
-  out.setDate(out.getDate() + n);
-  return out;
-}
-
-function isoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function formatYTick(volume: number): string {
   if (volume <= 0) return "0";
   return Math.round(volume).toLocaleString();
-}
-
-function formatWeekRangeFromMonday(monday: Date): string {
-  const sunday = new Date(monday);
-  sunday.setDate(sunday.getDate() + 6);
-  const sameMonth = monday.getMonth() === sunday.getMonth();
-  const monStr = monday.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-  const sunStr = sameMonth
-    ? String(sunday.getDate())
-    : sunday.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      });
-  return `${monStr} – ${sunStr}`;
 }
