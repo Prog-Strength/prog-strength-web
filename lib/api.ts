@@ -299,6 +299,28 @@ export async function getMe(token: string): Promise<User> {
 }
 
 /**
+ * The authed user's daily AI-usage snapshot. Denominated only as a
+ * percentage of the user's daily allowance — the API deliberately omits
+ * any dollar figure (the cost model is operator-internal). `capped` is
+ * the gate's source of truth; `resets_at` is the user's next local
+ * midnight in UTC (RFC3339), which the frontend turns into a countdown.
+ */
+export type UsageData = { percent_used: number; capped: boolean; resets_at: string };
+
+/**
+ * GET /me/usage. Returns the authed user's daily AI-usage snapshot.
+ * `tz` is the user's IANA timezone (e.g. "America/Denver"), used by the
+ * API to anchor the daily-rollover window on the user's local midnight;
+ * call sites pass `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+ */
+export async function getMyUsage(token: string, tz: string): Promise<UsageData> {
+  const resp = await fetch(`${config.apiUrl}/me/usage?tz=${encodeURIComponent(tz)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<UsageData>(resp, { percent_used: 0, capped: false, resets_at: "" });
+}
+
+/**
  * PATCH /me. Partial update of the authed user's profile/preferences;
  * omit a field to leave it unchanged. Returns the updated user so the
  * caller can splice it into local state / re-seed contexts without a

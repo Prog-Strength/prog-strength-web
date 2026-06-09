@@ -19,6 +19,8 @@ import {
 import { blobToBase64, generateChatTitle, type ContentBlock } from "@/lib/agent";
 import { getSpeechRecognitionCtor, startSpeechSession, type SpeechSession } from "@/lib/speech";
 import { useToast } from "@/components/toast";
+import { useUsage } from "@/lib/usage-context";
+import { cappedMessage, formatResetCountdown } from "@/components/usage-bar";
 
 // Image-attach constraints (photo-meal-logging SOW). 5 MB cap keeps the
 // base64 payload posted to the agent reasonable; the three MIME types are
@@ -97,6 +99,15 @@ export default function ChatPage() {
   const searchParams = useSearchParams();
   const urlSessionId = searchParams.get("session");
   const toast = useToast();
+  // Shared daily-AI-usage snapshot (settings + chat read one source).
+  // When `capped`, the composer disables and a banner explains the reset.
+  const usage = useUsage();
+  const { capped, resetsAt, refresh: refreshUsage } = usage;
+  // The "Daily AI allowance used. Resets in Xh Ym." tooltip on the
+  // disabled composer controls. Recomputed each render off resetsAt.
+  const cappedTooltip = `Daily AI allowance used. Resets in ${formatResetCountdown(
+    resetsAt.getTime() - Date.now(),
+  )}.`;
 
   // The active session id. Set immediately on mount: either from the
   // URL (resume) or a fresh client-minted UUID (new chat). For the
@@ -142,6 +153,10 @@ export default function ChatPage() {
   // by default; survives component-level re-renders but not refresh
   // (per the voice-chat SOW's "session-only" lean).
   const [voiceMode, setVoiceMode] = useState(false);
+  // True once voice mode has been auto-disabled because the user hit
+  // their daily cap. Drives a small inline note next to the voice
+  // toggle so the user knows why it switched off (rather than silently).
+  const [voiceForcedOff, setVoiceForcedOff] = useState(false);
   // History drawer (replaces the deleted /chat/history route). The
   // drawer fetches the sessions list lazily on first open and on
   // every subsequent open so the list is fresh after the user lands
@@ -374,6 +389,24 @@ export default function ChatPage() {
     });
   }, [stopPlayback]);
 
+  // When the user hits their daily cap, force voice mode off (the agent
+  // would 429 the /speak path anyway) and silence any in-flight audio.
+  // The inline note next to the toggle explains the switch; it clears if
+  // usage recovers (e.g. after the daily reset converges).
+  useEffect(() => {
+    if (capped) {
+      setVoiceMode((prev) => {
+        if (prev) {
+          stopPlayback();
+          setVoiceForcedOff(true);
+        }
+        return false;
+      });
+    } else {
+      setVoiceForcedOff(false);
+    }
+  }, [capped, stopPlayback]);
+
   // Validate + stage an image picked from any source (picker, drag-drop,
   // paste). Revokes the previous chip's object URL before minting a fresh
   // one so replacing an attachment doesn't leak the old preview.
@@ -413,7 +446,7 @@ export default function ChatPage() {
 
   const send = useCallback(async () => {
     const trimmed = input.trim();
-    if ((!trimmed && !pendingImage) || streaming || loading || !sessionId) return;
+    if ((!trimmed && !pendingImage) || streaming || loading || !sessionId || capped) return;
 
     const token = getToken();
     if (!token) {
@@ -546,6 +579,43 @@ export default function ChatPage() {
       if (resp.status === 401) {
         clearToken();
         router.replace("/login");
+        return;
+      }
+      if (resp.status === 429) {
+        // The gate flipped to capped between the last usage refresh and
+        // this send. Surface the same copy as the settings/banner, force
+        // the shared snapshot to converge, and strip BOTH the optimistic
+        // user message and the blank assistant placeholder so the user
+        // isn't left staring at an unanswered turn.
+        const drained = await resp.text().catch(() => "");
+        // Prefer the freshly-fetched resetsAt for an accurate countdown;
+        // fall back to the agent's plain-text body if usage is unknown.
+        await refreshUsage().catch(() => {});
+        const copy =
+          usage.error || usage.loading
+            ? drained.trim() || "You've used your daily AI allowance."
+            : cappedMessage(usage.resetsAt);
+        toast.error(copy);
+        setMessages((prev) => {
+          // Drop a trailing blank assistant placeholder, then a trailing
+          // user message (this turn's optimistic pair).
+          let next = prev;
+          const last = next[next.length - 1];
+          if (
+            last &&
+            last.role === "assistant" &&
+            last.content === "" &&
+            (!last.tools || last.tools.length === 0) &&
+            !last.model
+          ) {
+            next = next.slice(0, -1);
+          }
+          const newLast = next[next.length - 1];
+          if (newLast && newLast.role === "user") {
+            next = next.slice(0, -1);
+          }
+          return next;
+        });
         return;
       }
       if (!resp.ok || !resp.body) {
@@ -687,6 +757,10 @@ export default function ChatPage() {
     pendingImage,
     stopPlayback,
     drainAudioQueue,
+    toast,
+    usage,
+    capped,
+    refreshUsage,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -717,14 +791,18 @@ export default function ChatPage() {
           <button
             type="button"
             onClick={toggleVoiceMode}
+            disabled={capped}
+            aria-disabled={capped}
             aria-pressed={voiceMode}
             aria-label={voiceMode ? "Turn voice mode off" : "Turn voice mode on"}
             title={
-              voiceMode
-                ? "Voice mode on — agent replies play as audio"
-                : "Voice mode off — turn on to hear agent replies"
+              capped
+                ? cappedTooltip
+                : voiceMode
+                  ? "Voice mode on — agent replies play as audio"
+                  : "Voice mode off — turn on to hear agent replies"
             }
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition sm:px-3 ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 ${
               voiceMode
                 ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
                 : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -813,6 +891,22 @@ export default function ChatPage() {
           if (file) onSelectImage(file);
         }}
       >
+        {capped && (
+          // Capped banner above the composer. Same copy as the settings
+          // 100% state + the 429 toast so the message is consistent.
+          <div
+            role="status"
+            className="mx-auto mb-2 max-w-2xl rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]"
+          >
+            {cappedMessage(resetsAt)}
+          </div>
+        )}
+        {voiceForcedOff && (
+          // Inline note: voice mode was auto-disabled because of the cap.
+          <div className="mx-auto mb-2 max-w-2xl px-1 text-xs text-[var(--muted)]">
+            Voice mode turned off — daily AI allowance used.
+          </div>
+        )}
         {pendingImage && (
           // Staged-image chip above the textarea: thumbnail + truncated
           // filename + dismiss. The thumbnail uses the chip's own object
@@ -858,8 +952,11 @@ export default function ChatPage() {
                 e.preventDefault();
                 stopListening();
               }}
-              disabled={streaming || loading || !sessionId}
-              title={listening ? "Listening… release to stop" : "Hold to speak"}
+              disabled={streaming || loading || !sessionId || capped}
+              aria-disabled={capped}
+              title={
+                capped ? cappedTooltip : listening ? "Listening… release to stop" : "Hold to speak"
+              }
               aria-pressed={listening}
               aria-label={listening ? "Stop voice input" : "Start voice input"}
               className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border transition disabled:opacity-40 ${
@@ -931,8 +1028,11 @@ export default function ChatPage() {
               streaming ||
               loading ||
               !sessionId ||
+              capped ||
               (input.trim().length === 0 && pendingImage === null)
             }
+            aria-disabled={capped}
+            title={capped ? cappedTooltip : undefined}
             aria-label="Send message"
             // Mobile: 44×44 icon-only square that matches the mic and
             // paperclip's hit-target. Desktop (sm: and up): grows to
