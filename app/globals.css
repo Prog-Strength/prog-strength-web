@@ -13,6 +13,7 @@
   --muted: #a1a1aa; /* zinc-400 — secondary text */
   --accent: #3b82f6; /* blue-500 — primary action */
   --accent-fg: #ffffff;
+  --warning: #f59e0b; /* amber-500 — at-threshold usage */
   --danger: #ef4444; /* red-500 */
 }
 
@@ -25,6 +26,7 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
+  --color-warning: var(--warning);
   --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);

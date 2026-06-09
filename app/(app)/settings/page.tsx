@@ -6,6 +6,7 @@ import { clearToken, getToken } from "@/lib/auth";
 import { getMe, updateMe } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
+import { UsageBar } from "@/components/usage-bar";
 
 /**
  * Settings. A "Units" section with two segmented controls: distance
@@ -60,6 +61,15 @@ export default function SettingsPage() {
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-8">
+          <section className="flex flex-col gap-4">
+            <h2 className="text-sm font-semibold tracking-tight">Usage</h2>
+
+            <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
+              <p className="text-sm font-medium">Daily AI allowance</p>
+              <UsageBar />
+            </div>
+          </section>
+
           <section className="flex flex-col gap-4">
             <h2 className="text-sm font-semibold tracking-tight">Units</h2>
 

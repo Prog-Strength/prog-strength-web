@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { Sidebar } from "@/components/sidebar";
+import { UsageProvider } from "@/lib/usage-context";
 
 /**
  * Shared shell for every authenticated app page: sidebar on the left,
@@ -31,10 +32,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!ready) return null;
 
+  // UsageProvider lives here (not the root layout) because the daily-AI
+  // usage snapshot requires a token — it belongs in the authed subtree,
+  // and only mounts once `ready` so it never fetches before auth.
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
-    </div>
+    <UsageProvider>
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
+      </div>
+    </UsageProvider>
   );
 }
