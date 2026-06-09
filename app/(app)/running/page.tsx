@@ -11,7 +11,7 @@ import {
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
-import { StatTile } from "./_components/StatTile";
+import { StatTile } from "@/components/stat-tile";
 import { RunListRow } from "./_components/RunListRow";
 import { UploadTCXModal } from "./_components/UploadTCXModal";
 

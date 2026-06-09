@@ -13,7 +13,7 @@ import {
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
-import { StatTile } from "../_components/StatTile";
+import { StatTile } from "@/components/stat-tile";
 import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
 import { HeartRateChart, type ChartPoint } from "../_components/HeartRateChart";
 import { PaceChart } from "../_components/PaceChart";
