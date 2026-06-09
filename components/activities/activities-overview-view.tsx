@@ -10,11 +10,10 @@ import { formatHours } from "@/lib/chart-format";
 import { formatDistanceValue } from "@/lib/distance-unit-context";
 import { workoutVolume } from "@/lib/workout-volume";
 
-// Fetch budgets per resource. Workouts cap at the API's hard limit of
-// 100; running sessions at 200. When either is hit the combined chart
-// surfaces a generic truncation note.
+// Workouts cap at the API's hard limit of 100; when hit the combined
+// chart surfaces a truncation note. Running uses /activities range mode
+// instead (uncapped server-side), so no equivalent SESSIONS_LIMIT here.
 const WORKOUTS_LIMIT = 100;
-const SESSIONS_LIMIT = 200;
 
 /**
  * Overview sub-view — the Activities page's default. A digest of the
@@ -58,9 +57,12 @@ export function ActivitiesOverviewView({
     // rather than stale aggregates from the prior window.
     setWorkouts(null);
     setSessions(null);
+    // /activities forbids mixing since/until with limit/before, and the
+    // range form is uncapped server-side, so the running fetch omits
+    // `limit` and trusts the window to bound the result.
     Promise.all([
       listWorkouts(token, { since, limit: WORKOUTS_LIMIT }),
-      listRunningSessions(token, { since, until, limit: SESSIONS_LIMIT }),
+      listRunningSessions(token, { since, until }),
     ])
       .then(([wp, sp]) => {
         setError(null);
@@ -129,8 +131,8 @@ export function ActivitiesOverviewView({
   // Both fetches resolve together (Promise.all), so either being null
   // means the digest is still loading.
   const loading = workouts === null || sessions === null;
-  const truncated =
-    (workouts?.length ?? 0) >= WORKOUTS_LIMIT || (sessions?.length ?? 0) >= SESSIONS_LIMIT;
+  // Only workouts can truncate — running uses range mode (uncapped).
+  const truncated = (workouts?.length ?? 0) >= WORKOUTS_LIMIT;
 
   return (
     <div className="flex flex-col gap-6">
@@ -163,7 +165,7 @@ export function ActivitiesOverviewView({
               sessions={sessions}
               days={days}
               truncated={truncated}
-              fetchLimit={SESSIONS_LIMIT}
+              fetchLimit={WORKOUTS_LIMIT}
             />
           </section>
 

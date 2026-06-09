@@ -16,10 +16,6 @@ import { RunningAnalytics } from "@/components/running-analytics";
 import { RunListRow } from "../../app/(app)/running/_components/RunListRow";
 import { UploadTCXModal } from "../../app/(app)/running/_components/UploadTCXModal";
 
-// Cap on a single timeframe-filtered fetch. Beyond this the list shows
-// the truncation note. Matches the API's max page size for running.
-const FETCH_LIMIT = 200;
-
 /**
  * Running sub-view of the Activities page. A fixed-bucket metrics banner
  * (week/month/recent pace/all-time) sits above a new analytics card and
@@ -80,10 +76,10 @@ export function RunningView({
     const since =
       days !== null ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString() : undefined;
     const until = days !== null ? new Date().toISOString() : undefined;
-    Promise.all([
-      getRunningMetrics(token, tz),
-      listRunningSessions(token, { since, until, limit: FETCH_LIMIT }),
-    ])
+    // /activities forbids mixing since/until with limit/before; the
+    // range form is uncapped server-side, so the window itself bounds
+    // the result and we don't pass a limit here.
+    Promise.all([getRunningMetrics(token, tz), listRunningSessions(token, { since, until })])
       .then(([m, page]) => {
         setError(null);
         setMetrics(m);
@@ -109,7 +105,6 @@ export function RunningView({
   }
 
   const weekDelta = metrics?.current_week.delta_pct_vs_prior_week ?? null;
-  const truncated = (sessions?.length ?? 0) >= FETCH_LIMIT;
 
   return (
     <div className="flex flex-col gap-6">
@@ -158,8 +153,8 @@ export function RunningView({
         <RunningAnalytics
           sessions={sessions}
           days={days}
-          truncated={truncated}
-          fetchLimit={FETCH_LIMIT}
+          truncated={false}
+          fetchLimit={0}
           distanceUnit={unitLabel}
         />
       )}
