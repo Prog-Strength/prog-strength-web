@@ -48,8 +48,12 @@ export function DayCell({
   // day read differently, and both at once (filled bg + accent border)
   // is unambiguous. Hover adds a faint accent border so cells feel
   // clickable without committing to a state color.
+  // Tighter padding / smaller min-height on phone widths so the 6×7 grid
+  // fits a portrait viewport without forcing the page to scroll past the
+  // calendar before anything else is visible. Desktop sizing (≥md) is
+  // unchanged from the original — only the small-screen ceiling moves.
   const baseClasses =
-    "flex min-h-[88px] cursor-pointer flex-col gap-1 rounded-md border p-1.5 transition hover:border-[var(--accent)]/50";
+    "flex min-h-[60px] cursor-pointer flex-col gap-0.5 rounded-md border p-1 transition hover:border-[var(--accent)]/50 md:min-h-[88px] md:gap-1 md:p-1.5";
   const borderClasses = isToday ? "border-[var(--accent)]" : "border-[var(--border)]";
   const fillClasses = isSelected ? "bg-[var(--accent)]/10" : "bg-[var(--surface)]";
   const labelClasses = inMonth ? "text-[var(--foreground)]" : "text-[var(--muted)] opacity-60";
@@ -60,8 +64,12 @@ export function DayCell({
       aria-label={ariaLabelFor(day, events)}
       onClick={onSelectDay}
     >
-      <div className={`px-1 text-xs font-medium ${labelClasses}`}>{day.getDate()}</div>
-      <div className="flex flex-col gap-1">
+      <div
+        className={`px-0.5 text-[11px] font-medium leading-none md:px-1 md:text-xs ${labelClasses}`}
+      >
+        {day.getDate()}
+      </div>
+      <div className="flex flex-col gap-0.5 md:gap-1">
         {visible.map((ev) =>
           ev.kind === "workout" ? (
             <WorkoutPill
@@ -83,7 +91,7 @@ export function DayCell({
               e.stopPropagation();
               onSelectDay();
             }}
-            className="rounded px-1 text-left text-[10px] text-[var(--muted)] transition hover:text-[var(--foreground)] focus:text-[var(--foreground)] focus:outline-none"
+            className="rounded px-0.5 text-left text-[9px] leading-none text-[var(--muted)] transition hover:text-[var(--foreground)] focus:text-[var(--foreground)] focus:outline-none md:px-1 md:text-[10px]"
           >
             +{hiddenCount} more
           </button>
@@ -131,7 +139,7 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
         onClick();
       }}
       title={named ? `${time} · ${workout.name}` : time}
-      className="truncate rounded bg-[var(--accent)] px-1.5 py-0.5 text-left text-[10px] font-medium text-[var(--accent-fg)] transition hover:opacity-90"
+      className="truncate rounded bg-[var(--accent)] px-1 py-px text-left text-[9px] font-medium leading-tight text-[var(--accent-fg)] transition hover:opacity-90 md:px-1.5 md:py-0.5 md:text-[10px] md:leading-normal"
     >
       {label}
     </button>
@@ -160,7 +168,7 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
         onClick();
       }}
       title={`${time} · Run${run.name ? ` · ${run.name}` : ""}`}
-      className="truncate rounded bg-teal-500/20 px-1.5 py-0.5 text-left text-[10px] font-medium text-teal-300 transition hover:bg-teal-500/30"
+      className="truncate rounded bg-teal-500/20 px-1 py-px text-left text-[9px] font-medium leading-tight text-teal-300 transition hover:bg-teal-500/30 md:px-1.5 md:py-0.5 md:text-[10px] md:leading-normal"
     >
       {label}
     </button>
