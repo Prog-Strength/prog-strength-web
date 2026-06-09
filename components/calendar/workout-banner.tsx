@@ -46,12 +46,19 @@ export function WorkoutBanner({
         <button
           type="button"
           onClick={onNavigate}
-          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-inset"
+          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5"
         >
-          <span aria-hidden="true" className="h-8 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
+          <span
+            aria-hidden="true"
+            className="h-7 w-1 shrink-0 rounded-full bg-[var(--accent)] md:h-8 md:w-1.5"
+          />
           <span className="flex min-w-0 flex-col">
-            <span className="truncate text-sm font-medium text-[var(--foreground)]">{title}</span>
-            <span className="truncate text-xs tabular-nums text-[var(--muted)]">{stats}</span>
+            <span className="truncate text-[13px] font-medium text-[var(--foreground)] md:text-sm">
+              {title}
+            </span>
+            <span className="truncate text-[11px] tabular-nums text-[var(--muted)] md:text-xs">
+              {stats}
+            </span>
           </span>
         </button>
         <button
@@ -60,7 +67,7 @@ export function WorkoutBanner({
           aria-controls={dropdownId}
           aria-label={open ? "Collapse details" : "Expand details"}
           onClick={() => setOpen((o) => !o)}
-          className="flex shrink-0 items-center justify-center px-3 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-inset"
+          className="flex shrink-0 items-center justify-center px-2 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-inset md:px-3"
         >
           <svg
             viewBox="0 0 24 24"

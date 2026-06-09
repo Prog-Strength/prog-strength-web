@@ -14,11 +14,7 @@ import {
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { DayDigest } from "@/components/calendar/day-digest";
 import { DayCell } from "@/components/calendar/day-cell";
-import {
-  WeeklyChip,
-  WeeklyOverviewColumn,
-  type WeeklyStat,
-} from "@/components/calendar/weekly-overview";
+import { WeeklyChip, WeeklyTile, type WeeklyStat } from "@/components/calendar/weekly-overview";
 import type { CalendarEvent } from "@/components/calendar/types";
 
 /**
@@ -370,61 +366,74 @@ export default function CalendarPage() {
             />
           </div>
 
-          {/* Grid + weekly column sit side-by-side at md+; the column
-              stacks below (as inline chips) on narrow screens. */}
-          <div className="flex flex-col gap-4 md:flex-row md:items-start">
-            <div className="flex-1">
-              {/* Weekday header row. Tighter padding so it doesn't compete
-                  with the day cells visually. */}
-              <div className="mb-2 grid grid-cols-7 gap-1">
-                {WEEKDAYS.map((d) => (
-                  <div
-                    key={d}
-                    className="px-2 py-1 text-center text-xs font-medium text-[var(--muted)]"
-                  >
-                    {d}
-                  </div>
-                ))}
-              </div>
+          {/* Calendar grid. Day cells and the per-week stat tile share ONE
+              CSS grid so the tile lives in the same row as its seven days
+              — the grid stretches every cell in a row to the tallest, so
+              the tile can't drift out of horizontal alignment regardless
+              of how many pills a day cell carries.
 
-              {/* One grid, rendered week-by-week so each row can be preceded
-                  by a full-width WeeklyChip on small screens. The chip is a
-                  `col-span-7 md:hidden` grid child, so at md+ it drops out of
-                  layout entirely and the grid is a clean 6×7 of day cells. */}
-              <div className="grid grid-cols-7 gap-1">
-                {Array.from({ length: 6 }).map((_, w) => (
-                  <Fragment key={`week-${w}`}>
-                    <div className="col-span-7 md:hidden">
-                      <WeeklyChip
-                        week={weeklyStats[w]}
-                        isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
-                      />
-                    </div>
-                    {days.slice(w * 7, w * 7 + 7).map((day) => {
-                      const inMonth = day.getMonth() === cursor.month;
-                      const key = localDateKey(day);
-                      const dayEvents = eventsByDate.get(key) ?? [];
-                      const isToday = key === todayKey;
-                      const isSelected = key === selected;
-                      return (
-                        <DayCell
-                          key={key}
-                          day={day}
-                          inMonth={inMonth}
-                          isToday={isToday}
-                          isSelected={isSelected}
-                          events={dayEvents}
-                          onSelectDay={() => selectDay(key)}
-                          onSelectWorkout={(id) => selectDayAndExpand(key, id)}
-                          onSelectRun={(id) => selectDayAndExpand(key, id)}
-                        />
-                      );
-                    })}
-                  </Fragment>
-                ))}
+              Columns: 7 day columns plus a min-140/max-180px tile column
+              at md+; collapses to a plain 7-col grid on small screens
+              where the tile is replaced by a single-line chip rendered
+              above each week. */}
+          <div className="mb-2 grid grid-cols-7 gap-1 md:grid-cols-[repeat(7,minmax(0,1fr))_minmax(140px,180px)]">
+            {WEEKDAYS.map((d) => (
+              <div
+                key={d}
+                className="px-2 py-1 text-center text-xs font-medium text-[var(--muted)]"
+              >
+                {d}
               </div>
+            ))}
+            <div className="hidden px-2 py-1 text-center text-xs font-medium text-[var(--muted)] md:block">
+              Week
             </div>
-            <WeeklyOverviewColumn weeks={weeklyStats} todayKey={todayKey} />
+          </div>
+          <div className="grid grid-cols-7 gap-1 md:grid-cols-[repeat(7,minmax(0,1fr))_minmax(140px,180px)]">
+            {Array.from({ length: 6 }).map((_, w) => (
+              <Fragment key={`week-${w}`}>
+                {/* Mobile-only week chip: spans the full row above the
+                    day cells. `md:hidden` removes it from grid layout at
+                    md+ entirely so it never claims a desktop cell. */}
+                <div className="col-span-7 md:hidden">
+                  <WeeklyChip
+                    week={weeklyStats[w]}
+                    isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
+                  />
+                </div>
+                {days.slice(w * 7, w * 7 + 7).map((day) => {
+                  const inMonth = day.getMonth() === cursor.month;
+                  const key = localDateKey(day);
+                  const dayEvents = eventsByDate.get(key) ?? [];
+                  const isToday = key === todayKey;
+                  const isSelected = key === selected;
+                  return (
+                    <DayCell
+                      key={key}
+                      day={day}
+                      inMonth={inMonth}
+                      isToday={isToday}
+                      isSelected={isSelected}
+                      events={dayEvents}
+                      onSelectDay={() => selectDay(key)}
+                      onSelectWorkout={(id) => selectDayAndExpand(key, id)}
+                      onSelectRun={(id) => selectDayAndExpand(key, id)}
+                    />
+                  );
+                })}
+                {/* Desktop-only week tile: `display: contents` at md+ makes
+                    the wrapper transparent to layout, so the tile itself
+                    is the grid child and stretches to the row's height
+                    (locked alignment with the seven day cells). `hidden`
+                    at <md removes it from layout entirely. */}
+                <div className="hidden md:contents">
+                  <WeeklyTile
+                    week={weeklyStats[w]}
+                    isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
+                  />
+                </div>
+              </Fragment>
+            ))}
           </div>
 
           {/* Expanded read-out of the selected day. Wrapped in a ref so
