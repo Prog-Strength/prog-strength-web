@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import { deleteWorkout, listExercises, listWorkouts, type Exercise, type Workout } from "@/lib/api";
 import { WorkoutModal } from "@/components/workout-modal";
-import { WorkoutDetails, hasMeaningfulName } from "@/components/workout-details";
+import { WorkoutDetailsBody, hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutsAnalytics } from "@/components/workouts-analytics";
 import { workoutVolume } from "@/lib/workout-volume";
 
@@ -370,7 +370,7 @@ function WorkoutRow({
 
       {expanded && (
         <div className="border-t border-[var(--border)] px-4 py-3">
-          <WorkoutDetails workout={workout} exerciseMap={exerciseMap} />
+          <WorkoutDetailsBody workout={workout} exerciseMap={exerciseMap} />
         </div>
       )}
     </li>

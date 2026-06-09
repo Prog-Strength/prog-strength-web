@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import type { Exercise, Workout, WorkoutExercise, WorkoutSet } from "@/lib/api";
 import { MuscleGroupPill } from "@/components/muscle-group-pill";
+import { workoutVolume } from "@/lib/workout-volume";
 
 /**
  * Readonly workout details — shared between the Workouts page (rendered
@@ -17,12 +18,16 @@ import { MuscleGroupPill } from "@/components/muscle-group-pill";
  * next to each row that opens the edit modal; the Calendar page has
  * no edit affordance by design).
  */
-export function WorkoutDetails({
+export function WorkoutDetailsBody({
   workout,
   exerciseMap,
+  // When true, append a total-volume footer (sum of reps × weight across
+  // every set). Off by default so the inline/modal surfaces stay unchanged.
+  showTotalVolume = false,
 }: {
   workout: Workout;
   exerciseMap: Map<string, Exercise>;
+  showTotalVolume?: boolean;
 }) {
   return (
     <div>
@@ -60,6 +65,17 @@ export function WorkoutDetails({
           );
         })}
       </ul>
+      {showTotalVolume && (
+        <p className="mt-3 border-t border-[var(--border)] pt-3 text-xs font-medium text-[var(--muted)]">
+          Total volume:{" "}
+          <span className="text-[var(--foreground)]">
+            {workoutVolume(workout, predominantUnit(workout)).toLocaleString(undefined, {
+              maximumFractionDigits: 0,
+            })}{" "}
+            {displayUnit(predominantUnit(workout))}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
@@ -132,7 +148,7 @@ export function WorkoutDetailsModal({
           </button>
         </header>
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          <WorkoutDetails workout={workout} exerciseMap={exerciseMap} />
+          <WorkoutDetailsBody workout={workout} exerciseMap={exerciseMap} />
         </div>
       </div>
     </div>
@@ -291,6 +307,22 @@ function isPerDumbbell(ex: Exercise | undefined): boolean {
   if (!ex) return false;
   if (!ex.equipment?.includes("dumbbell")) return false;
   return (ex.description ?? "").toLowerCase().includes("per dumbbell");
+}
+
+/**
+ * The unit to label the total-volume figure with. Picks the first non-
+ * bodyweight set's unit (the one that actually carries load), falling back
+ * to the first set's unit, then to "lb" for an empty workout.
+ */
+function predominantUnit(workout: Workout): "lb" | "kg" {
+  let firstSet: WorkoutSet | undefined;
+  for (const ex of workout.exercises) {
+    for (const s of ex.sets) {
+      if (firstSet === undefined) firstSet = s;
+      if (s.weight > 0) return s.unit;
+    }
+  }
+  return firstSet?.unit ?? "lb";
 }
 
 // --- icons ---------------------------------------------------------------

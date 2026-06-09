@@ -11,14 +11,14 @@ import {
   type PersonalRecordEvent,
   type Workout,
 } from "@/lib/api";
-import { WorkoutDetails, hasMeaningfulName } from "@/components/workout-details";
+import { WorkoutDetailsBody, hasMeaningfulName } from "@/components/workout-details";
 
 /**
  * Single-workout detail route. Reached from the Personal Records page
  * via the "View workout" link on each PR card; not yet linked from the
  * workouts list page itself.
  *
- * Reuses the readonly WorkoutDetails component shared across the
+ * Reuses the readonly WorkoutDetailsBody component shared across the
  * Workouts page (inline expansion) and the Calendar page (modal).
  * Adds a PR banner at the top when the workout produced one or more
  * personal records.
@@ -98,7 +98,7 @@ export default function WorkoutDetailPage() {
                 <PRBanner events={workout.personal_records_set} exerciseMap={exerciseMap} />
               )}
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-                <WorkoutDetails workout={workout} exerciseMap={exerciseMap} />
+                <WorkoutDetailsBody workout={workout} exerciseMap={exerciseMap} />
               </div>
             </div>
           )}

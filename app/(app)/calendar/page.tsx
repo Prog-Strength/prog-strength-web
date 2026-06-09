@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
@@ -12,7 +12,14 @@ import {
   type Workout,
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
-import { WorkoutDetailsModal, hasMeaningfulName } from "@/components/workout-details";
+import { DayDigest } from "@/components/calendar/day-digest";
+import { DayCell } from "@/components/calendar/day-cell";
+import {
+  WeeklyChip,
+  WeeklyOverviewColumn,
+  type WeeklyStat,
+} from "@/components/calendar/weekly-overview";
+import type { CalendarEvent } from "@/components/calendar/types";
 
 /**
  * Month-grid calendar. Renders BOTH workouts (lifting) and running
@@ -24,34 +31,16 @@ import { WorkoutDetailsModal, hasMeaningfulName } from "@/components/workout-det
  * empty just because the unbounded first page didn't reach them.
  */
 
-// Three pills fit comfortably and cover the realistic case of a morning
-// run plus two lifts (or vice versa). Anything more rolls into "+N more"
-// to keep cells from growing tall enough to deform the grid.
-const MAX_VISIBLE_PILLS = 3;
 // Monday-first ordering. Keep this in sync with buildMonthGrid's
 // mondayOffset math — flipping one without the other shears the grid.
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-/**
- * One thing the user did that day. Pills render in start-time order so
- * a morning run sits above an afternoon lift. The discriminant lets
- * `DayCell` route to the right pill renderer + click handler without
- * the cell needing to know the underlying shape.
- */
-type CalendarEvent =
-  | { kind: "workout"; startMs: number; workout: Workout }
-  | { kind: "run"; startMs: number; run: RunningSession };
-
 export default function CalendarPage() {
   const router = useRouter();
-  const { formatDistance, unitLabel } = useDistanceUnit();
+  const { formatDistance, formatPace, unitLabel } = useDistanceUnit();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [runs, setRuns] = useState<RunningSession[] | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
-  // Calendar is read-only by design — clicking a pill opens the shared
-  // WorkoutDetailsModal for lifts; clicking a run pill navigates to the
-  // run detail page (runs have a richer detail surface than a modal).
-  const [viewing, setViewing] = useState<Workout | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Cursor identifies which month we're viewing. year + 0-indexed month
   // — using a `Date` directly would carry day/time noise we'd have to
@@ -60,6 +49,12 @@ export default function CalendarPage() {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
+  // The day whose digest panel is shown below the grid. Seeds to today so
+  // the panel reads as the user's "now" on first paint.
+  const [selected, setSelected] = useState<string>(() => localDateKey(new Date()));
+  // id of the activity whose digest banner should auto-expand (set when a
+  // pill is clicked); cleared whenever the selected day changes.
+  const [autoExpandId, setAutoExpandId] = useState<string | null>(null);
 
   // Exercise catalog fetches once — it's shared across all months.
   useEffect(() => {
@@ -109,6 +104,41 @@ export default function CalendarPage() {
         setError(err.message);
       });
   }, [cursor, router]);
+
+  // Changing months re-anchors the selection to the first of the newly
+  // cursored month and clears any auto-expand: a digest left open for a
+  // day that's no longer in view would be confusing. We deliberately skip
+  // the very first run so the initial load keeps the today-seeded
+  // selection (re-anchoring on mount would snap "today" to the 1st).
+  const cursorMounted = useRef(false);
+  useEffect(() => {
+    if (!cursorMounted.current) {
+      cursorMounted.current = true;
+      return;
+    }
+    setSelected(localDateKey(new Date(cursor.year, cursor.month, 1)));
+    setAutoExpandId(null);
+  }, [cursor]);
+
+  // The digest panel below the grid. Pill/cell clicks scroll it into view
+  // so the read-out is visible without the user hunting for it.
+  const digestRef = useRef<HTMLDivElement>(null);
+
+  const selectDay = (key: string) => {
+    setSelected(key);
+    setAutoExpandId(null);
+    // defer so the digest has re-rendered for the new day before scrolling
+    requestAnimationFrame(() =>
+      digestRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+    );
+  };
+  const selectDayAndExpand = (key: string, activityId: string) => {
+    setSelected(key);
+    setAutoExpandId(activityId);
+    requestAnimationFrame(() =>
+      digestRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+    );
+  };
 
   // Lookup map for the shared WorkoutDetails component — resolves
   // exercise_id slugs to catalog entries for name + muscle pills.
@@ -183,6 +213,71 @@ export default function CalendarPage() {
     return { activities, liftMinutes, runMinutes, runMeters };
   }, [workouts, runs, cursor]);
 
+  // Per-week rollups for the weekly overview column (md+) and the inline
+  // chips (<md). Walks the 42-day grid in chunks of seven so each entry
+  // lines up with a calendar row, then sums every workout/run whose local
+  // date falls inside that week. Lift time only counts workouts with an
+  // ended_at (same honesty rule as monthStats); runs always carry a
+  // duration.
+  const weeklyStats = useMemo<WeeklyStat[]>(() => {
+    const weeks: WeeklyStat[] = [];
+    for (let i = 0; i < days.length; i += 7) {
+      const weekDays = days.slice(i, i + 7);
+      const keys = new Set(weekDays.map(localDateKey));
+      let activities = 0,
+        liftMinutes = 0,
+        runMeters = 0,
+        runMinutes = 0;
+      for (const w of workouts ?? []) {
+        const key = localDateKey(new Date(w.performed_at));
+        if (!keys.has(key)) continue;
+        activities += 1;
+        if (w.ended_at) {
+          const ms = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
+          if (ms > 0) liftMinutes += Math.round(ms / 60000);
+        }
+      }
+      for (const r of runs ?? []) {
+        const key = localDateKey(new Date(r.start_time));
+        if (!keys.has(key)) continue;
+        activities += 1;
+        runMinutes += Math.round(r.duration_seconds / 60);
+        runMeters += r.distance_meters;
+      }
+      weeks.push({ weekStart: weekDays[0], activities, liftMinutes, runMeters, runMinutes });
+    }
+    return weeks;
+  }, [days, workouts, runs]);
+
+  // Running-quality stats for the cursor month: average pace and longest
+  // run. Filtered to runs whose LOCAL date is in the cursor month (same
+  // style as monthStats). avgPace is computed from aggregate distance +
+  // duration — not an average of per-run paces — so longer runs weight
+  // it correctly. Pace is seconds-per-KILOMETER; formatPace converts to
+  // the display unit.
+  const monthRunningStats = useMemo(() => {
+    let totalDurationSec = 0;
+    let totalDistanceMeters = 0;
+    let longestRunMeters = 0;
+    let hasRuns = false;
+    if (runs) {
+      for (const r of runs) {
+        const d = new Date(r.start_time);
+        if (d.getFullYear() !== cursor.year || d.getMonth() !== cursor.month) continue;
+        hasRuns = true;
+        totalDurationSec += r.duration_seconds;
+        totalDistanceMeters += r.distance_meters;
+        if (r.distance_meters > longestRunMeters) longestRunMeters = r.distance_meters;
+      }
+    }
+    const avgPaceSecPerKm =
+      totalDistanceMeters > 0 ? totalDurationSec / (totalDistanceMeters / 1000) : null;
+    return { avgPaceSecPerKm, longestRunMeters, hasRuns };
+  }, [runs, cursor]);
+
+  // The selected day as a Date, for the digest header + banner formatting.
+  const selectedDate = useMemo(() => dateFromKey(selected), [selected]);
+
   const monthLabel = useMemo(
     () =>
       new Date(cursor.year, cursor.month, 1).toLocaleDateString("en-US", {
@@ -227,19 +322,20 @@ export default function CalendarPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl">
           {error && (
             <div className="mb-4 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
               {error}
             </div>
           )}
 
-          {/* Four month-level stat tiles. Lift Time and Activities show
-              today's existing signals; Run Time and Run Distance surface
-              the new running data so the calendar isn't workout-biased.
-              2-up on narrow screens, 4-up from md so the grid below
-              doesn't have to fight for vertical space on a phone. */}
-          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {/* Six month-level stat tiles. Lift Time and Activities show
+              today's existing signals; Run Time, Run Distance, Avg Pace,
+              and Longest Run surface running data so the calendar isn't
+              workout-biased. 2-up on narrow screens, 3-up from md, 6-up
+              from lg so the grid below doesn't fight for vertical space on
+              a phone. */}
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <StatTile value={formatTotalDuration(monthStats.liftMinutes)} label="Lift Time" />
             <StatTile value={formatTotalDuration(monthStats.runMinutes)} label="Run Time" />
             <StatTile
@@ -250,171 +346,103 @@ export default function CalendarPage() {
               }
               label="Run Distance"
             />
+            {/* Avg Pace and Longest Run only make sense when the month has
+                runs. Rather than show "—", they're ALWAYS rendered and
+                hidden when there are no runs, so paging between a run month
+                and a run-less month doesn't shift the row. The `contents`
+                wrapper keeps the tile a direct grid child when visible;
+                `hidden` drops it from layout otherwise. */}
+            <div className={monthRunningStats.hasRuns ? "contents" : "hidden"}>
+              <StatTile
+                value={`${formatPace(monthRunningStats.avgPaceSecPerKm)} /${unitLabel}`}
+                label="Avg Pace"
+              />
+            </div>
+            <div className={monthRunningStats.hasRuns ? "contents" : "hidden"}>
+              <StatTile
+                value={`${formatDistance(monthRunningStats.longestRunMeters)} ${unitLabel}`}
+                label="Longest Run"
+              />
+            </div>
             <StatTile
               value={monthStats.activities.toString()}
               label={monthStats.activities === 1 ? "Activity" : "Activities"}
             />
           </div>
 
-          {/* Weekday header row. Tighter padding so it doesn't compete
-              with the day cells visually. */}
-          <div className="mb-2 grid grid-cols-7 gap-1">
-            {WEEKDAYS.map((d) => (
-              <div
-                key={d}
-                className="px-2 py-1 text-center text-xs font-medium text-[var(--muted)]"
-              >
-                {d}
+          {/* Grid + weekly column sit side-by-side at md+; the column
+              stacks below (as inline chips) on narrow screens. */}
+          <div className="flex flex-col gap-4 md:flex-row md:items-start">
+            <div className="flex-1">
+              {/* Weekday header row. Tighter padding so it doesn't compete
+                  with the day cells visually. */}
+              <div className="mb-2 grid grid-cols-7 gap-1">
+                {WEEKDAYS.map((d) => (
+                  <div
+                    key={d}
+                    className="px-2 py-1 text-center text-xs font-medium text-[var(--muted)]"
+                  >
+                    {d}
+                  </div>
+                ))}
               </div>
-            ))}
+
+              {/* One grid, rendered week-by-week so each row can be preceded
+                  by a full-width WeeklyChip on small screens. The chip is a
+                  `col-span-7 md:hidden` grid child, so at md+ it drops out of
+                  layout entirely and the grid is a clean 6×7 of day cells. */}
+              <div className="grid grid-cols-7 gap-1">
+                {Array.from({ length: 6 }).map((_, w) => (
+                  <Fragment key={`week-${w}`}>
+                    <div className="col-span-7 md:hidden">
+                      <WeeklyChip
+                        week={weeklyStats[w]}
+                        isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
+                      />
+                    </div>
+                    {days.slice(w * 7, w * 7 + 7).map((day) => {
+                      const inMonth = day.getMonth() === cursor.month;
+                      const key = localDateKey(day);
+                      const dayEvents = eventsByDate.get(key) ?? [];
+                      const isToday = key === todayKey;
+                      const isSelected = key === selected;
+                      return (
+                        <DayCell
+                          key={key}
+                          day={day}
+                          inMonth={inMonth}
+                          isToday={isToday}
+                          isSelected={isSelected}
+                          events={dayEvents}
+                          onSelectDay={() => selectDay(key)}
+                          onSelectWorkout={(id) => selectDayAndExpand(key, id)}
+                          onSelectRun={(id) => selectDayAndExpand(key, id)}
+                        />
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+            <WeeklyOverviewColumn weeks={weeklyStats} todayKey={todayKey} />
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
-            {days.map((day) => {
-              const inMonth = day.getMonth() === cursor.month;
-              const key = localDateKey(day);
-              const dayEvents = eventsByDate.get(key) ?? [];
-              const isToday = key === todayKey;
-              return (
-                <DayCell
-                  key={key}
-                  day={day}
-                  inMonth={inMonth}
-                  isToday={isToday}
-                  events={dayEvents}
-                  onWorkoutClick={(w) => setViewing(w)}
-                  onRunClick={(r) => router.push(`/running/${r.id}`)}
-                />
-              );
-            })}
+          {/* Expanded read-out of the selected day. Wrapped in a ref so
+              pill/cell clicks can scroll it into view after the new day
+              has rendered. */}
+          <div ref={digestRef}>
+            <DayDigest
+              date={selectedDate}
+              events={eventsByDate.get(selected) ?? []}
+              exerciseMap={exerciseMap}
+              autoExpandId={autoExpandId}
+              onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
+              onNavigateRun={(id) => router.push(`/running/${id}`)}
+            />
           </div>
         </div>
       </div>
-
-      {viewing && (
-        <WorkoutDetailsModal
-          workout={viewing}
-          exerciseMap={exerciseMap}
-          onClose={() => setViewing(null)}
-        />
-      )}
     </main>
-  );
-}
-
-function DayCell({
-  day,
-  inMonth,
-  isToday,
-  events,
-  onWorkoutClick,
-  onRunClick,
-}: {
-  day: Date;
-  inMonth: boolean;
-  isToday: boolean;
-  events: CalendarEvent[];
-  onWorkoutClick: (w: Workout) => void;
-  onRunClick: (r: RunningSession) => void;
-}) {
-  const visible = events.slice(0, MAX_VISIBLE_PILLS);
-  const hiddenCount = events.length - visible.length;
-
-  // Cell skeleton: every cell has a fixed minimum height so the grid
-  // rows stay visually balanced even when a day has no events. The
-  // accent ring on today's cell stays inside the border to avoid
-  // shifting any adjacent cells.
-  const baseClasses = "flex min-h-[88px] flex-col gap-1 rounded-md border p-1.5 transition";
-  const stateClasses = isToday
-    ? "border-[var(--accent)] bg-[var(--surface)]"
-    : "border-[var(--border)] bg-[var(--surface)]";
-  const labelClasses = inMonth ? "text-[var(--foreground)]" : "text-[var(--muted)] opacity-60";
-
-  return (
-    <div className={`${baseClasses} ${stateClasses}`} aria-label={ariaLabelFor(day, events)}>
-      <div className={`px-1 text-xs font-medium ${labelClasses}`}>{day.getDate()}</div>
-      <div className="flex flex-col gap-1">
-        {visible.map((ev) =>
-          ev.kind === "workout" ? (
-            <WorkoutPill
-              key={`w-${ev.workout.id}`}
-              workout={ev.workout}
-              onClick={() => onWorkoutClick(ev.workout)}
-            />
-          ) : (
-            <RunPill key={`r-${ev.run.id}`} run={ev.run} onClick={() => onRunClick(ev.run)} />
-          ),
-        )}
-        {hiddenCount > 0 && (
-          <span className="px-1 text-[10px] text-[var(--muted)]">+{hiddenCount} more</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ariaLabelFor(day: Date, events: CalendarEvent[]): string {
-  const dateLabel = day.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-  if (events.length === 0) return dateLabel;
-  const lifts = events.filter((e) => e.kind === "workout").length;
-  const runs = events.filter((e) => e.kind === "run").length;
-  const parts: string[] = [];
-  if (lifts > 0) parts.push(`${lifts} ${lifts === 1 ? "workout" : "workouts"}`);
-  if (runs > 0) parts.push(`${runs} ${runs === 1 ? "run" : "runs"}`);
-  return `${dateLabel}, ${parts.join(", ")}`;
-}
-
-function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => void }) {
-  const time = new Date(workout.performed_at).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  // Prefer the user-set workout name (e.g., "Upper 1" from a coached
-  // program) as the pill label, since the name is the primary thing a
-  // lifter wants to index on. The API auto-generates "Workout - <date>"
-  // when no name was set; in that case the date is redundant on a
-  // calendar cell so we fall back to the start time instead.
-  const named = hasMeaningfulName(workout.name);
-  const label = named ? (workout.name as string) : time;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={named ? `${time} · ${workout.name}` : time}
-      className="truncate rounded bg-[var(--accent)] px-1.5 py-0.5 text-left text-[10px] font-medium text-[var(--accent-fg)] transition hover:opacity-90"
-    >
-      {label}
-    </button>
-  );
-}
-
-/**
- * Distinct from `WorkoutPill` by color (teal vs accent) so a stacked
- * run + lift reads as two different things at a glance, not just two
- * sessions of the same kind. Clicking navigates to the run's detail
- * page rather than opening an in-place modal: runs have charts and
- * trackpoints that a modal can't surface without becoming its own page.
- */
-function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
-  const time = new Date(run.start_time).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  const label = run.name?.trim() ? run.name : time;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={`${time} · Run${run.name ? ` · ${run.name}` : ""}`}
-      className="truncate rounded bg-teal-500/20 px-1.5 py-0.5 text-left text-[10px] font-medium text-teal-300 transition hover:bg-teal-500/30"
-    >
-      {label}
-    </button>
   );
 }
 
@@ -452,10 +480,10 @@ function NavButton({
 }
 
 /**
- * Single info tile shown above the calendar grid. Four of these sit in
- * a row (Lift Time, Run Time, Run Distance, Activities). Value is
- * rendered large and prominent; label is small uppercase muted text so
- * it reads as metadata, not as primary content.
+ * Single info tile shown above the calendar grid. Six of these sit in a
+ * row (Lift Time, Run Time, Run Distance, Avg Pace, Longest Run,
+ * Activities). Value is rendered large and prominent; label is small
+ * uppercase muted text so it reads as metadata, not as primary content.
  */
 function StatTile({ value, label }: { value: string; label: string }) {
   return (
@@ -521,8 +549,38 @@ function gridFetchBounds(year: number, month: number): { sinceISO: string; until
  * — the user's mental model of "what day was that workout" is local-tz,
  * even if the API timestamps came across in UTC.
  */
-function localDateKey(d: Date): string {
+export function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
+ * True when `todayKey` matches any of the seven local-date keys starting
+ * at the week's first day. Mirrors WeeklyOverviewColumn's current-week
+ * detection so the inline chips light up the same week the side column
+ * does. Defends against an undefined `week` (the grid is always six full
+ * weeks, but a guard keeps this honest if that ever changes).
+ */
+function weekContainsToday(week: WeeklyStat | undefined, todayKey: string): boolean {
+  if (!week) return false;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(
+      week.weekStart.getFullYear(),
+      week.weekStart.getMonth(),
+      week.weekStart.getDate() + i,
+    );
+    if (localDateKey(d) === todayKey) return true;
+  }
+  return false;
+}
+
+/**
+ * Inverse of `localDateKey`: parse a `YYYY-M-D` local key back into a
+ * Date at local midnight. The month is 0-indexed in the key (it came
+ * from getMonth()), so it's fed straight into the Date constructor.
+ */
+function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m, d);
 }
 
 /**
@@ -531,7 +589,7 @@ function localDateKey(d: Date): string {
  * Minutes are dropped when the hour total cleanly divides — `4h` reads
  * cleaner than `4h 0m` for a stat tile.
  */
-function formatTotalDuration(minutes: number): string {
+export function formatTotalDuration(minutes: number): string {
   if (minutes <= 0) return "0h";
   if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);
