@@ -58,11 +58,12 @@ export function formatDistanceValue(meters: number, unit: DistanceUnit): string 
 
 /**
  * Convert a pace in seconds-per-kilometer to the active unit and format
- * it as "m:ss" (seconds zero-padded to two digits). Pure. Guards
- * non-finite and non-positive input with "—".
+ * it as "m:ss" (seconds zero-padded to two digits). Pure. Guards null,
+ * non-finite, and non-positive input with "—" — useful both for missing
+ * source data and for non-running activities where pace isn't defined.
  */
-export function formatPaceValue(secPerKm: number, unit: DistanceUnit): string {
-  if (!Number.isFinite(secPerKm) || secPerKm <= 0) return "—";
+export function formatPaceValue(secPerKm: number | null, unit: DistanceUnit): string {
+  if (secPerKm == null || !Number.isFinite(secPerKm) || secPerKm <= 0) return "—";
   const secPerUnit = unit === "mi" ? secPerKm * KM_PER_MILE : secPerKm;
   const totalSeconds = Math.round(secPerUnit);
   const minutes = Math.floor(totalSeconds / 60);
@@ -75,7 +76,7 @@ type DistanceUnitContextValue = {
   unitLabel: DistanceUnit;
   setUnit: (u: DistanceUnit) => void;
   formatDistance: (meters: number) => string;
-  formatPace: (secPerKm: number) => string;
+  formatPace: (secPerKm: number | null) => string;
 };
 
 const DistanceUnitContext = createContext<DistanceUnitContextValue | null>(null);
@@ -142,7 +143,7 @@ export function DistanceUnitProvider({ children }: { children: React.ReactNode }
       unitLabel: unit,
       setUnit,
       formatDistance: (meters: number) => formatDistanceValue(meters, unit),
-      formatPace: (secPerKm: number) => formatPaceValue(secPerKm, unit),
+      formatPace: (secPerKm: number | null) => formatPaceValue(secPerKm, unit),
     }),
     [unit, setUnit],
   );

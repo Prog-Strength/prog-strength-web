@@ -98,7 +98,7 @@ export default function CalendarPage() {
     ])
       .then(([wPage, rPage]) => {
         setWorkouts(wPage.items);
-        setRuns(rPage.sessions);
+        setRuns(rPage.activities);
       })
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
