@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Providers } from "./providers";
 import { ToastProvider } from "@/components/toast";
 import { DistanceUnitProvider } from "@/lib/distance-unit-context";
 
@@ -32,9 +33,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
     >
       <body className="min-h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
-        <ToastProvider>
-          <DistanceUnitProvider>{children}</DistanceUnitProvider>
-        </ToastProvider>
+        <Providers>
+          <ToastProvider>
+            <DistanceUnitProvider>{children}</DistanceUnitProvider>
+          </ToastProvider>
+        </Providers>
       </body>
     </html>
   );
