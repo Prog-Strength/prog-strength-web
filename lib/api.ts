@@ -473,41 +473,104 @@ export type ExerciseBaseline = {
 };
 
 /**
- * GET /workouts/progression response. Currently driven by the
- * `muscle_group` query parameter; future filters (exercise_id,
- * equipment, etc.) will produce different response shapes returned
- * from the same endpoint. See
- * prog-strength-docs/sows/estimated-one-rep-max-time-series-table.md.
+ * One exercise's contribution to the progression chart's trend layer.
+ * `slope_per_month` is the least-squares slope of that exercise's
+ * normalized points, in percentage points per month relative to its
+ * own baseline; `trendline` carries the regression's endpoints. Both
+ * are null when `session_count` is below the backend's minimum-sessions
+ * threshold (or the regression is degenerate) — the renderer treats
+ * those as "not enough data" rather than fitting a line through two
+ * points. See prog-strength-docs/sows/progress-page-modernization.md.
  */
-export type MuscleGroupProgression = {
-  muscle_group: string;
-  since: string;
-  until: string;
-  exercise_baselines: ExerciseBaseline[];
-  points: MuscleGroupProgressionPoint[];
-  // Single combined trendline through every normalized point.
-  // Null when there are fewer than 2 points or all share the same X.
+export type PerExerciseTrend = {
+  exercise_id: string;
+  session_count: number;
+  slope_per_month: number | null;
   trendline: Trendline | null;
 };
 
 /**
- * GET /workouts/progression?muscle_group=...&since=...&until=...
+ * Defensible aggregate stats built on top of the per-exercise slopes.
+ * `min_sessions_threshold` is surfaced so the UI's "not enough data"
+ * copy isn't hard-coded. `median_slope_per_month` is null when no
+ * exercise clears the session threshold.
+ */
+export type ProgressionAggregate = {
+  lifts_tracked: number;
+  lifts_progressing: number;
+  median_slope_per_month: number | null;
+  min_sessions_threshold: number;
+};
+
+/**
+ * Echo of the request's filter plus the resolved set of muscle groups
+ * behind it. Exactly one of `movement_pattern` / `muscle_group` is set,
+ * mirroring the query parameter the caller supplied; the UI renders an
+ * unobtrusive caption from `muscle_groups_included`.
+ */
+export type ProgressionFilterInfo = {
+  movement_pattern?: string;
+  muscle_group?: string;
+  muscle_groups_included: string[];
+};
+
+/**
+ * GET /workouts/progression response. Driven by either the
+ * `movement_pattern` or the legacy `muscle_group` query parameter; the
+ * backend resolves the filter into its constituent muscle groups,
+ * normalizes each exercise against its own recency-weighted baseline,
+ * and returns per-exercise trends + aggregate stats ready to plot.
  *
- * Requires auth. The backend resolves the muscle-group filter into
- * every exercise that targets it, reads each exercise's 1RM history,
- * computes a recency-weighted current baseline per exercise, and
- * returns normalized points + a single trendline ready to plot.
+ * `baseline_model` is the discriminator the UI uses to label what
+ * "100%" means (today: "recency_weighted_current"). The single
+ * cross-exercise top-level trendline of the prior shape is gone — the
+ * trend layer is now per-exercise. See
+ * prog-strength-docs/sows/progress-page-modernization.md.
+ */
+export type MuscleGroupProgression = {
+  filter: ProgressionFilterInfo;
+  since: string;
+  until: string;
+  baseline_model: string;
+  exercise_baselines: ExerciseBaseline[];
+  points: MuscleGroupProgressionPoint[];
+  per_exercise_trends: PerExerciseTrend[];
+  aggregate: ProgressionAggregate | null;
+};
+
+/**
+ * Exactly one filter selects the exercises that feed the progression
+ * chart: a movement pattern (`push` | `pull` | `legs` | `core` | `all`,
+ * resolved to its muscle groups server-side) or a single legacy
+ * `muscle_group`. The API rejects supplying both or neither, so the
+ * union type pushes that "pick one" contract onto the caller.
+ */
+export type ProgressionFilter = { movementPattern: string } | { muscleGroup: string };
+
+/**
+ * GET /workouts/progression?{movement_pattern|muscle_group}=...&since=...&until=...
+ *
+ * Requires auth. The backend resolves the filter into every exercise
+ * that targets it, reads each exercise's 1RM history, computes a
+ * recency-weighted current baseline per exercise, and returns
+ * normalized points + per-exercise trends + aggregate stats ready to
+ * plot.
  *
  * Timestamps are RFC3339; if either is omitted, the server defaults
  * to the last 90 days.
  */
 export async function listProgression(
   token: string,
-  muscleGroup: string,
+  filter: ProgressionFilter,
   since?: string,
   until?: string,
 ): Promise<MuscleGroupProgression> {
-  const params = new URLSearchParams({ muscle_group: muscleGroup });
+  const params = new URLSearchParams();
+  if ("movementPattern" in filter) {
+    params.set("movement_pattern", filter.movementPattern);
+  } else {
+    params.set("muscle_group", filter.muscleGroup);
+  }
   if (since) params.set("since", since);
   if (until) params.set("until", until);
   const resp = await fetch(`${config.apiUrl}/workouts/progression?${params.toString()}`, {
@@ -518,12 +581,17 @@ export async function listProgression(
   const got = await unwrap<MuscleGroupProgression | null>(resp, null);
   return (
     got ?? {
-      muscle_group: muscleGroup,
+      filter:
+        "movementPattern" in filter
+          ? { movement_pattern: filter.movementPattern, muscle_groups_included: [] }
+          : { muscle_group: filter.muscleGroup, muscle_groups_included: [] },
       since: since ?? "",
       until: until ?? "",
+      baseline_model: "recency_weighted_current",
       exercise_baselines: [],
       points: [],
-      trendline: null,
+      per_exercise_trends: [],
+      aggregate: null,
     }
   );
 }
