@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import { getMe, type User } from "@/lib/api";
+import { getMe, type ResolvedProfile } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { ActivitiesOverviewView } from "@/components/activities/activities-overview-view";
 import { WorkoutsView } from "@/components/activities/workouts-view";
@@ -53,7 +53,7 @@ function ActivitiesPageInner() {
   // views. Token guard owns the redirect; non-401 getMe errors are
   // swallowed because each view owns its own error surface and the
   // shell stays minimal.
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<ResolvedProfile | null>(null);
   useEffect(() => {
     const token = getToken();
     if (!token) {

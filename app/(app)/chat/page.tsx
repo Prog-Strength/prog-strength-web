@@ -20,6 +20,7 @@ import { blobToBase64, generateChatTitle, type ContentBlock } from "@/lib/agent"
 import { getSpeechRecognitionCtor, startSpeechSession, type SpeechSession } from "@/lib/speech";
 import { useToast } from "@/components/toast";
 import { useUsage } from "@/lib/usage-context";
+import { useProfile } from "@/lib/profile-context";
 import { cappedMessage, formatResetCountdown } from "@/components/usage-bar";
 
 // Image-attach constraints (photo-meal-logging SOW). 5 MB cap keeps the
@@ -103,6 +104,11 @@ export default function ChatPage() {
   // When `capped`, the composer disables and a banner explains the reset.
   const usage = useUsage();
   const { capped, resetsAt, refresh: refreshUsage } = usage;
+  // Shared resolved profile (settings + sidebar + chat read one source).
+  // The /chat payload carries display_name + height_cm alongside
+  // client_timezone so the agent can address the user by name and
+  // reference their height as conversational context.
+  const { profile } = useProfile();
   // The "Daily AI allowance used. Resets in Xh Ym." tooltip on the
   // disabled composer controls. Recomputed each render off resetsAt.
   const cappedTooltip = `Daily AI allowance used. Resets in ${formatResetCountdown(
@@ -566,6 +572,11 @@ export default function ChatPage() {
           messages: nextMessages,
           session_id: sessionId,
           client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          // Identity context from the shared resolved profile. Null-safe
+          // when the profile hasn't loaded yet; the agent treats both as
+          // optional and falls back gracefully when absent.
+          display_name: profile?.display_name,
+          height_cm: profile?.height_cm ?? null,
           // When true, the agent's voice_streamer wraps the SSE
           // stream with per-sentence audio_chunk events alongside
           // the text_delta events. The client below handles those
@@ -755,6 +766,7 @@ export default function ChatPage() {
     loading,
     voiceMode,
     pendingImage,
+    profile,
     stopPlayback,
     drainAudioQueue,
     toast,

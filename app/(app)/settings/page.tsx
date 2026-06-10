@@ -1,57 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { clearToken, getToken } from "@/lib/auth";
-import { getMe, updateMe } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
+import { useProfile } from "@/lib/profile-context";
 import { useToast } from "@/components/toast";
 import { UsageBar } from "@/components/usage-bar";
 
 /**
- * Settings. A "Units" section with two segmented controls: distance
- * (wired to the DistanceUnitContext, which persists to the server and
- * localStorage) and weight (read from / written to the user's profile
- * via GET/PATCH /me).
+ * Settings. A "Profile" section (display name, height, avatar) above a
+ * "Units" section (distance + weight segmented controls). Profile fields
+ * read/write through the shared `useProfile()` context so edits propagate
+ * to the sidebar account row and the chat payload instantly; the distance
+ * unit stays on the localStorage-backed DistanceUnitContext.
  */
+
+// Avatar client-side guards — UX only; the API is authoritative (2 MB,
+// image/png|jpeg|webp). Catching here gives a snappier rejection.
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+const CM_PER_INCH = 2.54;
+
 export default function SettingsPage() {
-  const router = useRouter();
   const toast = useToast();
   const { unit, setUnit } = useDistanceUnit();
+  const { profile, update, uploadAvatar, removeAvatar } = useProfile();
 
-  const [weightUnit, setWeightUnit] = useState<"lb" | "kg" | null>(null);
-
-  useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    getMe(token)
-      .then((u) => setWeightUnit(u.weight_unit))
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.toLowerCase().includes("401")) {
-          clearToken();
-          router.replace("/login");
-        }
-      });
-  }, [router]);
-
-  function changeWeightUnit(next: "lb" | "kg") {
-    if (next === weightUnit) return;
-    const prev = weightUnit;
-    setWeightUnit(next); // optimistic
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    updateMe(token, { weight_unit: next }).catch((err: unknown) => {
-      setWeightUnit(prev);
-      toast.error(err instanceof Error ? err.message : "Failed to update weight unit");
-    });
-  }
+  // distance_unit "mi" → height shown in inches; "km" → centimeters.
+  // Keyed off the running distance preference per the SOW ("cm or in").
+  const heightUnit: "in" | "cm" = profile?.distance_unit === "km" ? "cm" : "in";
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
@@ -61,6 +38,55 @@ export default function SettingsPage() {
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-8">
+          <section className="flex flex-col gap-4">
+            <h2 className="text-sm font-semibold tracking-tight">Profile</h2>
+
+            <DisplayNameRow
+              value={profile?.display_name ?? ""}
+              disabled={!profile}
+              onSave={async (name) => {
+                await update({ display_name: name });
+              }}
+            />
+
+            <HeightRow
+              heightCm={profile?.height_cm ?? null}
+              heightUnit={heightUnit}
+              disabled={!profile}
+              onSave={async (cm) => {
+                await update({ height_cm: cm });
+              }}
+            />
+
+            <AvatarRow
+              avatarUrl={profile?.avatar_url ?? null}
+              displayName={profile?.display_name ?? ""}
+              disabled={!profile}
+              onPick={async (file) => {
+                if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+                  toast.error("Use PNG, JPG, or WebP.");
+                  return;
+                }
+                if (file.size > MAX_AVATAR_BYTES) {
+                  toast.error("Image must be under 2 MB.");
+                  return;
+                }
+                try {
+                  await uploadAvatar(file);
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : "Failed to upload avatar");
+                }
+              }}
+              onRemove={async () => {
+                try {
+                  await removeAvatar();
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : "Failed to remove avatar");
+                }
+              }}
+            />
+          </section>
+
           <section className="flex flex-col gap-4">
             <h2 className="text-sm font-semibold tracking-tight">Usage</h2>
 
@@ -88,15 +114,7 @@ export default function SettingsPage() {
             </SettingRow>
 
             <SettingRow label="Weight" description="Used for bodyweight and workout volume.">
-              <SegmentedControl
-                value={weightUnit ?? "lb"}
-                disabled={weightUnit === null}
-                options={[
-                  { value: "lb", label: "Pounds" },
-                  { value: "kg", label: "Kilograms" },
-                ]}
-                onChange={changeWeightUnit}
-              />
+              <WeightUnitControl />
             </SettingRow>
           </section>
         </div>
@@ -104,6 +122,326 @@ export default function SettingsPage() {
     </main>
   );
 }
+
+/**
+ * Display-name editor: a text input with a Save button. Required,
+ * non-empty, soft-capped at 60 chars (client maxLength; server is
+ * authoritative). Server 400s surface inline.
+ */
+function DisplayNameRow({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: string;
+  disabled: boolean;
+  onSave: (name: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Re-seed the draft when the profile loads / changes from elsewhere,
+  // but only while the user isn't mid-edit (draft matches nothing yet).
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const trimmed = draft.trim();
+  const dirty = trimmed !== value.trim();
+
+  async function save() {
+    setError(null);
+    if (!trimmed) {
+      setError("Display name is required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(trimmed);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save display name");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">Display name</p>
+        <p className="text-xs text-[var(--muted)]">The name your coach calls you by.</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          aria-label="Display name"
+          value={draft}
+          maxLength={60}
+          disabled={disabled || saving}
+          onChange={(e) => setDraft(e.target.value)}
+          className={`${inputClass} min-w-0 flex-1`}
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={disabled || saving || !dirty}
+          className="shrink-0 rounded-md bg-[var(--accent)] px-3 py-2 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Height editor shown in the user's familiar unit (inches when their
+ * distance preference is miles, centimeters when kilometers). Converts
+ * to/from canonical cm at the edge (1 in = 2.54 cm). An empty input
+ * clears the height; "no height set" shows when null.
+ */
+function HeightRow({
+  heightCm,
+  heightUnit,
+  disabled,
+  onSave,
+}: {
+  heightCm: number | null;
+  heightUnit: "in" | "cm";
+  disabled: boolean;
+  onSave: (cm: number | null) => Promise<void>;
+}) {
+  // Convert the canonical cm into the displayed unit for the draft.
+  const toDisplay = (cm: number | null): string => {
+    if (cm == null) return "";
+    const v = heightUnit === "in" ? cm / CM_PER_INCH : cm;
+    // One decimal, dropping a trailing ".0" so "180" reads cleanly.
+    return String(Math.round(v * 10) / 10);
+  };
+
+  const [draft, setDraft] = useState(() => toDisplay(heightCm));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(toDisplay(heightCm));
+    // toDisplay depends on heightUnit too — re-seed when either changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heightCm, heightUnit]);
+
+  async function save() {
+    setError(null);
+    const raw = draft.trim();
+    let cm: number | null;
+    if (raw === "") {
+      cm = null;
+    } else {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) {
+        setError("Enter a valid height, or leave blank to clear.");
+        return;
+      }
+      cm = heightUnit === "in" ? n * CM_PER_INCH : n;
+      // Round to one decimal so we don't persist float noise from the
+      // inch→cm conversion.
+      cm = Math.round(cm * 10) / 10;
+    }
+    setSaving(true);
+    try {
+      await onSave(cm);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save height");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">Height</p>
+        <p className="text-xs text-[var(--muted)]">
+          {heightCm == null
+            ? "No height set."
+            : `Shown in ${heightUnit === "in" ? "inches" : "centimeters"}.`}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          step="any"
+          min={0}
+          aria-label={`Height (${heightUnit})`}
+          placeholder={heightUnit === "in" ? "e.g. 71" : "e.g. 180"}
+          value={draft}
+          disabled={disabled || saving}
+          onChange={(e) => setDraft(e.target.value)}
+          className={`${inputClass} tabular-nums min-w-0 flex-1`}
+        />
+        <span className="shrink-0 text-xs text-[var(--muted)]">{heightUnit}</span>
+        <button
+          type="button"
+          onClick={save}
+          disabled={disabled || saving}
+          className="shrink-0 rounded-md bg-[var(--accent)] px-3 py-2 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Avatar editor: a preview (current image or initials placeholder), a
+ * file picker that uploads on selection, and a Remove button when an
+ * avatar is set.
+ */
+function AvatarRow({
+  avatarUrl,
+  displayName,
+  disabled,
+  onPick,
+  onRemove,
+}: {
+  avatarUrl: string | null;
+  displayName: string;
+  disabled: boolean;
+  onPick: (file: File) => Promise<void>;
+  onRemove: () => Promise<void>;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset the input so picking the same file again still fires change.
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      await onPick(file);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove() {
+    setBusy(true);
+    try {
+      await onRemove();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3">
+        <AvatarPreview url={avatarUrl} name={displayName} />
+        <div className="flex flex-col gap-0.5">
+          <p className="text-sm font-medium">Avatar</p>
+          <p className="text-xs text-[var(--muted)]">PNG, JPG, or WebP, up to 2 MB.</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          aria-label="Upload avatar"
+          onChange={handlePick}
+          className="hidden"
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={disabled || busy}
+          className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+        >
+          {busy ? "Working…" : avatarUrl ? "Change" : "Upload"}
+        </button>
+        {avatarUrl && (
+          <button
+            type="button"
+            onClick={handleRemove}
+            disabled={disabled || busy}
+            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AvatarPreview({ url, name }: { url: string | null; name: string }) {
+  if (url) {
+    // Presigned S3 / OAuth URLs are arbitrary remote hosts; next/image
+    // would require per-host remotePatterns config.
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={`${name.trim() || "Account"} avatar`}
+        className="h-12 w-12 shrink-0 rounded-full object-cover"
+      />
+    );
+  }
+  const trimmed = name.trim();
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  const init =
+    parts.length === 0
+      ? "?"
+      : parts.length === 1
+        ? parts[0].slice(0, 2).toUpperCase()
+        : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)] text-sm font-semibold uppercase text-[var(--foreground)]"
+    >
+      {init}
+    </span>
+  );
+}
+
+/** Weight-unit segmented control backed by the shared profile. */
+function WeightUnitControl() {
+  const toast = useToast();
+  const { profile, update } = useProfile();
+  const [pending, setPending] = useState<"lb" | "kg" | null>(null);
+  const value = pending ?? profile?.weight_unit ?? "lb";
+
+  function change(next: "lb" | "kg") {
+    if (next === value) return;
+    setPending(next); // optimistic
+    update({ weight_unit: next })
+      .catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : "Failed to update weight unit");
+      })
+      .finally(() => setPending(null));
+  }
+
+  return (
+    <SegmentedControl
+      value={value}
+      disabled={!profile}
+      options={[
+        { value: "lb", label: "Pounds" },
+        { value: "kg", label: "Kilograms" },
+      ]}
+      onChange={change}
+    />
+  );
+}
+
+const inputClass =
+  "rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm transition focus:outline focus:outline-2 focus:outline-offset-0 focus:outline-[var(--accent)] disabled:opacity-60";
 
 function SettingRow({
   label,

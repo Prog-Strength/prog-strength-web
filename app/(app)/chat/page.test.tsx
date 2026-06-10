@@ -55,6 +55,12 @@ vi.mock("@/lib/usage-context", () => ({
   useUsage: useUsageMock,
 }));
 
+const useProfileMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/profile-context", () => ({
+  useProfile: useProfileMock,
+}));
+
 // react-markdown / remark-gfm are heavy ESM deps the chat page imports at
 // module top. The capped-state + 429 behavior under test doesn't exercise
 // assistant Markdown rendering, so stub them to keep the test's transform
@@ -82,8 +88,32 @@ function snapshot(
   };
 }
 
+// Default resolved profile for the shared context; individual tests can
+// override via useProfileMock.mockReturnValue.
+function profileCtx(over: Record<string, unknown> = {}) {
+  return {
+    profile: {
+      id: "u1",
+      email: "lifter@example.com",
+      display_name: "Sam",
+      weight_unit: "lb",
+      distance_unit: "mi",
+      height_cm: 180,
+      avatar_url: null,
+    },
+    loading: false,
+    error: null,
+    refresh: vi.fn(async () => {}),
+    update: vi.fn(),
+    uploadAvatar: vi.fn(),
+    removeAvatar: vi.fn(),
+    ...over,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  useProfileMock.mockReturnValue(profileCtx());
 });
 
 describe("Chat — capped state", () => {
@@ -131,6 +161,133 @@ describe("Chat — 429 convergence", () => {
       // Optimistic user message + blank assistant placeholder stripped:
       // "hello" should not remain in the transcript.
       await waitFor(() => expect(screen.queryByText("hello")).not.toBeInTheDocument());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("Chat — profile in /chat payload", () => {
+  it("sends display_name and height_cm from the resolved profile", async () => {
+    useUsageMock.mockReturnValue(snapshot({ capped: false }));
+    useProfileMock.mockReturnValue(
+      profileCtx({
+        profile: {
+          id: "u1",
+          email: "lifter@example.com",
+          display_name: "Sam",
+          weight_unit: "lb",
+          distance_unit: "mi",
+          height_cm: 193,
+          avatar_url: null,
+        },
+      }),
+    );
+
+    // A streaming-shaped 200 with no SSE events — enough to exercise the
+    // request body without driving the full stream parser.
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      render(<ChatPage />);
+
+      const textarea = await screen.findByPlaceholderText("Message Prog Strength…");
+      await waitFor(() => expect(textarea).not.toBeDisabled());
+
+      fireEvent.change(textarea, { target: { value: "hi" } });
+      fireEvent.click(screen.getByLabelText("Send message"));
+
+      await waitFor(() => {
+        // mock.calls entries are typed as the factory's params ([]), so
+        // read them through `unknown[]` to inspect the fetch URL + init.
+        const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+        const chatCall = calls.find((c) => String(c[0]).endsWith("/chat"));
+        expect(chatCall).toBeTruthy();
+        const body = JSON.parse(chatCall![1].body as string);
+        expect(body.display_name).toBe("Sam");
+        expect(body.height_cm).toBe(193);
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends UPDATED display_name and height_cm after the profile changes mid-session", async () => {
+    // Regression lock-in for the send useCallback dep-array fix: if `profile`
+    // is missing from the deps, the second send re-uses the stale closure and
+    // transmits the OLD name/height. Re-rendering with a new useProfile return
+    // and asserting the SECOND /chat body carries the new values proves the
+    // callback re-binds to the current profile.
+    useUsageMock.mockReturnValue(snapshot({ capped: false }));
+    useProfileMock.mockReturnValue(
+      profileCtx({
+        profile: {
+          id: "u1",
+          email: "lifter@example.com",
+          display_name: "Sam",
+          weight_unit: "lb",
+          distance_unit: "mi",
+          height_cm: 180,
+          avatar_url: null,
+        },
+      }),
+    );
+
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const { rerender } = render(<ChatPage />);
+
+      const textarea = await screen.findByPlaceholderText("Message Prog Strength…");
+      await waitFor(() => expect(textarea).not.toBeDisabled());
+
+      // First send — carries the original profile values.
+      fireEvent.change(textarea, { target: { value: "first" } });
+      fireEvent.click(screen.getByLabelText("Send message"));
+
+      await waitFor(() => {
+        const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+        expect(calls.some((c) => String(c[0]).endsWith("/chat"))).toBe(true);
+      });
+      const firstCall = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).find(
+        (c) => String(c[0]).endsWith("/chat"),
+      );
+      const firstBody = JSON.parse(firstCall![1].body as string);
+      expect(firstBody.display_name).toBe("Sam");
+      expect(firstBody.height_cm).toBe(180);
+
+      // User edits their profile mid-session: useProfile now returns NEW values.
+      useProfileMock.mockReturnValue(
+        profileCtx({
+          profile: {
+            id: "u1",
+            email: "lifter@example.com",
+            display_name: "Alex",
+            weight_unit: "lb",
+            distance_unit: "mi",
+            height_cm: 165,
+            avatar_url: null,
+          },
+        }),
+      );
+      rerender(<ChatPage />);
+
+      await waitFor(() => expect(textarea).not.toBeDisabled());
+
+      // Second send — must carry the UPDATED profile values, not the stale ones.
+      fireEvent.change(textarea, { target: { value: "second" } });
+      fireEvent.click(screen.getByLabelText("Send message"));
+
+      await waitFor(() => {
+        const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+        const chatCalls = calls.filter((c) => String(c[0]).endsWith("/chat"));
+        expect(chatCalls.length).toBeGreaterThanOrEqual(2);
+        const secondBody = JSON.parse(chatCalls[chatCalls.length - 1][1].body as string);
+        expect(secondBody.display_name).toBe("Alex");
+        expect(secondBody.height_cm).toBe(165);
+      });
     } finally {
       vi.unstubAllGlobals();
     }
