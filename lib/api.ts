@@ -279,19 +279,45 @@ export type User = {
   // Preferred display unit for running distances/paces. Drives the
   // DistanceUnitContext seed and the settings toggle.
   distance_unit: "mi" | "km";
+  // Static body metric, canonical centimeters. Null/absent when the user
+  // hasn't set a height; clients convert to in/cm at the display edge.
+  height_cm?: number | null;
+  // Resolved avatar URL from GET /me — a presigned S3 GET (when the user
+  // uploaded one), the OAuth-provider avatar URL fallback, or null when
+  // neither is available (client renders an initials placeholder).
+  avatar_url?: string | null;
   created_at: string;
   updated_at: string;
 };
 
 /**
- * GET /me. Returns the authed user, including their preferred
- * `weight_unit`. Throws if the response carries no user payload.
+ * The resolved profile returned by the four /me profile endpoints
+ * (GET/PATCH /me, POST/DELETE /me/avatar). Mirrors the API's `meResponse`
+ * DTO: a flat shape where `avatar_url` is already resolved server-side
+ * (presigned S3 GET, OAuth fallback, or null) and `height_cm` is the
+ * canonical centimeter value. It's a structural subset of `User`, so it
+ * doubles as the seed for the DistanceUnitContext and Settings page.
  */
-export async function getMe(token: string): Promise<User> {
+export type ResolvedProfile = {
+  id: string;
+  email: string;
+  display_name: string;
+  weight_unit: "lb" | "kg";
+  distance_unit: "mi" | "km";
+  height_cm: number | null;
+  avatar_url: string | null;
+};
+
+/**
+ * GET /me. Returns the resolved profile — preferences plus `height_cm`
+ * and a server-resolved `avatar_url`. Throws if the response carries no
+ * user payload.
+ */
+export async function getMe(token: string): Promise<ResolvedProfile> {
   const resp = await fetch(`${config.apiUrl}/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  const got = await unwrap<User | null>(resp, null);
+  const got = await unwrap<ResolvedProfile | null>(resp, null);
   if (!got) {
     throw new Error("user not found");
   }
@@ -330,10 +356,12 @@ export async function updateMe(
   token: string,
   patch: {
     display_name?: string;
+    // Canonical centimeters; pass `null` to clear a previously-set height.
+    height_cm?: number | null;
     weight_unit?: "lb" | "kg";
     distance_unit?: "mi" | "km";
   },
-): Promise<User> {
+): Promise<ResolvedProfile> {
   const resp = await fetch(`${config.apiUrl}/me`, {
     method: "PATCH",
     headers: {
@@ -342,9 +370,57 @@ export async function updateMe(
     },
     body: JSON.stringify(patch),
   });
-  const updated = await unwrap<User | null>(resp, null);
+  const updated = await unwrap<ResolvedProfile | null>(resp, null);
   if (!updated) {
     throw new Error("API did not return the updated user");
+  }
+  return updated;
+}
+
+/**
+ * POST /me/avatar. Uploads an image as multipart/form-data under the
+ * field `file` and returns the resolved profile (with the freshly
+ * presigned `avatar_url`).
+ *
+ * We deliberately do NOT set a Content-Type header — the browser fills in
+ * `multipart/form-data; boundary=...` for the FormData body, and setting
+ * it manually would omit the boundary and break server-side parsing
+ * (same pattern as `importRunningTcx`).
+ *
+ * The server is authoritative on size (2 MB) and content type
+ * (image/png, image/jpeg, image/webp); callers should still guard
+ * client-side for snappier UX. Non-2xx surfaces the API's `error`
+ * envelope as the thrown message.
+ */
+export async function uploadAvatar(token: string, file: File): Promise<ResolvedProfile> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch(`${config.apiUrl}/me/avatar`, {
+    method: "POST",
+    // No Content-Type: the browser sets the multipart boundary itself.
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const updated = await unwrap<ResolvedProfile | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated profile");
+  }
+  return updated;
+}
+
+/**
+ * DELETE /me/avatar. Clears the user's uploaded avatar and returns the
+ * resolved profile, whose `avatar_url` now carries the OAuth fallback (or
+ * null when none is available).
+ */
+export async function deleteAvatar(token: string): Promise<ResolvedProfile> {
+  const resp = await fetch(`${config.apiUrl}/me/avatar`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const updated = await unwrap<ResolvedProfile | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated profile");
   }
   return updated;
 }

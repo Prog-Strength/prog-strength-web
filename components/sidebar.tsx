@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clearToken } from "@/lib/auth";
 import { BrandMark } from "@/components/brand-mark";
+import { useProfile } from "@/lib/profile-context";
 
 type NavItem = {
   href: string;
@@ -161,20 +162,132 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-[var(--border)] p-2">
-        <button
-          type="button"
-          onClick={logout}
-          title={collapsed ? "Sign out" : undefined}
-          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-        >
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-            <SignOutIcon />
-          </span>
-          {!collapsed && <span>Sign out</span>}
-        </button>
+        <AccountAnchor collapsed={collapsed} onSignOut={logout} />
       </div>
     </aside>
   );
+}
+
+/**
+ * Bottom-of-sidebar identity row: the user's avatar + display name, which
+ * opens a small popover menu holding session actions (Sign out). Replaces
+ * the bare Sign-out button — identity gets a home, and the menu keeps room
+ * for future account actions.
+ *
+ * Accessibility: the trigger carries `aria-haspopup`/`aria-expanded`; the
+ * menu closes on Escape and on a click outside, and focus-relevant
+ * controls are real buttons. When the sidebar is collapsed the row shrinks
+ * to just the avatar, but the menu still opens from it.
+ */
+function AccountAnchor({ collapsed, onSignOut }: { collapsed: boolean; onSignOut: () => void }) {
+  const { profile } = useProfile();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const displayName = profile?.display_name?.trim() || "Account";
+  const avatarUrl = profile?.avatar_url ?? null;
+
+  // Close on Escape and on click/focus outside the anchor. Only wired
+  // while the menu is open so the listeners don't run for every sidebar.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onPointerDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      {open && (
+        <div
+          role="menu"
+          aria-label="Account menu"
+          // Anchored above the row (the row sits at the very bottom of the
+          // sidebar). mb-2 lifts it off the trigger.
+          className="absolute bottom-full left-0 z-10 mb-2 min-w-[10rem] rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onSignOut();
+            }}
+            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+              <SignOutIcon />
+            </span>
+            <span>Sign out</span>
+          </button>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account"
+        title={collapsed ? displayName : undefined}
+        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+      >
+        <Avatar url={avatarUrl} name={displayName} />
+        {!collapsed && (
+          <span className="truncate text-[var(--foreground)]" title={displayName}>
+            {displayName}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Circular avatar: the resolved image when present, otherwise an initials
+ * placeholder (first two word-initials of the display name). Sized to the
+ * sidebar's 20px icon hit area so the row aligns with the nav items above.
+ */
+function Avatar({ url, name }: { url: string | null; name: string }) {
+  if (url) {
+    // Presigned S3 / OAuth URLs are arbitrary remote hosts; next/image
+    // would require per-host remotePatterns config for a tiny 20px avatar.
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={`${name} avatar`}
+        className="h-5 w-5 shrink-0 rounded-full object-cover"
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)] text-[9px] font-semibold uppercase text-[var(--foreground)]"
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+/** First two word-initials of a name, e.g. "Sam Lifter" → "SL". */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 /* --- Inline SVG icons --------------------------------------------------
