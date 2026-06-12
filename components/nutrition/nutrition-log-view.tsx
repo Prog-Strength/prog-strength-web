@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { MealType, NutritionLogEntry, PantryItem, Recipe } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
+import { MACRO_COLORS } from "@/lib/macro-colors";
+import { EntryActionSheet } from "@/components/nutrition/entry-action-sheet";
 
 const MEAL_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 const MEAL_LABELS: Record<MealType, string> = {
@@ -59,6 +61,9 @@ export function resolveItemName(
   }
   if (entry.recipe_id) {
     return recipeByID.get(entry.recipe_id)?.name ?? "Unknown recipe";
+  }
+  if (entry.custom_meal_name) {
+    return entry.custom_meal_name;
   }
   return "Untitled entry";
 }
@@ -138,6 +143,14 @@ function MealSection({
     return t;
   }, [entries]);
 
+  // The mobile layout collapses the desktop row's two icon-action
+  // buttons into a single tap on the whole row, surfacing Edit /
+  // Delete as a small action sheet so the row itself stays a
+  // dedicated name + macros surface. State lives here per-section
+  // because the action sheet is a modal — only one can be open
+  // anywhere on the page at a time.
+  const [actionTarget, setActionTarget] = useState<NutritionLogEntry | null>(null);
+
   return (
     <section className="flex flex-col gap-2">
       <header className="flex items-baseline justify-between gap-3">
@@ -147,19 +160,27 @@ function MealSection({
             <span className="italic">No entries</span>
           ) : (
             <>
-              {formatNumber(subtotal.calories)} cal · P {formatNumber(subtotal.protein_g)}g · F{" "}
-              {formatNumber(subtotal.fat_g)}g · C {formatNumber(subtotal.carbs_g)}g
+              {formatNumber(subtotal.calories)} cal ·{" "}
+              <span style={{ color: MACRO_COLORS.protein }} className="font-semibold">
+                P
+              </span>{" "}
+              {formatNumber(subtotal.protein_g)}g ·{" "}
+              <span style={{ color: MACRO_COLORS.fat }} className="font-semibold">
+                F
+              </span>{" "}
+              {formatNumber(subtotal.fat_g)}g ·{" "}
+              <span style={{ color: MACRO_COLORS.carbs }} className="font-semibold">
+                C
+              </span>{" "}
+              {formatNumber(subtotal.carbs_g)}g
             </>
           )}
         </p>
       </header>
       {entries.length > 0 && (
-        <table className="w-full border-collapse text-sm">
+        <table className="hidden w-full border-collapse text-sm sm:table">
           <thead>
             <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
-              <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
-                Time
-              </th>
               <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
                 Item
               </th>
@@ -169,13 +190,25 @@ function MealSection({
               <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
                 Cal
               </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+              <th
+                scope="col"
+                className="py-1.5 pr-3 text-right font-semibold"
+                style={{ color: MACRO_COLORS.protein }}
+              >
                 P
               </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+              <th
+                scope="col"
+                className="py-1.5 pr-3 text-right font-semibold"
+                style={{ color: MACRO_COLORS.fat }}
+              >
                 F
               </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
+              <th
+                scope="col"
+                className="py-1.5 pr-3 text-right font-semibold"
+                style={{ color: MACRO_COLORS.carbs }}
+              >
                 C
               </th>
               <th scope="col" className="py-1.5 text-right font-semibold">
@@ -191,12 +224,9 @@ function MealSection({
                   key={e.id}
                   className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface)]"
                 >
-                  <td className="py-2 pr-3 text-left text-xs text-[var(--muted)] tabular-nums">
-                    {formatLocalTime(e.consumed_at)}
-                  </td>
-                  <td className="max-w-0 py-2 pr-3 text-left">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-medium">{name}</span>
+                  <td className="py-2 pr-3 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{name}</span>
                       {e.recipe_id && (
                         <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
                           recipe
@@ -237,15 +267,68 @@ function MealSection({
           </tbody>
         </table>
       )}
+
+      {entries.length > 0 && (
+        <ul className="flex flex-col gap-2 sm:hidden">
+          {entries.map((e) => {
+            const name = resolveItemName(e, pantryByID, recipeByID);
+            return (
+              <li key={e.id}>
+                <button
+                  type="button"
+                  onClick={() => setActionTarget(e)}
+                  className="flex w-full flex-col gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left transition active:opacity-80"
+                  aria-label={`${name} — tap to edit or delete`}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+                    {e.recipe_id && (
+                      <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                        recipe
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[var(--muted)] tabular-nums">
+                    {formatNumber(e.calories)} cal ·{" "}
+                    <span style={{ color: MACRO_COLORS.protein }} className="font-semibold">
+                      P
+                    </span>{" "}
+                    {formatNumber(e.protein_g)}g ·{" "}
+                    <span style={{ color: MACRO_COLORS.fat }} className="font-semibold">
+                      F
+                    </span>{" "}
+                    {formatNumber(e.fat_g)}g ·{" "}
+                    <span style={{ color: MACRO_COLORS.carbs }} className="font-semibold">
+                      C
+                    </span>{" "}
+                    {formatNumber(e.carbs_g)}g
+                  </p>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {actionTarget && (
+        <EntryActionSheet
+          entry={actionTarget}
+          itemName={resolveItemName(actionTarget, pantryByID, recipeByID)}
+          onEdit={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            onEdit(target);
+          }}
+          onDelete={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            onDelete(target);
+          }}
+          onClose={() => setActionTarget(null)}
+        />
+      )}
     </section>
   );
-}
-
-function formatLocalTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function PencilIcon() {

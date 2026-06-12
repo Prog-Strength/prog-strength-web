@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clearToken } from "@/lib/auth";
 import { BrandMark } from "@/components/brand-mark";
+import { useProfile } from "@/lib/profile-context";
 
 type NavItem = {
   href: string;
@@ -15,15 +16,21 @@ type NavItem = {
   // prefix-match behavior lights up the entry for nested routes (e.g.
   // /workouts/{id}), which is right for routes that own subpages but
   // wrong for parent entries that have a SIBLING entry below them in
-  // NAV (e.g. "/chat" vs "/chat/history" — without exact, both would
-  // glow on /chat/history).
+  // NAV. Currently no sibling entries exist, but the flag is kept for
+  // when one comes back.
   exact?: boolean;
 };
 
 const NAV: NavItem[] = [
-  { href: "/chat", label: "Chat", icon: <ChatIcon />, exact: true },
-  { href: "/chat/history", label: "Chat history", icon: <HistoryIcon /> },
-  { href: "/workouts", label: "Workouts", icon: <DumbbellIcon /> },
+  // Chat history used to be a sibling entry here; it now lives as a
+  // drawer inside the chat page so the sidebar has one fewer row.
+  { href: "/chat", label: "Chat", icon: <ChatIcon /> },
+  // Workouts and Running used to be separate siblings; they're now
+  // consolidated into one Activities entry with URL-backed sub-views
+  // (/activities?view=workouts|running). The active-highlight logic is
+  // unchanged — /activities?view=… has pathname /activities so the
+  // entry lights up regardless of the active sub-view.
+  { href: "/activities", label: "Activities", icon: <ActivityIcon /> },
   { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
   // Pantry and Recipes live inside /nutrition as tabbed views, so the
@@ -40,6 +47,9 @@ const NAV: NavItem[] = [
   // Personal Records sits at the end as the "trophy case" view —
   // built on top of every other source of data in the app.
   { href: "/personal-records", label: "Personal Records", icon: <TrophyIcon /> },
+  // Settings anchors the very bottom of the nav — a destination users
+  // reach for occasionally (units, preferences), not a daily view.
+  { href: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
 const COLLAPSE_KEY = "ps_sidebar_collapsed";
@@ -152,20 +162,132 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-[var(--border)] p-2">
-        <button
-          type="button"
-          onClick={logout}
-          title={collapsed ? "Sign out" : undefined}
-          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-        >
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-            <SignOutIcon />
-          </span>
-          {!collapsed && <span>Sign out</span>}
-        </button>
+        <AccountAnchor collapsed={collapsed} onSignOut={logout} />
       </div>
     </aside>
   );
+}
+
+/**
+ * Bottom-of-sidebar identity row: the user's avatar + display name, which
+ * opens a small popover menu holding session actions (Sign out). Replaces
+ * the bare Sign-out button — identity gets a home, and the menu keeps room
+ * for future account actions.
+ *
+ * Accessibility: the trigger carries `aria-haspopup`/`aria-expanded`; the
+ * menu closes on Escape and on a click outside, and focus-relevant
+ * controls are real buttons. When the sidebar is collapsed the row shrinks
+ * to just the avatar, but the menu still opens from it.
+ */
+function AccountAnchor({ collapsed, onSignOut }: { collapsed: boolean; onSignOut: () => void }) {
+  const { profile } = useProfile();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const displayName = profile?.display_name?.trim() || "Account";
+  const avatarUrl = profile?.avatar_url ?? null;
+
+  // Close on Escape and on click/focus outside the anchor. Only wired
+  // while the menu is open so the listeners don't run for every sidebar.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onPointerDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      {open && (
+        <div
+          role="menu"
+          aria-label="Account menu"
+          // Anchored above the row (the row sits at the very bottom of the
+          // sidebar). mb-2 lifts it off the trigger.
+          className="absolute bottom-full left-0 z-10 mb-2 min-w-[10rem] rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onSignOut();
+            }}
+            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+              <SignOutIcon />
+            </span>
+            <span>Sign out</span>
+          </button>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account"
+        title={collapsed ? displayName : undefined}
+        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+      >
+        <Avatar url={avatarUrl} name={displayName} />
+        {!collapsed && (
+          <span className="truncate text-[var(--foreground)]" title={displayName}>
+            {displayName}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Circular avatar: the resolved image when present, otherwise an initials
+ * placeholder (first two word-initials of the display name). Sized to the
+ * sidebar's 20px icon hit area so the row aligns with the nav items above.
+ */
+function Avatar({ url, name }: { url: string | null; name: string }) {
+  if (url) {
+    // Presigned S3 / OAuth URLs are arbitrary remote hosts; next/image
+    // would require per-host remotePatterns config for a tiny 20px avatar.
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={`${name} avatar`}
+        className="h-5 w-5 shrink-0 rounded-full object-cover"
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)] text-[9px] font-semibold uppercase text-[var(--foreground)]"
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+/** First two word-initials of a name, e.g. "Sam Lifter" → "SL". */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 /* --- Inline SVG icons --------------------------------------------------
@@ -192,9 +314,9 @@ function ChatIcon() {
   );
 }
 
-function HistoryIcon() {
-  // Clock face with a counterclockwise arrow at the top-left — the
-  // common "history / past activity" idiom across most icon libraries.
+function ActivityIcon() {
+  // Pulse/heartbeat waveform — the universal "activity" glyph. Anchors
+  // the consolidated Activities entry (Workouts + Running + Overview).
   return (
     <svg
       viewBox="0 0 24 24"
@@ -207,31 +329,7 @@ function HistoryIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M3 12a9 9 0 1 0 3-6.7" />
-      <path d="M3 4v5h5" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function DumbbellIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M6.5 6.5v11" />
-      <path d="M17.5 6.5v11" />
-      <path d="M3.5 9v6" />
-      <path d="M20.5 9v6" />
-      <path d="M6.5 12h11" />
+      <polyline points="3 12 7 12 10 5 14 19 17 12 21 12" />
     </svg>
   );
 }
@@ -369,6 +467,34 @@ function ScaleIcon() {
       <rect x="3" y="6" width="18" height="14" rx="2" />
       <circle cx="12" cy="13" r="3" />
       <path d="M9 10h6" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  // Standard gear: a center hub plus eight short teeth. The universal
+  // shorthand for settings/preferences.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3" />
+      <path d="M12 19v3" />
+      <path d="M2 12h3" />
+      <path d="M19 12h3" />
+      <path d="M4.9 4.9l2.1 2.1" />
+      <path d="M17 17l2.1 2.1" />
+      <path d="M19.1 4.9L17 7" />
+      <path d="M7 17l-2.1 2.1" />
     </svg>
   );
 }

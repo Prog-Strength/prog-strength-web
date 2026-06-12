@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Scatter,
   Tooltip,
@@ -16,9 +17,14 @@ import { clearToken, getToken } from "@/lib/auth";
 import {
   createBodyweightEntry,
   deleteBodyweightEntry,
+  getBodyweightGoal,
   listBodyweight,
+  putBodyweightGoal,
+  updateBodyweightEntry,
   type BodyweightEntry,
+  type BodyweightGoal,
 } from "@/lib/api";
+import { BodyweightActionSheet } from "@/components/bodyweight/bodyweight-action-sheet";
 
 /**
  * Bodyweight — chart-first layout with the daily-average trend line as
@@ -57,14 +63,37 @@ const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
 
 export default function BodyweightPage() {
   const router = useRouter();
+  // Subscribed to Tailwind's sm: breakpoint (640px) via matchMedia.
+  // Drives the chart's responsive y-axis width + goal-label position
+  // and the table↔card layout swap below sm:. Hook plumbing sits at
+  // module scope below — same pattern as components/date-tile-strip.tsx.
+  const isMobile = useSyncExternalStore(
+    subscribeMobileQuery,
+    getMobileSnapshot,
+    getMobileServerSnapshot,
+  );
   const [entries, setEntries] = useState<BodyweightEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [rowBusyID, setRowBusyID] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<BodyweightEntry | null>(null);
+  const [deletingEntry, setDeletingEntry] = useState<BodyweightEntry | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30");
   const [page, setPage] = useState(1);
   const [showLog, setShowLog] = useState(false);
+  const [goal, setGoal] = useState<BodyweightGoal | null>(null);
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [goalBusy, setGoalBusy] = useState(false);
+  const [goalError, setGoalError] = useState<string | null>(null);
+  // Mobile action sheet target. When set, tapping a row card on mobile
+  // opens BodyweightActionSheet, which then routes to the existing
+  // edit / delete modals. Desktop never sets this — the row's pencil
+  // and trash icons fire onEdit / onDelete directly.
+  const [actionTarget, setActionTarget] = useState<BodyweightEntry | null>(null);
 
   const refetch = useCallback(() => {
     const token = getToken();
@@ -84,9 +113,33 @@ export default function BodyweightPage() {
       });
   }, [router]);
 
+  const refetchGoal = useCallback(() => {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    getBodyweightGoal(token)
+      .then(setGoal)
+      .catch((err: Error) => {
+        if (err.message.toLowerCase().includes("401")) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(err.message);
+      });
+  }, [router]);
+
   useEffect(() => {
     refetch();
-  }, [refetch]);
+    refetchGoal();
+  }, [refetch, refetchGoal]);
+
+  // A goal counts as "set" only when it has a positive weight and a
+  // server-assigned created_at; the empty-state shape (weight 0 /
+  // created_at null) from getBodyweightGoal means "no goal yet".
+  const hasGoal = goal !== null && goal.weight > 0 && goal.created_at !== null;
 
   const displayUnit: "lb" | "kg" = useMemo(() => {
     if (!entries || entries.length === 0) return "lb";
@@ -139,24 +192,86 @@ export default function BodyweightPage() {
       .finally(() => setCreateBusy(false));
   }
 
-  function handleDelete(id: string) {
-    if (
-      !confirm("Delete this entry? Corrections are delete + re-add — the trend chart will update.")
-    ) {
-      return;
-    }
+  // Returns a Promise so the goal modal can await + close on success,
+  // mirroring handleCreate. Re-reads the goal afterwards so the
+  // affordance + chart reflect the saved value immediately.
+  function handleSaveGoal(payload: { weight: number; unit: "lb" | "kg" }): Promise<void> {
     const token = getToken();
-    if (!token) return;
-    setRowBusyID(id);
-    deleteBodyweightEntry(token, id)
-      .then(() => refetch())
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setRowBusyID(null));
+    if (!token) {
+      router.replace("/login");
+      return Promise.reject(new Error("not signed in"));
+    }
+    setGoalBusy(true);
+    setGoalError(null);
+    return putBodyweightGoal(token, payload)
+      .then((saved) => {
+        setGoal(saved);
+        setShowGoalModal(false);
+        setGoalError(null);
+      })
+      .catch((err: Error) => {
+        setGoalError(err.message);
+        throw err;
+      })
+      .finally(() => setGoalBusy(false));
+  }
+
+  // Edits an existing reading. Returns a Promise so the edit modal can
+  // await + close itself on success (parent clears state here on the
+  // happy path); on failure the error surfaces and the modal stays open.
+  function handleEditSubmit(payload: {
+    weight: number;
+    unit: "lb" | "kg";
+    measured_at: string;
+  }): Promise<void> {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return Promise.reject(new Error("not signed in"));
+    }
+    if (!editingEntry) return Promise.reject(new Error("no entry selected"));
+    setEditBusy(true);
+    setEditError(null);
+    return updateBodyweightEntry(token, editingEntry.id, payload)
+      .then(() => {
+        setEditingEntry(null);
+        setEditError(null);
+        refetch();
+      })
+      .catch((err: Error) => {
+        setEditError(err.message);
+        throw err;
+      })
+      .finally(() => setEditBusy(false));
+  }
+
+  // Confirms deletion of a reading. Same Promise contract as
+  // handleEditSubmit so the confirmation modal can await the result.
+  function handleDeleteConfirm(): Promise<void> {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return Promise.reject(new Error("not signed in"));
+    }
+    if (!deletingEntry) return Promise.reject(new Error("no entry selected"));
+    setDeleteBusy(true);
+    setDeleteError(null);
+    return deleteBodyweightEntry(token, deletingEntry.id)
+      .then(() => {
+        setDeletingEntry(null);
+        setDeleteError(null);
+        refetch();
+      })
+      .catch((err: Error) => {
+        setDeleteError(err.message);
+        throw err;
+      })
+      .finally(() => setDeleteBusy(false));
   }
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
+      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-3 py-4 sm:px-6">
         <h1 className="text-lg font-semibold tracking-tight">Bodyweight</h1>
         <p className="text-xs text-[var(--muted)]">
           Multi-per-day OK — log morning + evening readings, the chart shows the daily-average trend
@@ -164,7 +279,7 @@ export default function BodyweightPage() {
         </p>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-6">
         <div className="mx-auto flex max-w-4xl flex-col gap-6">
           {error && (
             <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
@@ -174,14 +289,20 @@ export default function BodyweightPage() {
 
           <TimeRangeTabs value={range} onChange={setRange} />
 
-          <ChartCard entries={entriesInRange} displayUnit={displayUnit} />
+          <ChartCard
+            entries={entriesInRange}
+            displayUnit={displayUnit}
+            goal={hasGoal ? goal : null}
+            isMobile={isMobile}
+          />
 
           <section className="flex flex-col gap-3">
             {/* Toolbar mirroring the nutrition page: ghost pencil-Log
                 button above a white separator line, sitting directly
                 above the entries table. */}
-            <div className="flex items-center gap-5 border-b border-[var(--border)] pb-3">
+            <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
               <ToolbarButton onClick={() => setShowLog(true)} icon={<PencilIcon />} label="Log" />
+              <GoalAffordance goal={hasGoal ? goal : null} onClick={() => setShowGoalModal(true)} />
             </div>
 
             {entries === null && <p className="text-sm text-[var(--muted)]">Loading…</p>}
@@ -195,8 +316,9 @@ export default function BodyweightPage() {
             {entries && entriesInRange.length > 0 && (
               <BodyweightTable
                 entries={pageEntries}
-                rowBusyID={rowBusyID}
-                onDelete={handleDelete}
+                onEdit={(entry) => setEditingEntry(entry)}
+                onDelete={(entry) => setDeletingEntry(entry)}
+                onTapRow={(entry) => setActionTarget(entry)}
                 page={page}
                 totalPages={totalPages}
                 onPageChange={setPage}
@@ -214,6 +336,62 @@ export default function BodyweightPage() {
           initialUnit={displayUnit}
           onSubmit={handleCreate}
           onClose={() => setShowLog(false)}
+        />
+      )}
+
+      {showGoalModal && (
+        <BodyweightGoalModal
+          busy={goalBusy}
+          error={goalError}
+          goal={hasGoal ? goal : null}
+          onSubmit={handleSaveGoal}
+          onClose={() => {
+            setShowGoalModal(false);
+            setGoalError(null);
+          }}
+        />
+      )}
+
+      {editingEntry && (
+        <BodyweightEditModal
+          entry={editingEntry}
+          busy={editBusy}
+          error={editError}
+          onSubmit={handleEditSubmit}
+          onClose={() => {
+            setEditingEntry(null);
+            setEditError(null);
+          }}
+        />
+      )}
+
+      {deletingEntry && (
+        <BodyweightDeleteModal
+          entry={deletingEntry}
+          busy={deleteBusy}
+          error={deleteError}
+          onConfirm={handleDeleteConfirm}
+          onClose={() => {
+            setDeletingEntry(null);
+            setDeleteError(null);
+          }}
+        />
+      )}
+
+      {actionTarget && (
+        <BodyweightActionSheet
+          entry={actionTarget}
+          onEdit={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            setEditingEntry(target);
+          }}
+          onDelete={() => {
+            const target = actionTarget;
+            setActionTarget(null);
+            setDeletingEntry(target);
+          }}
+          onClose={() => setActionTarget(null)}
         />
       )}
     </main>
@@ -256,9 +434,13 @@ function TimeRangeTabs({ value, onChange }: { value: RangeKey; onChange: (v: Ran
 function ChartCard({
   entries,
   displayUnit,
+  goal,
+  isMobile,
 }: {
   entries: BodyweightEntry[];
   displayUnit: "lb" | "kg";
+  goal: BodyweightGoal | null;
+  isMobile: boolean;
 }) {
   const { rawPoints, avgPoints } = useMemo(() => {
     const raw = entries.map((e) => ({
@@ -284,6 +466,12 @@ function ChartCard({
 
   const stats = useMemo(() => computeStats(entries, displayUnit), [entries, displayUnit]);
 
+  // Goal weight projected into the chart's display unit, so the y-axis
+  // domain and the goal-line ReferenceLine read off the same number.
+  // Null when no goal is set; the y-axis falls back to data-only bounds.
+  const goalInDisplayUnit =
+    goal && goal.weight > 0 ? convertWeight(goal.weight, goal.unit, displayUnit) : null;
+
   if (entries.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">
@@ -293,10 +481,22 @@ function ChartCard({
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:p-4">
+      <h3 className="text-base font-semibold tracking-tight">Bodyweight</h3>
       <div className="h-[320px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart margin={{ top: 12, right: 16, bottom: 8, left: 0 }}>
+          {/* Mobile shrinks right margin (the goal label moves inside
+              the plot area so it no longer needs gutter), and y-axis
+              tick width drops from 48 to 32. Together those buy ~32px
+              of canvas width back for the line graph itself. */}
+          <ComposedChart
+            margin={{
+              top: 12,
+              right: isMobile ? 8 : 16,
+              bottom: 8,
+              left: 0,
+            }}
+          >
             <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
             <XAxis
               dataKey="t"
@@ -304,21 +504,42 @@ function ChartCard({
               domain={["dataMin", "dataMax"]}
               stroke="#a1a1aa"
               tick={{ fill: "#a1a1aa", fontSize: 11 }}
-              tickFormatter={(v: number) =>
-                new Date(v).toLocaleDateString("en-US", {
+              // Mobile uses a numeric date (6/4) instead of "Jun 4"
+              // so ticks don't collide on a narrow x-axis; minTickGap
+              // also prevents recharts from packing them in too tight.
+              minTickGap={isMobile ? 24 : 12}
+              tickFormatter={(v: number) => {
+                const d = new Date(v);
+                if (isMobile) {
+                  return `${d.getMonth() + 1}/${d.getDate()}`;
+                }
+                return d.toLocaleDateString("en-US", {
                   month: "short",
                   day: "numeric",
-                })
-              }
+                });
+              }}
             />
             <YAxis
               stroke="#a1a1aa"
               tick={{ fill: "#a1a1aa", fontSize: 11 }}
+              // When a goal is set, force it into the visible domain so
+              // it can't sit off-axis. The ±2 padding lets the dashed
+              // goal-line and its label clear the chart's top/bottom edge.
               domain={[
-                (dataMin: number) => Math.floor(dataMin - 2),
-                (dataMax: number) => Math.ceil(dataMax + 2),
+                (dataMin: number) =>
+                  Math.floor(
+                    goalInDisplayUnit !== null
+                      ? Math.min(dataMin, goalInDisplayUnit) - 2
+                      : dataMin - 2,
+                  ),
+                (dataMax: number) =>
+                  Math.ceil(
+                    goalInDisplayUnit !== null
+                      ? Math.max(dataMax, goalInDisplayUnit) + 2
+                      : dataMax + 2,
+                  ),
               ]}
-              width={48}
+              width={isMobile ? 32 : 48}
               tickFormatter={(v: number) => `${Math.round(v)}`}
             />
             <Tooltip
@@ -340,12 +561,20 @@ function ChartCard({
                   year: "numeric",
                 });
               }}
-              formatter={(value, name) => {
+              formatter={(value, name, item) => {
                 const v = typeof value === "number" ? value : Number(value);
-                return [
-                  `${formatNumber(v)} ${displayUnit}`,
-                  name === "weight" ? "Reading" : "Daily avg",
-                ];
+                // Distinguish series by dataKey, not name: in a
+                // ComposedChart where each series carries its own
+                // `data`, the Scatter's tooltip payload `name` arrives
+                // undefined (recharts 3.x reads it from the data point,
+                // which has no `name` field), so a `name === "weight"`
+                // check mislabels raw readings as "Daily avg". The
+                // dataKey is always present and reliable. Both branches
+                // run the value through formatNumber so neither series
+                // can leak a raw float (e.g. 184.20000000000002).
+                const dataKey = item?.dataKey;
+                const label = dataKey === "weight" ? "Reading" : "Daily avg";
+                return [`${formatNumber(v)} ${displayUnit}`, label];
               }}
             />
             <Scatter
@@ -365,72 +594,146 @@ function ChartCard({
               dot={{ fill: COLOR_AVG, r: 3 }}
               isAnimationActive={false}
             />
+            {goalInDisplayUnit !== null && (
+              <ReferenceLine
+                y={goalInDisplayUnit}
+                stroke="#10b981"
+                strokeDasharray="6 4"
+                strokeWidth={1.5}
+                label={{
+                  // Mobile shows the value inside the top-right of the
+                  // plot area so the chart isn't forced to reserve right
+                  // gutter for "Goal 175 lb" text. Desktop keeps the
+                  // hanging-right label since there's room for it.
+                  value: isMobile
+                    ? `${formatNumber(goalInDisplayUnit)} ${displayUnit}`
+                    : `Goal ${formatNumber(goalInDisplayUnit)} ${displayUnit}`,
+                  position: isMobile ? "insideTopRight" : "right",
+                  fill: "#10b981",
+                  fontSize: 10,
+                }}
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
       <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--muted)]">
         <Legend color={COLOR_AVG} label={`Daily avg (${displayUnit})`} />
         <Legend color={COLOR_RAW} label="Reading" scatter />
+        {goalInDisplayUnit !== null && <Legend color="#10b981" label="Goal" dashed />}
       </div>
 
       {/* Stat tiles wrapped inside the same card. Sits directly under
           the chart + legend so the four numbers read as a summary of
-          the visualization above. */}
+          the visualization above. Each tile carries a top accent strip
+          tinted to match its meaning (and the chart's own hues):
+          blue=avg, green=goal, slate=min, amber=max. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile
+        <AccentStatTile
+          tone="avg"
           label="Average"
           value={stats.avg !== null ? `${formatNumber(stats.avg)} ${displayUnit}` : "—"}
           sublabel={
-            stats.count > 0
-              ? `${stats.count} reading${stats.count === 1 ? "" : "s"}`
-              : "No readings"
+            stats.delta !== null && stats.deltaPercent !== null
+              ? `${stats.delta >= 0 ? "+" : ""}${formatNumber(stats.delta)} ${displayUnit} (${
+                  stats.deltaPercent >= 0 ? "+" : ""
+                }${formatNumber(stats.deltaPercent)}%) over range`
+              : `${stats.count} reading${stats.count === 1 ? "" : "s"}`
           }
         />
-        <StatTile
-          label="Min"
-          value={stats.min !== null ? `${formatNumber(stats.min.weight)} ${displayUnit}` : "—"}
-          sublabel={stats.min !== null ? formatShortDate(stats.min.date) : "—"}
-        />
-        <StatTile
-          label="Max"
-          value={stats.max !== null ? `${formatNumber(stats.max.weight)} ${displayUnit}` : "—"}
-          sublabel={stats.max !== null ? formatShortDate(stats.max.date) : "—"}
-        />
-        <StatTile
-          label="Delta"
+        <AccentStatTile
+          tone="goal"
+          empty={!goal}
+          label="Goal"
           value={
-            stats.delta !== null
-              ? `${stats.delta >= 0 ? "+" : ""}${formatNumber(stats.delta)} ${displayUnit}`
-              : "—"
+            goal
+              ? `${formatNumber(convertWeight(goal.weight, goal.unit, displayUnit))} ${displayUnit}`
+              : "— — —"
           }
           sublabel={
-            stats.deltaPercent !== null
-              ? `${stats.deltaPercent >= 0 ? "+" : ""}${formatNumber(stats.deltaPercent)}%`
-              : "Need 2+ days"
+            goal
+              ? stats.avg !== null
+                ? `${formatNumber(
+                    Math.abs(convertWeight(goal.weight, goal.unit, displayUnit) - stats.avg),
+                  )} ${displayUnit} to go`
+                : undefined
+              : "Not set"
           }
+        />
+        <AccentStatTile
+          tone="min"
+          label="Min"
+          value={stats.min !== null ? `${formatNumber(stats.min.weight)} ${displayUnit}` : "—"}
+          sublabel={stats.min !== null ? formatShortDate(stats.min.date) : undefined}
+        />
+        <AccentStatTile
+          tone="max"
+          label="Max"
+          value={stats.max !== null ? `${formatNumber(stats.max.weight)} ${displayUnit}` : "—"}
+          sublabel={stats.max !== null ? formatShortDate(stats.max.date) : undefined}
         />
       </div>
     </div>
   );
 }
 
-function StatTile({ label, value, sublabel }: { label: string; value: string; sublabel: string }) {
-  // Tiles inside the chart card use a slightly different background
-  // (page background vs surface) to inset them visually against the
-  // chart's surface background — same depth-by-contrast trick the
-  // nutrition meal sections use for entry rows.
+type Tone = "avg" | "goal" | "min" | "max";
+
+// Stat tile with a colored top accent strip. Replaces the older flat
+// StatTile — the strip ties each summary number back to the chart's
+// own color language and gives the grid a touch of visual rhythm.
+function AccentStatTile({
+  tone,
+  label,
+  value,
+  sublabel,
+  empty,
+}: {
+  tone: Tone;
+  label: string;
+  value: string;
+  sublabel?: string;
+  empty?: boolean;
+}) {
+  const stripColor: Record<Tone, string> = {
+    avg: "#3b82f6",
+    goal: "#10b981",
+    min: "#94a3b8",
+    max: "#f59e0b",
+  };
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2">
-      <p className="text-xl font-semibold tracking-tight tabular-nums">{value}</p>
+    <div className="relative overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 pt-3.5">
+      <span
+        aria-hidden
+        style={{ background: stripColor[tone] }}
+        className="absolute inset-x-0 top-0 h-[3px]"
+      />
+      <p
+        className={`text-xl font-semibold tracking-tight tabular-nums ${
+          empty ? "text-[var(--muted)] tracking-widest" : ""
+        }`}
+      >
+        {value}
+      </p>
       <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
         {label}
       </p>
-      <p className="mt-0.5 text-[10px] text-[var(--muted)]">{sublabel}</p>
+      {sublabel && <p className="mt-0.5 text-[10px] text-[var(--muted)]">{sublabel}</p>}
     </div>
   );
 }
 
-function Legend({ color, label, scatter }: { color: string; label: string; scatter?: boolean }) {
+function Legend({
+  color,
+  label,
+  scatter,
+  dashed,
+}: {
+  color: string;
+  label: string;
+  scatter?: boolean;
+  dashed?: boolean;
+}) {
   return (
     <span className="inline-flex items-center gap-2">
       {scatter ? (
@@ -438,6 +741,12 @@ function Legend({ color, label, scatter }: { color: string; label: string; scatt
           aria-hidden
           className="inline-block h-2 w-2 rounded-full"
           style={{ backgroundColor: color }}
+        />
+      ) : dashed ? (
+        <span
+          aria-hidden
+          className="inline-block w-5 border-t-2 border-dashed"
+          style={{ borderColor: color }}
         />
       ) : (
         <span aria-hidden className="inline-block h-0.5 w-5" style={{ backgroundColor: color }} />
@@ -492,20 +801,126 @@ function PencilIcon() {
   );
 }
 
+// Ghost icon button for the table's row actions. Two tones: muted
+// (edit) reads neutral until hover, danger (delete) stays red. Hover
+// adds a faint surface wash so the hit target is obvious without a
+// permanent border.
+function IconButton({
+  tone,
+  onClick,
+  disabled,
+  "aria-label": ariaLabel,
+  children,
+}: {
+  tone: "muted" | "danger";
+  onClick: () => void;
+  disabled?: boolean;
+  "aria-label": string;
+  children: React.ReactNode;
+}) {
+  const toneClass =
+    tone === "danger"
+      ? "text-[var(--danger)] hover:text-[var(--danger)]"
+      : "text-[var(--muted)] hover:text-[var(--foreground)]";
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center rounded p-1 transition hover:bg-white/5 disabled:opacity-50 ${toneClass}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+// Right-justified twin of the Log button on the toolbar separator. A
+// plain (outline-free) button: a green target icon, the muted "Goal:"
+// label, then either an italic "Set goal weight" call-to-action when no
+// goal is set or the bold goal value when one is.
+function GoalAffordance({ goal, onClick }: { goal: BodyweightGoal | null; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={
+        goal ? `Goal ${formatNumber(goal.weight)} ${goal.unit} — tap to edit` : "Set goal weight"
+      }
+      className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-sm transition hover:bg-white/5"
+    >
+      <TargetIcon />
+      {/* "Goal:" prefix hides on mobile so the target icon + value
+          alone fit comfortably next to the Log button on a phone-width
+          toolbar. The aria-label preserves the full phrase. */}
+      <span className="hidden text-[var(--muted)] sm:inline">Goal:</span>
+      {goal ? (
+        <span className="font-semibold tabular-nums">
+          {formatNumber(goal.weight)} {goal.unit}
+        </span>
+      ) : (
+        <span className="italic text-[var(--muted)]">Set goal weight</span>
+      )}
+    </button>
+  );
+}
+
+function TargetIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 text-emerald-500"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" />
+    </svg>
+  );
+}
+
 // --- Table --------------------------------------------------------
 
 function BodyweightTable({
   entries,
-  rowBusyID,
+  onEdit,
   onDelete,
+  onTapRow,
   page,
   totalPages,
   onPageChange,
   totalCount,
 }: {
   entries: BodyweightEntry[];
-  rowBusyID: string | null;
-  onDelete: (id: string) => void;
+  onEdit: (entry: BodyweightEntry) => void;
+  onDelete: (entry: BodyweightEntry) => void;
+  onTapRow: (entry: BodyweightEntry) => void;
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
@@ -513,7 +928,10 @@ function BodyweightTable({
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-      <table className="w-full text-sm">
+      {/* Desktop: 4-column table. Pixel-identical to the pre-mobile
+          version — the only change is `hidden sm:table` to hide it
+          below the breakpoint. */}
+      <table className="hidden w-full text-sm sm:table">
         <thead>
           <tr className="border-b border-[var(--border)] text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
             <th className="px-4 py-2 text-left">Date</th>
@@ -533,19 +951,50 @@ function BodyweightTable({
                 {formatNumber(e.weight)} <span className="text-[var(--muted)]">{e.unit}</span>
               </td>
               <td className="px-4 py-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => onDelete(e.id)}
-                  disabled={rowBusyID === e.id}
-                  className="text-xs text-[var(--danger)] hover:opacity-80 disabled:opacity-50"
-                >
-                  Delete
-                </button>
+                <div className="inline-flex items-center gap-1">
+                  <IconButton aria-label="Edit reading" tone="muted" onClick={() => onEdit(e)}>
+                    <PencilIcon />
+                  </IconButton>
+                  <IconButton aria-label="Delete reading" tone="danger" onClick={() => onDelete(e)}>
+                    <TrashIcon />
+                  </IconButton>
+                </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {/* Mobile: button-card per reading. Weight + unit lead, the
+          compact date/time stack sits on the right. The whole card is
+          the tap target — opens BodyweightActionSheet for Edit / Delete
+          (the action column couldn't survive on a phone viewport
+          without crowding the reading itself). */}
+      <ul className="flex flex-col divide-y divide-[var(--border)]/50 sm:hidden">
+        {entries.map((e) => (
+          <li key={e.id}>
+            <button
+              type="button"
+              onClick={() => onTapRow(e)}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition active:bg-white/5"
+              aria-label={`${formatNumber(e.weight)} ${e.unit} on ${formatMobileRowDate(
+                e.measured_at,
+              )} — tap to edit or delete`}
+            >
+              <span className="text-sm font-semibold tabular-nums">
+                {formatNumber(e.weight)} <span className="text-[var(--muted)]">{e.unit}</span>
+              </span>
+              <span className="flex flex-col items-end text-right tabular-nums">
+                <span className="text-xs">{formatMobileRowDate(e.measured_at)}</span>
+                <span className="text-[10px] text-[var(--muted)]">
+                  {formatRowTime(e.measured_at)}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+
       {totalPages > 1 && (
         <Pagination
           page={page}
@@ -570,24 +1019,38 @@ function Pagination({
   totalCount: number;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--background)] px-4 py-2 text-xs text-[var(--muted)]">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)] sm:px-4">
       <p className="tabular-nums">
         Page {page} of {totalPages} · {totalCount} total
       </p>
       <div className="flex items-center gap-1">
-        <PaginationBtn label="« First" disabled={page === 1} onClick={() => onPageChange(1)} />
         <PaginationBtn
-          label="‹ Prev"
+          glyph="«"
+          word="First"
+          ariaLabel="First page"
+          disabled={page === 1}
+          onClick={() => onPageChange(1)}
+        />
+        <PaginationBtn
+          glyph="‹"
+          word="Prev"
+          ariaLabel="Previous page"
           disabled={page === 1}
           onClick={() => onPageChange(page - 1)}
         />
         <PaginationBtn
-          label="Next ›"
+          glyph="›"
+          word="Next"
+          ariaLabel="Next page"
+          wordFirst
           disabled={page === totalPages}
           onClick={() => onPageChange(page + 1)}
         />
         <PaginationBtn
-          label="Last »"
+          glyph="»"
+          word="Last"
+          ariaLabel="Last page"
+          wordFirst
           disabled={page === totalPages}
           onClick={() => onPageChange(totalPages)}
         />
@@ -596,23 +1059,47 @@ function Pagination({
   );
 }
 
+/**
+ * Pagination button. On mobile shows just the chevron glyph; at sm:+
+ * adds the word label ("« First", "Next ›") so the four-button row
+ * doesn't overflow a phone-width footer. `wordFirst` puts the glyph
+ * on the right for "Next" / "Last" so the arrow reads in the direction
+ * of travel.
+ */
 function PaginationBtn({
-  label,
+  glyph,
+  word,
+  ariaLabel,
   disabled,
   onClick,
+  wordFirst,
 }: {
-  label: string;
+  glyph: string;
+  word: string;
+  ariaLabel: string;
   disabled?: boolean;
   onClick: () => void;
+  wordFirst?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
     >
-      {label}
+      {wordFirst ? (
+        <>
+          <span className="hidden sm:inline">{word} </span>
+          {glyph}
+        </>
+      ) : (
+        <>
+          {glyph}
+          <span className="hidden sm:inline"> {word}</span>
+        </>
+      )}
     </button>
   );
 }
@@ -809,9 +1296,494 @@ function BodyweightLogModal({
   );
 }
 
+// --- Goal modal ---------------------------------------------------
+
+/**
+ * Modal for setting / editing the bodyweight goal. Clones the
+ * BodyweightLogModal shell (centered card, backdrop, escape-to-close,
+ * body scroll lock, inline error) so the two read as a set. When a
+ * goal is passed it pre-fills for editing; otherwise the unit is
+ * seeded from the same localStorage preference the log form uses.
+ */
+function BodyweightGoalModal({
+  busy,
+  error,
+  goal,
+  onSubmit,
+  onClose,
+}: {
+  busy: boolean;
+  error: string | null;
+  goal: BodyweightGoal | null;
+  onSubmit: (payload: { weight: number; unit: "lb" | "kg" }) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [weight, setWeight] = useState(goal ? String(goal.weight) : "");
+  const [unit, setUnit] = useState<"lb" | "kg">(() => {
+    if (goal) return goal.unit;
+    if (typeof window === "undefined") return "lb";
+    const stored = window.localStorage.getItem(UNIT_PREFERENCE_KEY);
+    return stored === "kg" || stored === "lb" ? stored : "lb";
+  });
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // Persist the unit choice only when creating a goal — editing an
+  // existing goal seeds from the goal's own unit and shouldn't clobber
+  // the log form's saved preference.
+  useEffect(() => {
+    if (!goal && typeof window !== "undefined") {
+      window.localStorage.setItem(UNIT_PREFERENCE_KEY, unit);
+    }
+  }, [unit, goal]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose, busy]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setLocalError(null);
+    const w = Number(weight);
+    if (!Number.isFinite(w) || w <= 0) {
+      setLocalError("Goal weight must be a positive number.");
+      return;
+    }
+    try {
+      await onSubmit({ weight: w, unit });
+      // Parent closes the modal on success.
+    } catch {
+      // Error surfaces via the `error` prop; modal stays open so the
+      // user can correct + retry without losing their input.
+    }
+  }
+
+  const shownError = error ?? localError;
+  const title = goal ? "Edit goal weight" : "Set goal weight";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bodyweight-goal-modal-title"
+    >
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={() => !busy && onClose()}
+        aria-hidden="true"
+      />
+      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
+        <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
+          <div className="flex flex-col gap-0.5">
+            <h2 id="bodyweight-goal-modal-title" className="text-base font-semibold">
+              {title}
+            </h2>
+            <p className="text-xs text-[var(--muted)]">
+              Your target weight — it shows as a reference line on the chart.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+            className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:opacity-50"
+          >
+            ✕
+          </button>
+        </header>
+
+        <form onSubmit={submit} className="flex flex-col gap-4 px-5 py-4">
+          <div className="flex gap-3">
+            <label className="flex flex-1 flex-col gap-1 text-xs">
+              <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Goal weight
+              </span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder="175"
+                disabled={busy}
+                autoFocus
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums"
+              />
+            </label>
+            <label className="flex w-24 flex-col gap-1 text-xs">
+              <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Unit
+              </span>
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as "lb" | "kg")}
+                disabled={busy}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+              >
+                <option value="lb">lb</option>
+                <option value="kg">kg</option>
+              </select>
+            </label>
+          </div>
+
+          {shownError && (
+            <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
+              {shownError}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] pt-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:opacity-80 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] hover:opacity-80 disabled:opacity-50"
+            >
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- Edit modal ---------------------------------------------------
+
+/**
+ * Modal for editing an existing reading. Clones the BodyweightLogModal
+ * shell (centered card, backdrop, escape-to-close, body scroll lock,
+ * inline error) and pre-fills weight, unit, and measured_at from the
+ * entry. The datetime-local field round-trips through local time:
+ * toLocalDatetimeInput on the way in, new Date(...).toISOString() on
+ * the way out — same approach as the nutrition LogEntryEditModal.
+ */
+function BodyweightEditModal({
+  entry,
+  busy,
+  error,
+  onSubmit,
+  onClose,
+}: {
+  entry: BodyweightEntry;
+  busy: boolean;
+  error: string | null;
+  onSubmit: (payload: { weight: number; unit: "lb" | "kg"; measured_at: string }) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [weight, setWeight] = useState(String(entry.weight));
+  const [unit, setUnit] = useState<"lb" | "kg">(entry.unit);
+  const [measuredAtLocal, setMeasuredAtLocal] = useState(() =>
+    toLocalDatetimeInput(entry.measured_at),
+  );
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose, busy]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setLocalError(null);
+    const w = Number(weight);
+    if (!Number.isFinite(w) || w <= 0) {
+      setLocalError("Weight must be a positive number.");
+      return;
+    }
+    if (!measuredAtLocal) {
+      setLocalError("Measured-at is required.");
+      return;
+    }
+    const d = new Date(measuredAtLocal);
+    if (Number.isNaN(d.getTime())) {
+      setLocalError("Measured-at couldn't be parsed.");
+      return;
+    }
+    try {
+      await onSubmit({ weight: w, unit, measured_at: d.toISOString() });
+      // Parent closes the modal on success.
+    } catch {
+      // Error surfaces via the `error` prop; modal stays open so the
+      // user can correct + retry without losing their input.
+    }
+  }
+
+  const shownError = error ?? localError;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bodyweight-edit-modal-title"
+    >
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={() => !busy && onClose()}
+        aria-hidden="true"
+      />
+      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
+        <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
+          <div className="flex flex-col gap-0.5">
+            <h2 id="bodyweight-edit-modal-title" className="text-base font-semibold">
+              Edit reading
+            </h2>
+            <p className="text-xs text-[var(--muted)]">
+              Fix a mis-keyed weight, unit, or timestamp — the chart updates on save.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+            className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:opacity-50"
+          >
+            ✕
+          </button>
+        </header>
+
+        <form onSubmit={submit} className="flex flex-col gap-4 px-5 py-4">
+          <div className="flex gap-3">
+            <label className="flex flex-1 flex-col gap-1 text-xs">
+              <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Weight
+              </span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder="185"
+                disabled={busy}
+                autoFocus
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums"
+              />
+            </label>
+            <label className="flex w-24 flex-col gap-1 text-xs">
+              <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Unit
+              </span>
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as "lb" | "kg")}
+                disabled={busy}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+              >
+                <option value="lb">lb</option>
+                <option value="kg">kg</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-semibold uppercase tracking-wider text-[var(--muted)]">When</span>
+            <input
+              type="datetime-local"
+              value={measuredAtLocal}
+              onChange={(e) => setMeasuredAtLocal(e.target.value)}
+              disabled={busy}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm tabular-nums"
+            />
+          </label>
+
+          {shownError && (
+            <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
+              {shownError}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] pt-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:opacity-80 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] hover:opacity-80 disabled:opacity-50"
+            >
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- Delete modal -------------------------------------------------
+
+/**
+ * Confirmation modal for deleting a reading. Replaces the old inline
+ * confirm() so the destructive action gets the same shell + busy state
+ * treatment as the rest of the page. Echoes the reading being removed
+ * so the user can sanity-check before committing.
+ */
+function BodyweightDeleteModal({
+  entry,
+  busy,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  entry: BodyweightEntry;
+  busy: boolean;
+  error: string | null;
+  onConfirm: () => Promise<void>;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose, busy]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  async function confirm() {
+    try {
+      await onConfirm();
+      // Parent closes the modal on success.
+    } catch {
+      // Error surfaces via the `error` prop; modal stays open.
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bodyweight-delete-modal-title"
+    >
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={() => !busy && onClose()}
+        aria-hidden="true"
+      />
+      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
+        <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
+          <h2 id="bodyweight-delete-modal-title" className="text-base font-semibold">
+            Delete this reading?
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+            className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:opacity-50"
+          >
+            ✕
+          </button>
+        </header>
+
+        <div className="flex flex-col gap-4 px-5 py-4">
+          <p className="text-sm text-[var(--muted)]">
+            This removes the reading from your history; the trend chart and stats will update.
+          </p>
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
+            <span className="font-medium tabular-nums">
+              {formatNumber(entry.weight)} {entry.unit}
+            </span>
+            <span className="text-[var(--muted)]">
+              {" · "}
+              {formatRowDate(entry.measured_at)} at {formatRowTime(entry.measured_at)}
+            </span>
+          </div>
+
+          {error && (
+            <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] pt-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:opacity-80 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirm}
+              disabled={busy}
+              className="rounded-md bg-[var(--danger)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-80 disabled:opacity-50"
+            >
+              {busy ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- helpers ------------------------------------------------------
 
 const LB_PER_KG = 2.20462;
+
+/** Convert an ISO timestamp to a local "YYYY-MM-DDTHH:mm" string for a
+ * <input type="datetime-local">. Uses local getters so the displayed
+ * value matches the user's wall clock, mirroring the nutrition modal's
+ * toLocalHHMM approach. */
+function toLocalDatetimeInput(iso: string): string {
+  const d = new Date(iso);
+  const yyyy = String(d.getFullYear()).padStart(4, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mo}-${dd}T${hh}:${mm}`;
+}
 
 function convertWeight(weight: number, from: "lb" | "kg", to: "lb" | "kg"): number {
   if (from === to) return weight;
@@ -901,9 +1873,49 @@ function formatRowDate(iso: string): string {
   });
 }
 
+/** Compact two-line-friendly date for the mobile card list:
+ * `Wed Jun 4`. Drops the comma the desktop row uses ("Wed, Jun 4")
+ * so the line wraps less awkwardly inside a narrow column. */
+function formatMobileRowDate(iso: string): string {
+  const d = new Date(iso);
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  const day = d.getDate();
+  return `${weekday} ${month} ${day}`;
+}
+
 function formatRowTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+// --- useSyncExternalStore plumbing for the mobile media query -----
+//
+// Tailwind's sm: breakpoint is 640px, so the mobile query matches
+// viewports up to 639px inclusive. Hoisted to module scope so React
+// gets a stable subscribe function reference across renders, which
+// avoids re-subscribing on every render. Mirrors the same plumbing
+// in components/date-tile-strip.tsx — when a third consumer arrives
+// this can move into a shared hook.
+
+const MOBILE_QUERY = "(max-width: 639px)";
+
+function subscribeMobileQuery(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia(MOBILE_QUERY);
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+
+function getMobileSnapshot(): boolean {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function getMobileServerSnapshot(): boolean {
+  // SSR default: desktop layout. The hook re-renders to the actual
+  // viewport's value on hydration, so a mobile user sees a single
+  // brief flash of the desktop layout before it snaps to the card list.
+  return false;
 }

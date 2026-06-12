@@ -21,6 +21,64 @@ export type TitleMessage = {
 };
 
 /**
+ * One block of multimodal message content, shaped exactly like the
+ * Anthropic SDK's content blocks. The web composer builds this on the
+ * client and posts it to the agent's /chat — the agent forwards it to
+ * Claude unchanged. Only `text` and `image` blocks are produced here
+ * (the photo-meal-logging SOW: one image plus a text caption per turn).
+ *
+ * This is the IN-FLIGHT (current-session) shape. It is deliberately
+ * distinct from lib/api.ts's persisted `ChatMessage`, whose `content`
+ * stays a plain string — image bytes never reach the API; the stored
+ * form is the `[image attached] …` placeholder.
+ */
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: {
+        type: "base64";
+        media_type: "image/jpeg" | "image/png" | "image/webp";
+        data: string;
+      };
+    };
+
+/**
+ * One message in the in-flight /chat request. `content` is either a
+ * plain string (text-only turn, exactly as today) or a list of
+ * `ContentBlock`s (a turn carrying an image). Assistant turns in the
+ * scrollback are always strings; only user turns ever carry blocks.
+ */
+export type ChatRequestMessage = {
+  role: "user" | "assistant";
+  content: string | ContentBlock[];
+};
+
+/**
+ * Read a Blob as raw base64 (no `data:…;base64,` prefix). Wraps
+ * `FileReader.readAsDataURL` and slices off everything up to and
+ * including the comma, leaving the payload the Anthropic image block's
+ * `source.data` field expects. Rejects if the read fails or returns a
+ * non-string result.
+ */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("failed to read blob"));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("FileReader did not return a string"));
+        return;
+      }
+      const comma = result.indexOf(",");
+      resolve(comma === -1 ? result : result.slice(comma + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
  * Ask the agent's /title endpoint for a 3–6 word summary. Always
  * returns a non-empty string ≤ 80 chars on success; throws on auth
  * failure or transport error. The agent itself has a server-side

@@ -276,23 +276,153 @@ export type User = {
   email: string;
   display_name?: string;
   weight_unit: "lb" | "kg";
+  // Preferred display unit for running distances/paces. Drives the
+  // DistanceUnitContext seed and the settings toggle.
+  distance_unit: "mi" | "km";
+  // Static body metric, canonical centimeters. Null/absent when the user
+  // hasn't set a height; clients convert to in/cm at the display edge.
+  height_cm?: number | null;
+  // Resolved avatar URL from GET /me — a presigned S3 GET (when the user
+  // uploaded one), the OAuth-provider avatar URL fallback, or null when
+  // neither is available (client renders an initials placeholder).
+  avatar_url?: string | null;
   created_at: string;
   updated_at: string;
 };
 
 /**
- * GET /me. Returns the authed user, including their preferred
- * `weight_unit`. Throws if the response carries no user payload.
+ * The resolved profile returned by the four /me profile endpoints
+ * (GET/PATCH /me, POST/DELETE /me/avatar). Mirrors the API's `meResponse`
+ * DTO: a flat shape where `avatar_url` is already resolved server-side
+ * (presigned S3 GET, OAuth fallback, or null) and `height_cm` is the
+ * canonical centimeter value. It's a structural subset of `User`, so it
+ * doubles as the seed for the DistanceUnitContext and Settings page.
  */
-export async function getMe(token: string): Promise<User> {
+export type ResolvedProfile = {
+  id: string;
+  email: string;
+  display_name: string;
+  weight_unit: "lb" | "kg";
+  distance_unit: "mi" | "km";
+  height_cm: number | null;
+  avatar_url: string | null;
+};
+
+/**
+ * GET /me. Returns the resolved profile — preferences plus `height_cm`
+ * and a server-resolved `avatar_url`. Throws if the response carries no
+ * user payload.
+ */
+export async function getMe(token: string): Promise<ResolvedProfile> {
   const resp = await fetch(`${config.apiUrl}/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  const got = await unwrap<User | null>(resp, null);
+  const got = await unwrap<ResolvedProfile | null>(resp, null);
   if (!got) {
     throw new Error("user not found");
   }
   return got;
+}
+
+/**
+ * The authed user's daily AI-usage snapshot. Denominated only as a
+ * percentage of the user's daily allowance — the API deliberately omits
+ * any dollar figure (the cost model is operator-internal). `capped` is
+ * the gate's source of truth; `resets_at` is the user's next local
+ * midnight in UTC (RFC3339), which the frontend turns into a countdown.
+ */
+export type UsageData = { percent_used: number; capped: boolean; resets_at: string };
+
+/**
+ * GET /me/usage. Returns the authed user's daily AI-usage snapshot.
+ * `tz` is the user's IANA timezone (e.g. "America/Denver"), used by the
+ * API to anchor the daily-rollover window on the user's local midnight;
+ * call sites pass `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+ */
+export async function getMyUsage(token: string, tz: string): Promise<UsageData> {
+  const resp = await fetch(`${config.apiUrl}/me/usage?tz=${encodeURIComponent(tz)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<UsageData>(resp, { percent_used: 0, capped: false, resets_at: "" });
+}
+
+/**
+ * PATCH /me. Partial update of the authed user's profile/preferences;
+ * omit a field to leave it unchanged. Returns the updated user so the
+ * caller can splice it into local state / re-seed contexts without a
+ * follow-up GET.
+ */
+export async function updateMe(
+  token: string,
+  patch: {
+    display_name?: string;
+    // Canonical centimeters; pass `null` to clear a previously-set height.
+    height_cm?: number | null;
+    weight_unit?: "lb" | "kg";
+    distance_unit?: "mi" | "km";
+  },
+): Promise<ResolvedProfile> {
+  const resp = await fetch(`${config.apiUrl}/me`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(patch),
+  });
+  const updated = await unwrap<ResolvedProfile | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated user");
+  }
+  return updated;
+}
+
+/**
+ * POST /me/avatar. Uploads an image as multipart/form-data under the
+ * field `file` and returns the resolved profile (with the freshly
+ * presigned `avatar_url`).
+ *
+ * We deliberately do NOT set a Content-Type header — the browser fills in
+ * `multipart/form-data; boundary=...` for the FormData body, and setting
+ * it manually would omit the boundary and break server-side parsing
+ * (same pattern as `importRunningTcx`).
+ *
+ * The server is authoritative on size (2 MB) and content type
+ * (image/png, image/jpeg, image/webp); callers should still guard
+ * client-side for snappier UX. Non-2xx surfaces the API's `error`
+ * envelope as the thrown message.
+ */
+export async function uploadAvatar(token: string, file: File): Promise<ResolvedProfile> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch(`${config.apiUrl}/me/avatar`, {
+    method: "POST",
+    // No Content-Type: the browser sets the multipart boundary itself.
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const updated = await unwrap<ResolvedProfile | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated profile");
+  }
+  return updated;
+}
+
+/**
+ * DELETE /me/avatar. Clears the user's uploaded avatar and returns the
+ * resolved profile, whose `avatar_url` now carries the OAuth fallback (or
+ * null when none is available).
+ */
+export async function deleteAvatar(token: string): Promise<ResolvedProfile> {
+  const resp = await fetch(`${config.apiUrl}/me/avatar`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const updated = await unwrap<ResolvedProfile | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated profile");
+  }
+  return updated;
 }
 
 /**
@@ -343,41 +473,104 @@ export type ExerciseBaseline = {
 };
 
 /**
- * GET /workouts/progression response. Currently driven by the
- * `muscle_group` query parameter; future filters (exercise_id,
- * equipment, etc.) will produce different response shapes returned
- * from the same endpoint. See
- * prog-strength-docs/sows/estimated-one-rep-max-time-series-table.md.
+ * One exercise's contribution to the progression chart's trend layer.
+ * `slope_per_month` is the least-squares slope of that exercise's
+ * normalized points, in percentage points per month relative to its
+ * own baseline; `trendline` carries the regression's endpoints. Both
+ * are null when `session_count` is below the backend's minimum-sessions
+ * threshold (or the regression is degenerate) — the renderer treats
+ * those as "not enough data" rather than fitting a line through two
+ * points. See prog-strength-docs/sows/progress-page-modernization.md.
  */
-export type MuscleGroupProgression = {
-  muscle_group: string;
-  since: string;
-  until: string;
-  exercise_baselines: ExerciseBaseline[];
-  points: MuscleGroupProgressionPoint[];
-  // Single combined trendline through every normalized point.
-  // Null when there are fewer than 2 points or all share the same X.
+export type PerExerciseTrend = {
+  exercise_id: string;
+  session_count: number;
+  slope_per_month: number | null;
   trendline: Trendline | null;
 };
 
 /**
- * GET /workouts/progression?muscle_group=...&since=...&until=...
+ * Defensible aggregate stats built on top of the per-exercise slopes.
+ * `min_sessions_threshold` is surfaced so the UI's "not enough data"
+ * copy isn't hard-coded. `median_slope_per_month` is null when no
+ * exercise clears the session threshold.
+ */
+export type ProgressionAggregate = {
+  lifts_tracked: number;
+  lifts_progressing: number;
+  median_slope_per_month: number | null;
+  min_sessions_threshold: number;
+};
+
+/**
+ * Echo of the request's filter plus the resolved set of muscle groups
+ * behind it. Exactly one of `movement_pattern` / `muscle_group` is set,
+ * mirroring the query parameter the caller supplied; the UI renders an
+ * unobtrusive caption from `muscle_groups_included`.
+ */
+export type ProgressionFilterInfo = {
+  movement_pattern?: string;
+  muscle_group?: string;
+  muscle_groups_included: string[];
+};
+
+/**
+ * GET /workouts/progression response. Driven by either the
+ * `movement_pattern` or the legacy `muscle_group` query parameter; the
+ * backend resolves the filter into its constituent muscle groups,
+ * normalizes each exercise against its own recency-weighted baseline,
+ * and returns per-exercise trends + aggregate stats ready to plot.
  *
- * Requires auth. The backend resolves the muscle-group filter into
- * every exercise that targets it, reads each exercise's 1RM history,
- * computes a recency-weighted current baseline per exercise, and
- * returns normalized points + a single trendline ready to plot.
+ * `baseline_model` is the discriminator the UI uses to label what
+ * "100%" means (today: "recency_weighted_current"). The single
+ * cross-exercise top-level trendline of the prior shape is gone — the
+ * trend layer is now per-exercise. See
+ * prog-strength-docs/sows/progress-page-modernization.md.
+ */
+export type MuscleGroupProgression = {
+  filter: ProgressionFilterInfo;
+  since: string;
+  until: string;
+  baseline_model: string;
+  exercise_baselines: ExerciseBaseline[];
+  points: MuscleGroupProgressionPoint[];
+  per_exercise_trends: PerExerciseTrend[];
+  aggregate: ProgressionAggregate | null;
+};
+
+/**
+ * Exactly one filter selects the exercises that feed the progression
+ * chart: a movement pattern (`push` | `pull` | `legs` | `core` | `all`,
+ * resolved to its muscle groups server-side) or a single legacy
+ * `muscle_group`. The API rejects supplying both or neither, so the
+ * union type pushes that "pick one" contract onto the caller.
+ */
+export type ProgressionFilter = { movementPattern: string } | { muscleGroup: string };
+
+/**
+ * GET /workouts/progression?{movement_pattern|muscle_group}=...&since=...&until=...
+ *
+ * Requires auth. The backend resolves the filter into every exercise
+ * that targets it, reads each exercise's 1RM history, computes a
+ * recency-weighted current baseline per exercise, and returns
+ * normalized points + per-exercise trends + aggregate stats ready to
+ * plot.
  *
  * Timestamps are RFC3339; if either is omitted, the server defaults
  * to the last 90 days.
  */
 export async function listProgression(
   token: string,
-  muscleGroup: string,
+  filter: ProgressionFilter,
   since?: string,
   until?: string,
 ): Promise<MuscleGroupProgression> {
-  const params = new URLSearchParams({ muscle_group: muscleGroup });
+  const params = new URLSearchParams();
+  if ("movementPattern" in filter) {
+    params.set("movement_pattern", filter.movementPattern);
+  } else {
+    params.set("muscle_group", filter.muscleGroup);
+  }
   if (since) params.set("since", since);
   if (until) params.set("until", until);
   const resp = await fetch(`${config.apiUrl}/workouts/progression?${params.toString()}`, {
@@ -388,12 +581,17 @@ export async function listProgression(
   const got = await unwrap<MuscleGroupProgression | null>(resp, null);
   return (
     got ?? {
-      muscle_group: muscleGroup,
+      filter:
+        "movementPattern" in filter
+          ? { movement_pattern: filter.movementPattern, muscle_groups_included: [] }
+          : { muscle_group: filter.muscleGroup, muscle_groups_included: [] },
       since: since ?? "",
       until: until ?? "",
+      baseline_model: "recency_weighted_current",
       exercise_baselines: [],
       points: [],
-      trendline: null,
+      per_exercise_trends: [],
+      aggregate: null,
     }
   );
 }
@@ -521,6 +719,7 @@ export type NutritionLogEntry = {
   consumed_at: string;
   pantry_item_id?: string | null;
   recipe_id?: string | null;
+  custom_meal_name: string | null;
   quantity: number;
   calories: number;
   protein_g: number;
@@ -543,11 +742,36 @@ export type CreateLogEntryPayload = {
   consumed_at?: string; // RFC3339; server defaults to now
 };
 
-/** Payload for editing a log entry. Omit a field to leave it unchanged. */
+/**
+ * Payload for creating a custom (one-off) log entry — a meal the user
+ * typed in directly, not backed by a saved pantry item or recipe. The
+ * macros are the totals as consumed (quantity is always 1 server-side).
+ */
+export type CreateCustomLogEntryPayload = {
+  name: string;
+  calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  meal: MealType;
+  consumed_at?: string; // RFC3339; server defaults to now
+};
+
+/**
+ * Payload for editing a log entry. Omit a field to leave it unchanged.
+ * The `name`/`calories`/`protein_g`/`fat_g`/`carbs_g` fields are only
+ * accepted for custom entries; the server rejects them for pantry- or
+ * recipe-backed rows.
+ */
 export type UpdateLogEntryPayload = {
   quantity?: number;
   consumed_at?: string;
   meal?: MealType;
+  name?: string;
+  calories?: number;
+  protein_g?: number;
+  fat_g?: number;
+  carbs_g?: number;
 };
 
 /** Per-day aggregate from GET /nutrition-log/daily. */
@@ -673,6 +897,28 @@ export async function createNutritionLogEntry(
   payload: CreateLogEntryPayload,
 ): Promise<NutritionLogEntry> {
   const resp = await fetch(`${config.apiUrl}/nutrition-log`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<NutritionLogEntry | null>(resp, null);
+  if (!created) throw new Error("API did not return the created log entry");
+  return created;
+}
+
+/**
+ * POST /nutrition-log/custom. Logs a one-off meal the user typed in,
+ * not backed by a saved pantry item or recipe. Mirrors
+ * `createNutritionLogEntry`'s fetch/unwrap pattern.
+ */
+export async function createCustomNutritionLogEntry(
+  token: string,
+  payload: CreateCustomLogEntryPayload,
+): Promise<NutritionLogEntry> {
+  const resp = await fetch(`${config.apiUrl}/nutrition-log/custom`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -870,6 +1116,60 @@ export async function deleteBodyweightEntry(token: string, id: string): Promise<
     }
     throw new Error(detail);
   }
+}
+
+export type BodyweightGoal = {
+  weight: number;
+  unit: "lb" | "kg";
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export async function getBodyweightGoal(token: string): Promise<BodyweightGoal> {
+  const resp = await fetch(`${config.apiUrl}/me/bodyweight-goal`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<BodyweightGoal>(resp, {
+    weight: 0,
+    unit: "lb",
+    created_at: null,
+    updated_at: null,
+  });
+}
+
+export async function putBodyweightGoal(
+  token: string,
+  goal: { weight: number; unit: "lb" | "kg" },
+): Promise<BodyweightGoal> {
+  const resp = await fetch(`${config.apiUrl}/me/bodyweight-goal`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(goal),
+  });
+  const saved = await unwrap<BodyweightGoal | null>(resp, null);
+  if (!saved) throw new Error("API did not return the saved bodyweight goal");
+  return saved;
+}
+
+export async function updateBodyweightEntry(
+  token: string,
+  id: string,
+  payload: { weight?: number; unit?: "lb" | "kg"; measured_at?: string },
+): Promise<BodyweightEntry> {
+  const resp = await fetch(`${config.apiUrl}/bodyweight/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const updated = await unwrap<BodyweightEntry | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated bodyweight entry");
+  return updated;
 }
 
 // --- Recipes ------------------------------------------------------
@@ -1121,6 +1421,403 @@ export async function appendChatTurn(
   const appended = await unwrap<ChatSessionWithMessages | null>(resp, null);
   if (!appended) throw new Error("API did not return the appended turn");
   return appended;
+}
+
+// --- Activities (TCX import) --------------------------------------
+//
+// The API generalized the prior running-only domain into a sport-agnostic
+// activity domain (see api migration 015). Routes moved from /running/*
+// to /activities/*. The TS names on this side are kept as `RunningSession`
+// + `RunningSessionsPage` for now: the web app is still a running app, the
+// pages still live at /running/*, and renaming the user-facing routes is
+// product work separate from this API cutover. Walks and rides will land
+// in the API but the UI treats anything non-running as out of scope until
+// a follow-up.
+
+/** Sport-agnostic activity type stored on every API row. */
+export type ActivityType = "running" | "walking" | "cycling" | "other";
+
+/** How an activity entered the system. */
+export type IngestSource = "manual_tcx" | "garmin_api";
+
+/**
+ * One imported activity (today: a run; tomorrow: also walks/rides).
+ * Distances/elevations are stored in meters and paces in seconds-per-
+ * kilometer server-side; the DistanceUnitContext converts toward the
+ * user's preferred unit at render time. `trackpoints` is only present
+ * on the per-id detail GET — the list endpoint omits it to keep payloads
+ * small. See prog-strength-docs/sows/running-tracking-via-tcx-import.md.
+ *
+ * `avg_pace_sec_per_km` is nullable: pace is meaningful only for running
+ * activities; cycling/walking rows return null.
+ */
+export type RunningSession = {
+  id: string;
+  activity_type: ActivityType;
+  ingest_source: IngestSource;
+  source_activity_id: string;
+  name: string | null;
+  start_time: string; // RFC3339
+  distance_meters: number;
+  duration_seconds: number;
+  avg_pace_sec_per_km: number | null;
+  best_pace_sec_per_km: number | null;
+  avg_heart_rate_bpm: number | null;
+  max_heart_rate_bpm: number | null;
+  total_calories: number | null;
+  elevation_gain_meters: number | null;
+  created_at: string;
+  // Present only on the detail GET; absent in list responses.
+  trackpoints?: RunningTrackpoint[];
+};
+
+/** One sampled point along an activity's track, ordered by `sequence`. */
+export type RunningTrackpoint = {
+  sequence: number;
+  elapsed_seconds: number;
+  distance_meters: number;
+  heart_rate_bpm: number | null;
+  pace_sec_per_km: number | null;
+  elevation_meters: number | null;
+};
+
+/**
+ * Aggregate running stats for the dashboard header tiles. The API
+ * filters to activity_type='running' before aggregating, so walks and
+ * rides don't contribute to these numbers.
+ */
+export type RunningMetrics = {
+  current_week: {
+    distance_meters: number;
+    run_count: number;
+    delta_pct_vs_prior_week: number | null;
+  };
+  current_month: {
+    distance_meters: number;
+    run_count: number;
+  };
+  recent_avg_pace_sec_per_km: number | null;
+  all_time: {
+    distance_meters: number;
+    run_count: number;
+  };
+};
+
+/**
+ * One page of activities plus the cursor for the next page. The wire
+ * field is `activities` (server-renamed from the prior `sessions` in API
+ * migration 015); the TS name stays `activities` to match.
+ */
+export type RunningSessionsPage = {
+  activities: RunningSession[];
+  // Opaque cursor (a start_time) to pass as `before` for the next page;
+  // null when there are no older activities.
+  next_before: string | null;
+};
+
+/**
+ * Thrown by `importRunningTcx` when the API returns 409 — the activity
+ * was already imported. Carries the existing activity's id so the import
+ * modal can render an "already in your log" message with a View run link
+ * instead of a generic error.
+ */
+export class DuplicateRunError extends Error {
+  existingActivityId: string;
+  constructor(message: string, existingActivityId: string) {
+    super(message);
+    this.name = "DuplicateRunError";
+    this.existingActivityId = existingActivityId;
+  }
+}
+
+/**
+ * GET /activities. Returns one page of the authed user's activities,
+ * most recent first. Two mutually exclusive query patterns:
+ *   - cursor pagination: `limit` + `before` (a prior page's `next_before`)
+ *   - date range:        `since` + `until` (half-open `[since, until)`)
+ * The calendar uses the range form to fetch a whole month at once; the
+ * activity list uses the cursor form. Mixing returns 400 from the API.
+ */
+export async function listRunningSessions(
+  token: string,
+  opts: { limit?: number; before?: string; since?: string; until?: string } = {},
+): Promise<RunningSessionsPage> {
+  const params = new URLSearchParams();
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.before) params.set("before", opts.before);
+  if (opts.since) params.set("since", opts.since);
+  if (opts.until) params.set("until", opts.until);
+  const qs = params.toString();
+  const resp = await fetch(`${config.apiUrl}/activities${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<RunningSessionsPage>(resp, { activities: [], next_before: null });
+}
+
+/**
+ * GET /activities/{id}. Returns a single activity owned by the authed
+ * user, including its `trackpoints`. 404 if the ID doesn't exist or
+ * belongs to another user.
+ */
+export async function getRunningSession(token: string, id: string): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<RunningSession | null>(resp, null);
+  if (!got) {
+    throw new Error("activity not found");
+  }
+  return got;
+}
+
+/**
+ * GET /activities/running-metrics. `timezone` is an IANA name (e.g.
+ * "America/New_York"); the server uses it to bucket "this week" / "this
+ * month". Call sites should pass
+ * `Intl.DateTimeFormat().resolvedOptions().timeZone`. The API filters
+ * to running activities only; non-running rows don't contribute.
+ */
+export async function getRunningMetrics(token: string, timezone: string): Promise<RunningMetrics> {
+  const params = new URLSearchParams({ timezone });
+  const resp = await fetch(`${config.apiUrl}/activities/running-metrics?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<RunningMetrics>(resp, {
+    current_week: { distance_meters: 0, run_count: 0, delta_pct_vs_prior_week: null },
+    current_month: { distance_meters: 0, run_count: 0 },
+    recent_avg_pace_sec_per_km: null,
+    all_time: { distance_meters: 0, run_count: 0 },
+  });
+}
+
+/**
+ * PATCH /activities/{id}. Renames the activity; returns the updated row
+ * so the caller can splice it into local state.
+ */
+export async function renameRunningSession(
+  token: string,
+  id: string,
+  name: string,
+): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name }),
+  });
+  const updated = await unwrap<RunningSession | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated activity");
+  }
+  return updated;
+}
+
+/**
+ * DELETE /activities/{id}. 204 on success (no body); throws the API's
+ * `error` envelope on non-2xx.
+ */
+export async function deleteRunningSession(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * POST /activities/tcx. Uploads a Garmin .tcx file as multipart/form-data
+ * under the field `file` and returns the created activity.
+ *
+ * We deliberately do NOT set a Content-Type header — the browser fills
+ * in `multipart/form-data; boundary=...` for the FormData body, and
+ * setting it manually would omit the boundary and break parsing.
+ *
+ * Error mapping:
+ *  - 409 → DuplicateRunError carrying `existing_activity_id` so the
+ *    modal can link to the activity already in the user's log.
+ *  - 413 → friendly "File is too large (max 10 MB)." message.
+ *  - 415 / 400 → the server's `error` text (unsupported/invalid file).
+ *  - other non-2xx → `error` text or `HTTP {status}`.
+ */
+export async function importRunningTcx(token: string, file: File): Promise<RunningSession> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch(`${config.apiUrl}/activities/tcx`, {
+    method: "POST",
+    // No Content-Type: the browser sets the multipart boundary itself.
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  if (resp.status === 409) {
+    let body: { error?: string; code?: string; existing_activity_id?: string } = {};
+    try {
+      body = await resp.json();
+    } catch {
+      // fall through to defaults below
+    }
+    throw new DuplicateRunError(
+      body.error || "This activity is already in your log.",
+      body.existing_activity_id ?? "",
+    );
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 413) {
+      throw new Error("File is too large (max 10 MB).");
+    }
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+
+  const created = await unwrap<RunningSession | null>(resp, null);
+  if (!created) {
+    throw new Error("API did not return the imported activity");
+  }
+  return created;
+}
+
+// --- Running best efforts + progression history ------------------
+//
+// "Best efforts" are running PRs: the fastest window of each standard
+// distance (1mi, 2mi, 5K, 10K, half marathon, marathon) found inside any
+// of the user's running activities — including a fast segment embedded in
+// a longer run. The API stays metric (distance in meters, pace in
+// seconds-per-kilometer); the DistanceUnitContext converts toward the
+// user's preferred unit at render time. See
+// prog-strength-docs/sows/running-best-efforts.md §API Surface.
+
+/**
+ * One running PR row: the user's current best at a single standard
+ * distance, plus the activity that set it. `pace_sec_per_km` is derived
+ * server-side from `duration_seconds / (distance_meters / 1000)`.
+ */
+export type RunningBestEffort = {
+  distance_key: string;
+  distance_label: string;
+  distance_meters: number;
+  duration_seconds: number;
+  pace_sec_per_km: number;
+  activity_id: string;
+  activity_start_time: string; // RFC3339
+};
+
+/**
+ * One point in a distance's progression series — an activity that
+ * achieved a best effort at that distance, with the time it ran.
+ */
+export type BestEffortPoint = {
+  activity_id: string;
+  activity_start_time: string; // RFC3339
+  duration_seconds: number;
+};
+
+/**
+ * Progression history for a single standard distance: every activity that
+ * achieved a best effort at it, ascending by `activity_start_time`, so a
+ * line chart consumes `points` without re-sorting.
+ */
+export type RunningBestEffortHistory = {
+  distance_key: string;
+  distance_label: string;
+  distance_meters: number;
+  points: BestEffortPoint[];
+};
+
+/**
+ * One point in an exercise's estimated-1RM progression series — the max
+ * estimated 1RM across a single workout's sets on that exercise.
+ */
+export type OneRMHistoryPoint = {
+  workout_id: string;
+  performed_at: string; // RFC3339
+  estimated_1rm: number;
+};
+
+/**
+ * Per-exercise estimated-1RM time series. `unit` is the lifter's stored
+ * weight unit for the series; `points` is one entry per workout in which
+ * the exercise was performed, ascending by `performed_at`.
+ */
+export type ExerciseOneRMHistory = {
+  exercise_id: string;
+  exercise_name: string;
+  unit: "lb" | "kg";
+  points: OneRMHistoryPoint[];
+};
+
+/**
+ * GET /running/best-efforts. Returns the authed user's current best across
+ * each standard distance, sorted shortest first. Distances the user has
+ * never covered are omitted from the list.
+ */
+export async function listRunningBestEfforts(token: string): Promise<RunningBestEffort[]> {
+  const resp = await fetch(`${config.apiUrl}/running/best-efforts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<{ best_efforts: RunningBestEffort[] }>(resp, { best_efforts: [] });
+  return got.best_efforts ?? [];
+}
+
+/**
+ * GET /running/best-efforts/{distance_key}/history. Returns the
+ * progression series for one standard distance. 404 (surfaced as a thrown
+ * Error) if `distanceKey` isn't a standard distance.
+ */
+export async function getRunningBestEffortHistory(
+  token: string,
+  distanceKey: string,
+): Promise<RunningBestEffortHistory> {
+  const resp = await fetch(
+    `${config.apiUrl}/running/best-efforts/${encodeURIComponent(distanceKey)}/history`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return unwrap<RunningBestEffortHistory>(resp, {
+    distance_key: distanceKey,
+    distance_label: "",
+    distance_meters: 0,
+    points: [],
+  });
+}
+
+/**
+ * GET /personal-records/{exercise_id}/history. Returns the per-workout
+ * estimated-1RM series for one exercise. 404 (surfaced as a thrown Error)
+ * if the slug isn't in the exercise catalog.
+ */
+export async function getExerciseOneRMHistory(
+  token: string,
+  exerciseId: string,
+): Promise<ExerciseOneRMHistory> {
+  const resp = await fetch(
+    `${config.apiUrl}/personal-records/${encodeURIComponent(exerciseId)}/history`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return unwrap<ExerciseOneRMHistory>(resp, {
+    exercise_id: exerciseId,
+    exercise_name: "",
+    unit: "lb",
+    points: [],
+  });
 }
 
 /**

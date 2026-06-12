@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { Sidebar } from "@/components/sidebar";
+import { UsageProvider } from "@/lib/usage-context";
+import { ProfileProvider } from "@/lib/profile-context";
 
 /**
  * Shared shell for every authenticated app page: sidebar on the left,
@@ -31,10 +33,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!ready) return null;
 
+  // UsageProvider and ProfileProvider live here (not the root layout)
+  // because both require a token — they belong in the authed subtree, and
+  // only mount once `ready` so they never fetch before auth. The sidebar,
+  // chat page, and settings page all read the shared resolved profile.
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
-    </div>
+    <UsageProvider>
+      <ProfileProvider>
+        <div className="flex flex-1 overflow-hidden">
+          <Sidebar />
+          <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
+        </div>
+      </ProfileProvider>
+    </UsageProvider>
   );
 }

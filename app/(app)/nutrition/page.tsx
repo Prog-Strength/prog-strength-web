@@ -4,12 +4,14 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
+  createCustomNutritionLogEntry,
   createNutritionLogEntry,
   getDailyMacros,
   getMacroGoals,
   listNutritionLog,
   listPantryItems,
   listRecipes,
+  type DailyMacros,
   type MacroGoals,
   type MealType,
   type NutritionLogEntry,
@@ -21,10 +23,13 @@ import { MacroGoalRings } from "@/components/macro-goal-rings";
 import { MacroGoalsModal } from "@/components/macro-goals-modal";
 import { QuickAddModal } from "@/components/quick-add-modal";
 import { NutritionLogView, resolveItemName } from "@/components/nutrition/nutrition-log-view";
+import { LogItemModal, type LogItemTarget } from "@/components/nutrition/log-item-modal";
 import { LogEntryEditModal } from "@/components/nutrition/log-entry-edit-modal";
 import { LogEntryDeleteModal } from "@/components/nutrition/log-entry-delete-modal";
 import { PantryView } from "@/components/nutrition/pantry-view";
 import { RecipesView } from "@/components/nutrition/recipes-view";
+import { useToast } from "@/components/toast";
+import { ToolbarButton } from "@/components/toolbar-button";
 
 type View = "log" | "pantry" | "recipes";
 
@@ -37,15 +42,6 @@ function parseView(raw: string | null): View {
 // a session. Sent to the nutrition read endpoints so the server resolves
 // the user-local calendar day.
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-type MacroTotals = {
-  calories: number;
-  protein_g: number;
-  fat_g: number;
-  carbs_g: number;
-};
-
-const ZERO_TOTALS: MacroTotals = { calories: 0, protein_g: 0, fat_g: 0, carbs_g: 0 };
 
 /**
  * Nutrition — daily log + macro widget + Pantry/Recipes catalogs,
@@ -68,18 +64,20 @@ function NutritionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const view = parseView(searchParams.get("view"));
+  const toast = useToast();
 
   const [date, setDate] = useState<Date>(() => startOfLocalDay(new Date()));
   const [entries, setEntries] = useState<NutritionLogEntry[] | null>(null);
-  // Server-computed daily totals drive the ring widget. Sourced from
-  // /nutrition-log/daily rather than summed client-side so the same
-  // arithmetic powers the page and the chat agent's macros answer.
-  const [dailyTotals, setDailyTotals] = useState<MacroTotals>(ZERO_TOTALS);
+  const [dailyTotals, setDailyTotals] = useState<DailyMacros | null>(null);
   const [pantry, setPantry] = useState<PantryItem[] | null>(null);
   const [recipes, setRecipes] = useState<Recipe[] | null>(null);
   const [goals, setGoals] = useState<MacroGoals | null>(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  // Direct-log target from the Pantry/Recipes catalog views: tapping a
+  // card's plus button (desktop) or its action-sheet Log row (mobile)
+  // opens LogItemModal with the item pre-selected.
+  const [logTarget, setLogTarget] = useState<LogItemTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -119,27 +117,16 @@ function NutritionPageInner() {
     [requireToken, handleApiError],
   );
 
-  // The daily endpoint returns at most one bucket for a single-date
-  // query; an empty array means the day has no entries, which the
-  // rings render as zeros.
+  // Server-computed totals from /nutrition-log/daily — the same endpoint
+  // the chat agent reads via get_daily_macros, so the rings and the agent
+  // share one arithmetic source of truth. Single-date queries return at
+  // most one row; a day with no entries returns none (rings render zeros).
   const fetchDailyTotals = useCallback(
     (d: Date) => {
       const token = requireToken();
       if (!token) return;
       getDailyMacros(token, { date: toLocalYMD(d), timezone })
-        .then((days) => {
-          const day = days[0];
-          setDailyTotals(
-            day
-              ? {
-                  calories: day.calories,
-                  protein_g: day.protein_g,
-                  fat_g: day.fat_g,
-                  carbs_g: day.carbs_g,
-                }
-              : ZERO_TOTALS,
-          );
-        })
+        .then((rows) => setDailyTotals(rows[0] ?? null))
         .catch(handleApiError);
     },
     [requireToken, handleApiError],
@@ -170,7 +157,7 @@ function NutritionPageInner() {
     fetchGoals();
   }, [fetchPantry, fetchRecipes, fetchGoals]);
 
-  // Date change: refresh both the entries list and the day's totals.
+  // Date change: the log entries and the day's totals depend on the date.
   useEffect(() => {
     fetchEntries(date);
     fetchDailyTotals(date);
@@ -187,36 +174,57 @@ function NutritionPageInner() {
     return m;
   }, [recipes]);
 
+  const totals = dailyTotals ?? { calories: 0, protein_g: 0, fat_g: 0, carbs_g: 0 };
+
   function setView(next: View) {
     router.replace(next === "log" ? "/nutrition" : `/nutrition?view=${next}`);
   }
 
   function handleLog(
-    source: { kind: "pantry" | "recipe"; id: string },
-    quantity: number,
+    source:
+      | { kind: "pantry"; id: string; quantity: number }
+      | { kind: "recipe"; id: string; quantity: number }
+      | {
+          kind: "custom";
+          name: string;
+          calories: number;
+          protein_g: number;
+          fat_g: number;
+          carbs_g: number;
+        },
     meal: MealType,
+    consumedAt: string,
   ): Promise<void> {
     const token = requireToken();
     if (!token) return Promise.reject(new Error("not signed in"));
     setLogBusy(true);
     setLogError(null);
-    const isToday = sameLocalDay(date, new Date());
-    const consumedAt = isToday ? new Date() : new Date(date.getTime() + 12 * 60 * 60 * 1000);
-    return createNutritionLogEntry(token, {
-      ...(source.kind === "pantry" ? { pantry_item_id: source.id } : { recipe_id: source.id }),
-      quantity,
-      meal,
-      consumed_at: consumedAt.toISOString(),
-    })
+
+    const created =
+      source.kind === "custom"
+        ? createCustomNutritionLogEntry(token, {
+            name: source.name,
+            calories: source.calories,
+            protein_g: source.protein_g,
+            fat_g: source.fat_g,
+            carbs_g: source.carbs_g,
+            meal,
+            consumed_at: consumedAt,
+          })
+        : createNutritionLogEntry(token, {
+            ...(source.kind === "pantry"
+              ? { pantry_item_id: source.id }
+              : { recipe_id: source.id }),
+            quantity: source.quantity,
+            meal,
+            consumed_at: consumedAt,
+          });
+
+    return created
       .then((entry) => {
         setEntries((prev) => (prev ? [entry, ...prev] : [entry]));
-        // Refetch server-truth totals so the rings reflect the new
-        // entry (we optimistically update the list for instant
-        // feedback, but the rings come from /nutrition-log/daily).
-        // The entry always lands on the currently-viewed date — today
-        // via `new Date()` or noon on the viewed date via `date` —
-        // so a single refetch keyed on `date` covers both.
         fetchDailyTotals(date);
+        toast.success(source.kind === "custom" ? `Logged "${source.name}".` : "Logged.");
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -242,12 +250,8 @@ function NutritionPageInner() {
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
+      <header className="border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Nutrition</h1>
-        <p className="text-xs text-[var(--muted)]">
-          Log meals here or in chat. Macros are frozen at log time, so editing a pantry item later
-          won&apos;t rewrite this day.
-        </p>
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -260,13 +264,16 @@ function NutritionPageInner() {
 
           <DateTileStrip value={date} onChange={setDate} />
 
-          {goals && <MacroGoalRings totals={dailyTotals} goals={goals} date={date} />}
+          {goals && <MacroGoalRings totals={totals} goals={goals} date={date} />}
 
           {/* Toolbar row: left group are actions, right group are view
               switches. The bottom border of this row doubles as the
-              separator between the toolbar and the body below. */}
-          <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
-            <div className="flex items-center gap-5">
+              separator between the toolbar and the body below. On
+              mobile (< sm:) the labels collapse to icon-only to fit
+              all five controls comfortably within the viewport;
+              aria-label keeps the icons accessible. */}
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
+            <div className="flex items-center gap-3 sm:gap-5">
               <ToolbarButton
                 onClick={() => setShowQuickAdd(true)}
                 icon={<PlusIcon />}
@@ -278,7 +285,7 @@ function NutritionPageInner() {
                 label={goals?.created_at ? "Edit Macros" : "Set Macros"}
               />
             </div>
-            <div className="flex items-center gap-5">
+            <div className="flex items-center gap-3 sm:gap-5">
               <ToolbarButton
                 onClick={() => setView("log")}
                 icon={<LogIcon />}
@@ -310,10 +317,27 @@ function NutritionPageInner() {
             />
           )}
           {view === "pantry" && (
-            <PantryView token={token} pantry={pantry} onChanged={onPantryChanged} />
+            <PantryView
+              token={token}
+              pantry={pantry}
+              onChanged={onPantryChanged}
+              onLogItem={(item) => {
+                setLogError(null);
+                setLogTarget({ kind: "pantry", item });
+              }}
+            />
           )}
           {view === "recipes" && (
-            <RecipesView token={token} pantry={pantry} recipes={recipes} onChanged={fetchRecipes} />
+            <RecipesView
+              token={token}
+              pantry={pantry}
+              recipes={recipes}
+              onChanged={fetchRecipes}
+              onLogRecipe={(recipe) => {
+                setLogError(null);
+                setLogTarget({ kind: "recipe", recipe });
+              }}
+            />
           )}
         </div>
       </div>
@@ -332,10 +356,21 @@ function NutritionPageInner() {
         <QuickAddModal
           pantry={pantry ?? []}
           recipes={recipes ?? []}
+          date={date}
           busy={logBusy}
           error={logError}
           onLog={handleLog}
           onClose={() => setShowQuickAdd(false)}
+        />
+      )}
+      {logTarget && (
+        <LogItemModal
+          target={logTarget}
+          date={date}
+          busy={logBusy}
+          error={logError}
+          onLog={handleLog}
+          onClose={() => setLogTarget(null)}
         />
       )}
       {editingEntry && (
@@ -384,47 +419,7 @@ function toLocalYMD(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function sameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
 // --- Toolbar bits --------------------------------------------------
-
-/**
- * Ghost-style button. When `active` is true (used by the Pantry and
- * Recipes tabs), the button paints a 2px underline that aligns with
- * the parent row's bottom border, so the active tab visually
- * "connects" to the separator below.
- */
-function ToolbarButton({
-  onClick,
-  icon,
-  label,
-  active,
-}: {
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 " +
-        (active ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3" : "")
-      }
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
 
 function PlusIcon() {
   return (
