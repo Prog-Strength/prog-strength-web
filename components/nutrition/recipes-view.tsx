@@ -6,6 +6,7 @@ import { formatNumber } from "@/lib/format";
 import { MACRO_COLORS } from "@/lib/macro-colors";
 import { RecipeModal } from "@/components/recipe-modal";
 import { RecipeDeleteModal } from "@/components/nutrition/recipe-delete-modal";
+import { CatalogActionSheet } from "@/components/nutrition/catalog-action-sheet";
 
 const PAGE_SIZE = 40;
 
@@ -16,23 +17,28 @@ type ModalTarget = null | { mode: "create" } | { mode: "edit"; id: string };
  * PantryView: search, page-40 with letter headers, two-column grid
  * under each header, inert info card with pencil + trash icons. Threads
  * the page-level pantry array through to the RecipeModal so the form
- * can render its component picker.
+ * can render its component picker. Logging bubbles up via `onLogRecipe`
+ * so the shell can open its LogItemModal against the shared log state.
  */
 export function RecipesView({
   token,
   pantry,
   recipes,
   onChanged,
+  onLogRecipe,
 }: {
   token: string;
   pantry: PantryItem[] | null;
   recipes: Recipe[] | null;
   onChanged: () => void;
+  onLogRecipe: (recipe: Recipe) => void;
 }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<ModalTarget>(null);
   const [deleting, setDeleting] = useState<Recipe | null>(null);
+  // Mobile-only: the recipe whose action sheet (Log / Edit / Delete) is open.
+  const [actions, setActions] = useState<Recipe | null>(null);
 
   const filtered = useMemo(() => {
     if (recipes === null) return null;
@@ -123,8 +129,10 @@ export function RecipesView({
                     <RecipeRow
                       key={r.id}
                       recipe={r}
+                      onLog={() => onLogRecipe(r)}
                       onEdit={() => setModal({ mode: "edit", id: r.id })}
                       onDelete={() => setDeleting(r)}
+                      onActions={() => setActions(r)}
                     />
                   ))}
                 </div>
@@ -173,21 +181,57 @@ export function RecipesView({
           onClose={() => setDeleting(null)}
         />
       )}
+
+      {actions && (
+        <CatalogActionSheet
+          name={actions.name}
+          macros={actions.macros}
+          onLog={() => {
+            const recipe = actions;
+            setActions(null);
+            onLogRecipe(recipe);
+          }}
+          onEdit={() => {
+            const recipe = actions;
+            setActions(null);
+            setModal({ mode: "edit", id: recipe.id });
+          }}
+          onDelete={() => {
+            const recipe = actions;
+            setActions(null);
+            setDeleting(recipe);
+          }}
+          onClose={() => setActions(null)}
+        />
+      )}
     </section>
   );
 }
 
 function RecipeRow({
   recipe,
+  onLog,
   onEdit,
   onDelete,
+  onActions,
 }: {
   recipe: Recipe;
+  onLog: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onActions: () => void;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+    <div className="relative flex min-w-0 items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+      {/* Mobile: the whole card is tappable and opens the action sheet
+          (Log / Edit / Delete); the inline icon buttons below are
+          desktop-only because three of them crowd a phone-width card. */}
+      <button
+        type="button"
+        onClick={onActions}
+        aria-label={`Actions for ${recipe.name}`}
+        className="absolute inset-0 rounded-md sm:hidden"
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
         <p className="truncate text-sm font-medium">{recipe.name}</p>
         <p className="truncate text-xs text-[var(--muted)] tabular-nums">
@@ -206,7 +250,15 @@ function RecipeRow({
           {formatNumber(recipe.macros.carbs_g)}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
+        <button
+          type="button"
+          onClick={onLog}
+          aria-label={`Log ${recipe.name}`}
+          className="rounded p-1.5 text-[var(--accent)] transition hover:bg-[var(--background)] hover:opacity-80"
+        >
+          <PlusIcon />
+        </button>
         <button
           type="button"
           onClick={onEdit}
