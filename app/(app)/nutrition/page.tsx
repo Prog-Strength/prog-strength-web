@@ -239,12 +239,8 @@ function NutritionPageInner() {
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
+      <header className="border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Nutrition</h1>
-        <p className="text-xs text-[var(--muted)]">
-          Log meals here or in chat. Macros are frozen at log time, so editing a pantry item later
-          won&apos;t rewrite this day.
-        </p>
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
