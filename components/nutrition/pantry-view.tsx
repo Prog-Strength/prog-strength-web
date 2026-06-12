@@ -6,6 +6,7 @@ import { formatNumber } from "@/lib/format";
 import { MACRO_COLORS } from "@/lib/macro-colors";
 import { PantryItemModal } from "@/components/pantry-item-modal";
 import { PantryItemDeleteModal } from "@/components/nutrition/pantry-item-delete-modal";
+import { CatalogActionSheet } from "@/components/nutrition/catalog-action-sheet";
 
 const PAGE_SIZE = 40;
 
@@ -16,21 +17,26 @@ type ModalTarget = null | { mode: "create" } | { mode: "edit"; id: string };
  * state (query, page, modal target, delete target) but reads the
  * pantry list from the page-level shell. Save and delete callbacks
  * bubble up so the shell can refetch pantry + recipes (recipe macros
- * depend on pantry).
+ * depend on pantry). Logging bubbles up via `onLogItem` so the shell
+ * can open its LogItemModal against the shared log state.
  */
 export function PantryView({
   token,
   pantry,
   onChanged,
+  onLogItem,
 }: {
   token: string;
   pantry: PantryItem[] | null;
   onChanged: () => void;
+  onLogItem: (item: PantryItem) => void;
 }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<ModalTarget>(null);
   const [deleting, setDeleting] = useState<PantryItem | null>(null);
+  // Mobile-only: the item whose action sheet (Log / Edit / Delete) is open.
+  const [actions, setActions] = useState<PantryItem | null>(null);
 
   const filtered = useMemo(() => {
     if (pantry === null) return null;
@@ -122,8 +128,10 @@ export function PantryView({
                     <PantryRow
                       key={p.id}
                       item={p}
+                      onLog={() => onLogItem(p)}
                       onEdit={() => setModal({ mode: "edit", id: p.id })}
                       onDelete={() => setDeleting(p)}
+                      onActions={() => setActions(p)}
                     />
                   ))}
                 </div>
@@ -170,21 +178,62 @@ export function PantryView({
           onClose={() => setDeleting(null)}
         />
       )}
+
+      {actions && (
+        <CatalogActionSheet
+          name={actions.name}
+          macros={{
+            calories: actions.calories,
+            protein_g: actions.protein_g,
+            fat_g: actions.fat_g,
+            carbs_g: actions.carbs_g,
+          }}
+          onLog={() => {
+            const item = actions;
+            setActions(null);
+            onLogItem(item);
+          }}
+          onEdit={() => {
+            const item = actions;
+            setActions(null);
+            setModal({ mode: "edit", id: item.id });
+          }}
+          onDelete={() => {
+            const item = actions;
+            setActions(null);
+            setDeleting(item);
+          }}
+          onClose={() => setActions(null)}
+        />
+      )}
     </section>
   );
 }
 
 function PantryRow({
   item,
+  onLog,
   onEdit,
   onDelete,
+  onActions,
 }: {
   item: PantryItem;
+  onLog: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onActions: () => void;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+    <div className="relative flex min-w-0 items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+      {/* Mobile: the whole card is tappable and opens the action sheet
+          (Log / Edit / Delete); the inline icon buttons below are
+          desktop-only because three of them crowd a phone-width card. */}
+      <button
+        type="button"
+        onClick={onActions}
+        aria-label={`Actions for ${item.name}`}
+        className="absolute inset-0 rounded-md sm:hidden"
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
         <p className="truncate text-sm font-medium">{item.name}</p>
         <p className="truncate text-xs text-[var(--muted)] tabular-nums">
@@ -203,7 +252,15 @@ function PantryRow({
           {formatNumber(item.carbs_g)}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
+        <button
+          type="button"
+          onClick={onLog}
+          aria-label={`Log ${item.name}`}
+          className="rounded p-1.5 text-[var(--accent)] transition hover:bg-[var(--background)] hover:opacity-80"
+        >
+          <PlusIcon />
+        </button>
         <button
           type="button"
           onClick={onEdit}

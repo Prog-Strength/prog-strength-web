@@ -21,6 +21,7 @@ import { MacroGoalRings } from "@/components/macro-goal-rings";
 import { MacroGoalsModal } from "@/components/macro-goals-modal";
 import { QuickAddModal } from "@/components/quick-add-modal";
 import { NutritionLogView, resolveItemName } from "@/components/nutrition/nutrition-log-view";
+import { LogItemModal, type LogItemTarget } from "@/components/nutrition/log-item-modal";
 import { LogEntryEditModal } from "@/components/nutrition/log-entry-edit-modal";
 import { LogEntryDeleteModal } from "@/components/nutrition/log-entry-delete-modal";
 import { PantryView } from "@/components/nutrition/pantry-view";
@@ -70,6 +71,10 @@ function NutritionPageInner() {
   const [goals, setGoals] = useState<MacroGoals | null>(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  // Direct-log target from the Pantry/Recipes catalog views: tapping a
+  // card's plus button (desktop) or its action-sheet Log row (mobile)
+  // opens LogItemModal with the item pre-selected.
+  const [logTarget, setLogTarget] = useState<LogItemTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -305,10 +310,27 @@ function NutritionPageInner() {
             />
           )}
           {view === "pantry" && (
-            <PantryView token={token} pantry={pantry} onChanged={onPantryChanged} />
+            <PantryView
+              token={token}
+              pantry={pantry}
+              onChanged={onPantryChanged}
+              onLogItem={(item) => {
+                setLogError(null);
+                setLogTarget({ kind: "pantry", item });
+              }}
+            />
           )}
           {view === "recipes" && (
-            <RecipesView token={token} pantry={pantry} recipes={recipes} onChanged={fetchRecipes} />
+            <RecipesView
+              token={token}
+              pantry={pantry}
+              recipes={recipes}
+              onChanged={fetchRecipes}
+              onLogRecipe={(recipe) => {
+                setLogError(null);
+                setLogTarget({ kind: "recipe", recipe });
+              }}
+            />
           )}
         </div>
       </div>
@@ -332,6 +354,16 @@ function NutritionPageInner() {
           error={logError}
           onLog={handleLog}
           onClose={() => setShowQuickAdd(false)}
+        />
+      )}
+      {logTarget && (
+        <LogItemModal
+          target={logTarget}
+          date={date}
+          busy={logBusy}
+          error={logError}
+          onLog={handleLog}
+          onClose={() => setLogTarget(null)}
         />
       )}
       {editingEntry && (
