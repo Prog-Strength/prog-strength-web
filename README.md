@@ -14,7 +14,8 @@ This repo is the browser-facing app. It does not own any data; the Go API in
 - **TypeScript** + **Tailwind v4** (`@tailwindcss/postcss`)
 - **recharts** for the workout / bodyweight / nutrition charts
 - **TanStack Query** for the few places we need a real cache; most pages just `fetch` + `useState`
-- **ESLint 9** + **Prettier 3** + **Husky** + **lint-staged** for the pre-commit gate
+- **Vitest** + **Testing Library** for unit tests, co-located as `*.test.ts(x)`
+- **ESLint 9** + **Prettier 3** + **Husky** + **lint-staged** + **commitlint** for the commit gate
 
 No CSS-in-JS, no UI kit. Components are hand-rolled and live alongside the routes they serve.
 
@@ -83,9 +84,11 @@ Auth is Google OAuth issued by the Go API. Successful login deposits a JWT in `l
 | `npm run format`       | Prettier write.                       |
 | `npm run format:check` | Prettier check (what CI runs).        |
 | `npm run typecheck`    | `tsc --noEmit`.                       |
+| `npm run test`         | Vitest, single run.                   |
 
-The Husky `pre-commit` hook runs `lint-staged` (ESLint + Prettier on staged files) and `typecheck`
-before letting a commit land — same checks CI runs on the PR.
+Husky hooks gate every commit: `pre-commit` runs `lint-staged` (ESLint + Prettier on staged files)
+and `typecheck`; `commit-msg` runs commitlint to enforce
+[Conventional Commits](https://www.conventionalcommits.org/). CI repeats the same checks on the PR.
 
 ## Project layout
 
@@ -130,19 +133,17 @@ A few useful conventions:
 
 ## Working with this codebase
 
-`AGENTS.md` at the repo root flags the most important gotcha for anyone (human or otherwise) coming
-in with prior Next.js experience: **this is Next 16**, the App Router has reshaped a lot of APIs,
-and the conventions you remember from Next 13/14 may have changed. When in doubt, the canonical
-docs are vendored at `node_modules/next/dist/docs/` — read those before guessing.
-
-`CLAUDE.md` re-exports `AGENTS.md` so the same guidance reaches Claude Code sessions.
+`AGENTS.md` at the repo root is the orientation doc for anyone (human or AI) contributing: the
+architecture map, data-flow rules, conventions, and the most important gotcha — **this is Next
+16**, and the conventions you remember from Next 13/14 may have changed. When in doubt, the
+canonical docs are vendored at `node_modules/next/dist/docs/` — read those before guessing.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every PR to `main` and every push to `main`. The job runs, in
-order: `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`. All four must
-pass to merge. There are no unit or integration tests in this repo today; verification is the
-type/lint/build trio plus hand-testing in dev.
+`.github/workflows/ci.yml` runs on every PR to `main` and every push to `main`. The main job runs,
+in order: `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test`,
+`npm run build`. A second PR-only job validates that every commit message and the PR title follow
+Conventional Commits. All checks must pass to merge.
 
 ## Deployment
 
@@ -154,6 +155,7 @@ public hostnames of the API and agent services running on EC2.
 
 ## Contributing
 
-This is a side project — the dispatch flow for cross-repo work goes through SOWs in
-[`prog-strength-docs`][docs]. For changes scoped purely to this repo (a component tweak, a styling
-fix, a new page), open a PR directly against `main`. The CI gate above is the only required check.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full process (branching, Conventional Commits,
+hooks, PR expectations) and [AGENTS.md](AGENTS.md) for codebase orientation. The short version:
+cross-repo work goes through SOWs in [`prog-strength-docs`][docs]; changes scoped purely to this
+repo are PRs directly against `main`, gated by the CI checks above.
