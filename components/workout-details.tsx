@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import type { Exercise, Workout, WorkoutExercise, WorkoutSet } from "@/lib/api";
 import { MuscleGroupPill } from "@/components/muscle-group-pill";
-import { workoutVolume } from "@/lib/workout-volume";
+import { predominantUnit, workoutVolume } from "@/lib/workout-volume";
 
 /**
  * Readonly workout details — shared between the Workouts page (rendered
@@ -13,10 +13,11 @@ import { workoutVolume } from "@/lib/workout-volume";
  * propagates to both surfaces.
  *
  * Pure presentation: the component reads from the workout payload and
- * the catalog map; it does not fetch or mutate. Edit affordances live
- * outside this component (the Workouts page renders a pencil button
- * next to each row that opens the edit modal; the Calendar page has
- * no edit affordance by design).
+ * the catalog map; it does not fetch or mutate. Edit affordances are
+ * opt-in via `onEditGroup` — when omitted (the Workouts list inline view
+ * and the Calendar modal) the component is fully read-only; when provided
+ * (the workout detail page) each group renders a pencil that hands the
+ * group back to the caller to open a focused editor.
  */
 export function WorkoutDetailsBody({
   workout,
@@ -24,10 +25,15 @@ export function WorkoutDetailsBody({
   // When true, append a total-volume footer (sum of reps × weight across
   // every set). Off by default so the inline/modal surfaces stay unchanged.
   showTotalVolume = false,
+  // When provided, each rendered group (a standalone exercise or a whole
+  // superset) shows an edit pencil that calls this with the group's
+  // exercises and its zero-based index. Omitted ⇒ read-only.
+  onEditGroup,
 }: {
   workout: Workout;
   exerciseMap: Map<string, Exercise>;
   showTotalVolume?: boolean;
+  onEditGroup?: (group: WorkoutExercise[], groupIndex: number) => void;
 }) {
   return (
     <div>
@@ -40,26 +46,43 @@ export function WorkoutDetailsBody({
             unnumbered inside. */}
         {groupExercises(workout.exercises).map((group, gIdx) => {
           const groupNum = gIdx + 1;
+          const body =
+            group.length > 1 ? (
+              <div className="rounded-r-md border-l-2 border-[var(--accent)] bg-[var(--surface-2)]/40 py-2 pl-3">
+                <p className="mb-2 flex items-baseline gap-2 text-sm font-medium">
+                  <span>{groupNum}.</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                    Superset
+                  </span>
+                </p>
+                <ul className="flex flex-col gap-2">
+                  {group.map((we, i) => (
+                    <li key={i}>
+                      <ExerciseDetails exercise={we} exerciseMap={exerciseMap} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <ExerciseDetails exercise={group[0]} exerciseMap={exerciseMap} index={groupNum} />
+            );
+
           return (
             <li key={gIdx}>
-              {group.length > 1 ? (
-                <div className="rounded-r-md border-l-2 border-[var(--accent)] bg-[var(--surface-2)]/40 py-2 pl-3">
-                  <p className="mb-2 flex items-baseline gap-2 text-sm font-medium">
-                    <span>{groupNum}.</span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
-                      Superset
-                    </span>
-                  </p>
-                  <ul className="flex flex-col gap-2">
-                    {group.map((we, i) => (
-                      <li key={i}>
-                        <ExerciseDetails exercise={we} exerciseMap={exerciseMap} />
-                      </li>
-                    ))}
-                  </ul>
+              {onEditGroup ? (
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">{body}</div>
+                  <button
+                    type="button"
+                    onClick={() => onEditGroup(group, gIdx)}
+                    aria-label={group.length > 1 ? "Edit superset" : "Edit exercise"}
+                    className="mt-0.5 shrink-0 rounded p-1.5 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--accent)]"
+                  >
+                    <PencilIcon />
+                  </button>
                 </div>
               ) : (
-                <ExerciseDetails exercise={group[0]} exerciseMap={exerciseMap} index={groupNum} />
+                body
               )}
             </li>
           );
@@ -309,23 +332,26 @@ function isPerDumbbell(ex: Exercise | undefined): boolean {
   return (ex.description ?? "").toLowerCase().includes("per dumbbell");
 }
 
-/**
- * The unit to label the total-volume figure with. Picks the first non-
- * bodyweight set's unit (the one that actually carries load), falling back
- * to the first set's unit, then to "lb" for an empty workout.
- */
-function predominantUnit(workout: Workout): "lb" | "kg" {
-  let firstSet: WorkoutSet | undefined;
-  for (const ex of workout.exercises) {
-    for (const s of ex.sets) {
-      if (firstSet === undefined) firstSet = s;
-      if (s.weight > 0) return s.unit;
-    }
-  }
-  return firstSet?.unit ?? "lb";
-}
-
 // --- icons ---------------------------------------------------------------
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
 
 function CloseIcon() {
   return (
