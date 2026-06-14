@@ -24,3 +24,21 @@ export function setsVolume(sets: WorkoutSet[], displayUnit: "lb" | "kg"): number
 export function workoutVolume(workout: Workout, displayUnit: "lb" | "kg"): number {
   return workout.exercises.reduce((total, e) => total + setsVolume(e.sets, displayUnit), 0);
 }
+
+/**
+ * The unit to label a single workout's total-volume figure with. Picks the
+ * first load-bearing set's unit (the one that actually carries weight),
+ * falling back to the first set's unit, then to "lb" for an empty workout.
+ * Shared by the detail-page stat tiles and the WorkoutDetailsBody footer
+ * so the two never label the same number differently.
+ */
+export function predominantUnit(workout: Workout): "lb" | "kg" {
+  let firstSet: WorkoutSet | undefined;
+  for (const ex of workout.exercises) {
+    for (const s of ex.sets) {
+      if (firstSet === undefined) firstSet = s;
+      if (s.weight > 0) return s.unit;
+    }
+  }
+  return firstSet?.unit ?? "lb";
+}

@@ -11,7 +11,7 @@ import {
   Tooltip,
 } from "recharts";
 import type { Exercise, Workout } from "@/lib/api";
-import { CATEGORIES, categorize, type MuscleCategory } from "@/lib/muscle-categories";
+import { setsByCategory } from "@/lib/muscle-set-distribution";
 
 /**
  * The Body Parts sibling to the time-lifting view — a six-axis muscle-
@@ -39,7 +39,7 @@ export function MuscleGroupRadarChart({
   exercises: Exercise[];
 }) {
   const { data, hasData } = useMemo(
-    () => aggregate(workouts ?? [], exercises),
+    () => setsByCategory(workouts ?? [], exercises),
     [workouts, exercises],
   );
 
@@ -75,46 +75,4 @@ export function MuscleGroupRadarChart({
       )}
     </div>
   );
-}
-
-// --- aggregation --------------------------------------------------
-
-type RadarPoint = {
-  category: MuscleCategory;
-  // Count of sets across the window that touched this category.
-  value: number;
-};
-
-/**
- * Tallies, per muscle category, how many sets in the window touched it.
- * Each WorkoutExercise is resolved through the catalog to its muscle
- * groups; every group that maps to a category credits that category
- * with the exercise's set count, so a compound lift contributes to
- * each category it hits. Axis order follows the fixed CATEGORIES tuple
- * so the hexagon's shape is stable across renders.
- */
-function aggregate(
-  workouts: Workout[],
-  exercises: Exercise[],
-): { data: RadarPoint[]; hasData: boolean } {
-  const byId = new Map<string, Exercise>();
-  for (const ex of exercises) byId.set(ex.id, ex);
-
-  const tallies = {} as Record<MuscleCategory, number>;
-  for (const category of CATEGORIES) tallies[category] = 0;
-
-  for (const w of workouts) {
-    for (const we of w.exercises) {
-      const catalog = byId.get(we.exercise_id);
-      if (!catalog) continue;
-      for (const mg of catalog.muscle_groups) {
-        const category = categorize(mg);
-        if (category) tallies[category] += we.sets.length;
-      }
-    }
-  }
-
-  const data = CATEGORIES.map((category) => ({ category, value: tallies[category] }));
-  const hasData = data.reduce((sum, point) => sum + point.value, 0) > 0;
-  return { data, hasData };
 }
