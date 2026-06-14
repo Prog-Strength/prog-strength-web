@@ -68,7 +68,7 @@ type ActiveWorkoutSessionContextValue = {
   clearRestTimer: () => void;
   setRestDefault: (sec: number) => void;
   discard: () => void;
-  save: (endedAt?: string) => Promise<Workout>;
+  save: (endedAt?: string, performedAt?: string) => Promise<Workout>;
 };
 
 const ActiveWorkoutSessionContext = createContext<ActiveWorkoutSessionContextValue | null>(null);
@@ -242,7 +242,7 @@ export function ActiveWorkoutSessionProvider({ children }: { children: React.Rea
     setSession(null);
   }, []);
 
-  const save = useCallback(async (endedAt?: string): Promise<Workout> => {
+  const save = useCallback(async (endedAt?: string, performedAt?: string): Promise<Workout> => {
     // Read the live session from the ref so `save` stays referentially
     // stable (no dependency on `session`).
     const current = sessionRef.current;
@@ -250,6 +250,10 @@ export function ActiveWorkoutSessionProvider({ children }: { children: React.Rea
     const token = getToken();
     if (!token) throw new Error("not authenticated");
     const payload = sessionToPayload(current, endedAt ?? new Date().toISOString());
+    // An explicit performed_at override (e.g. the review screen's edited
+    // "Started at") replaces the session's own performed_at. Passed in
+    // directly so it doesn't depend on a not-yet-committed setTimes update.
+    if (performedAt !== undefined) payload.performed_at = performedAt;
     // On success clear the draft; on failure rethrow so the caller can show
     // the error and the draft is preserved (no state change here).
     const created = await createWorkout(token, payload);

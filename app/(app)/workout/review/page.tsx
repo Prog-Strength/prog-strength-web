@@ -65,6 +65,18 @@ function buildRenderItems(exercises: DraftExercise[]): RenderItem[] {
 const inputClasses =
   "rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none";
 
+/**
+ * Convert a `datetime-local` value to RFC3339, returning null (rather than
+ * throwing on `toISOString()`) when the input is empty or unparseable. Used
+ * to gate Save on a valid "Started at" so the override passed to save() is
+ * always a valid value.
+ */
+function safeLocalInputToRFC3339(local: string): string | null {
+  if (!local) return null;
+  if (Number.isNaN(new Date(local).getTime())) return null;
+  return localInputToRFC3339(local);
+}
+
 export default function ReviewWorkoutPage() {
   const router = useRouter();
   const toast = useToast();
@@ -80,7 +92,6 @@ export default function ReviewWorkoutPage() {
     setExerciseNotes,
     ungroupSuperset,
     logSupersetRound,
-    setTimes,
     discard,
     save,
   } = useActiveWorkoutSession();
@@ -120,19 +131,22 @@ export default function ReviewWorkoutPage() {
 
   if (!session) return null;
 
-  const canSave = isSessionSaveable(session);
+  // performed_at is required (its label carries the asterisk): gate Save on
+  // a non-empty input that parses to a valid RFC3339, so the override we pass
+  // to save() is always a valid value.
+  const performedRFC = performedAt ? safeLocalInputToRFC3339(performedAt) : null;
+  const canSave = isSessionSaveable(session) && performedRFC !== null;
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
-      // Write the (possibly edited) performed_at back to the draft, then
-      // save with the chosen ended_at. ended_at is passed straight to
-      // save() — the draft has no ended_at field.
-      const performedRFC = performedAt ? localInputToRFC3339(performedAt) : undefined;
+      // Pass the (possibly edited) performed_at and ended_at straight to
+      // save(). performed_at overrides the draft's value at save time; the
+      // draft has no ended_at field. Passing performed_at directly avoids
+      // depending on a not-yet-committed setTimes state update.
       const endedRFC = endedAt ? localInputToRFC3339(endedAt) : undefined;
-      if (performedRFC) setTimes(performedRFC);
-      const created = await save(endedRFC);
+      const created = await save(endedRFC || undefined, performedRFC || undefined);
       // Surface PRs before navigating; the toasts persist across the route
       // change because ToastProvider lives in the root layout.
       for (const pr of created.personal_records_set) {

@@ -60,6 +60,13 @@ function Harness() {
       >
         save
       </button>
+      <button
+        onClick={() => {
+          s.save("2026-06-14T11:00:00.000Z", "2026-06-13T08:30:00.000Z").catch(() => {});
+        }}
+      >
+        save-edited
+      </button>
     </div>
   );
 }
@@ -158,6 +165,27 @@ describe("ActiveWorkoutSessionProvider", () => {
     expect(payload.ended_at).toBe("2026-06-14T11:00:00.000Z");
     expect(payload.exercises).toHaveLength(1);
     expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("applies an explicit performed_at override to the payload on save", async () => {
+    createWorkoutMock.mockResolvedValue(workout());
+    renderHarness();
+
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() => expect(screen.getByTestId("has-session")).toHaveTextContent("true"));
+    fireEvent.click(screen.getByText("add-ex"));
+    await waitFor(() => expect(screen.getByTestId("ex-count")).toHaveTextContent("1"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("save-edited"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("has-session")).toHaveTextContent("false"));
+    const payload = createWorkoutMock.mock.calls[0][1];
+    // The edited "Started at" reaches the payload, overriding the session's
+    // own performed_at, and ended_at is honored too.
+    expect(payload.performed_at).toBe("2026-06-13T08:30:00.000Z");
+    expect(payload.ended_at).toBe("2026-06-14T11:00:00.000Z");
   });
 
   it("preserves the draft when save() fails", async () => {
