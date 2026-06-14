@@ -6,6 +6,8 @@ import { isAuthenticated } from "@/lib/auth";
 import { Sidebar } from "@/components/sidebar";
 import { UsageProvider } from "@/lib/usage-context";
 import { ProfileProvider } from "@/lib/profile-context";
+import { ActiveWorkoutSessionProvider } from "@/lib/active-workout-session";
+import { InProgressBanner } from "@/components/live-workout/in-progress-banner";
 
 /**
  * Shared shell for every authenticated app page: sidebar on the left,
@@ -40,10 +42,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <UsageProvider>
       <ProfileProvider>
-        <div className="flex flex-1 overflow-hidden">
-          <Sidebar />
-          <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
-        </div>
+        {/* Mounted inside ProfileProvider so it can read the weight unit
+            for new-set defaults. Owns the live workout draft + persistence
+            and drives the app-wide in-progress banner below. */}
+        <ActiveWorkoutSessionProvider>
+          <div className="flex flex-1 overflow-hidden">
+            <Sidebar />
+            <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
+          </div>
+          <InProgressBanner />
+        </ActiveWorkoutSessionProvider>
       </ProfileProvider>
     </UsageProvider>
   );
