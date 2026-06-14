@@ -8,7 +8,6 @@ import { WorkoutModal } from "@/components/workout-modal";
 import { WorkoutDetailsBody, hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutsAnalytics } from "@/components/workouts-analytics";
 import { workoutVolume } from "@/lib/workout-volume";
-import { useActiveWorkoutSession } from "@/lib/active-workout-session";
 
 /**
  * Workouts sub-view of the Activities page. Lists the user's sessions
@@ -41,7 +40,6 @@ export function WorkoutsView({
   displayUnit: "lb" | "kg";
 }) {
   const router = useRouter();
-  const { session, start } = useActiveWorkoutSession();
   // Single source of truth: every workout in the active timeframe (up
   // to FETCH_LIMIT). Both the chart (full array, weekly aggregation)
   // and the paginated list (sliced 25 at a time) read from this.
@@ -150,27 +148,8 @@ export function WorkoutsView({
     }
   };
 
-  // Start a fresh live session (or resume an existing one) and land on the
-  // live screen. When a session already exists we don't re-start it — just
-  // navigate, so an in-progress workout is never clobbered.
-  const handleStartOrResume = () => {
-    if (!session) start();
-    router.push("/workout/live");
-  };
-
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight">Workouts</h2>
-        <button
-          type="button"
-          onClick={handleStartOrResume}
-          className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90"
-        >
-          {session ? "Resume workout" : "Start live workout"}
-        </button>
-      </div>
-
       <WorkoutsAnalytics
         workouts={workouts}
         exercises={exercises}

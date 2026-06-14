@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import { getMe, type ResolvedProfile } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
+import { useActiveWorkoutSession } from "@/lib/active-workout-session";
 import { ActivitiesOverviewView } from "@/components/activities/activities-overview-view";
 import { WorkoutsView } from "@/components/activities/workouts-view";
 import { RunningView } from "@/components/activities/running-view";
@@ -78,6 +79,18 @@ function ActivitiesPageInner() {
   // modal itself lives in RunningView, which closes via the callback.
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
+  // The Workouts view-specific action also lives in the toolbar (left
+  // group) for parity with Upload TCX, so both sub-views surface their
+  // primary action in the same place and style. Start a fresh live
+  // session (or resume an existing one) and land on the live screen;
+  // when a session already exists we don't re-start it — just navigate,
+  // so an in-progress workout is never clobbered.
+  const { session, start } = useActiveWorkoutSession();
+  const startOrResumeWorkout = () => {
+    if (!session) start();
+    router.push("/workout/live");
+  };
+
   const setView = (next: View) => {
     if (next === "overview") router.replace("/activities");
     else router.replace(`/activities?view=${next}`);
@@ -117,6 +130,13 @@ function ActivitiesPageInner() {
               ToolbarButton so all controls fit a 375px viewport. */}
           <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
             <div className="flex items-center gap-3 sm:gap-5">
+              {view === "workouts" && (
+                <ToolbarButton
+                  onClick={startOrResumeWorkout}
+                  icon={<PlayIcon />}
+                  label={session ? "Resume workout" : "Start live workout"}
+                />
+              )}
               {view === "running" && (
                 <ToolbarButton
                   onClick={() => setUploadModalOpen(true)}
@@ -227,6 +247,24 @@ function RunIcon() {
       <path d="M7 21l3-5 3 2 1 3" />
       <path d="M13 13l-1.5-3.5 3-1.5 2.5 2 2 1" />
       <path d="M4 11l3-1 3 1" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 4l14 8-14 8V4z" />
     </svg>
   );
 }
