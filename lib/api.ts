@@ -638,6 +638,23 @@ export async function deleteWorkout(token: string, id: string): Promise<void> {
 }
 
 /**
+ * POST /workouts. Creates a workout from the full draft payload. Returns
+ * the created Workout (including any personal_records_set the save
+ * triggered) so the caller can route to it and surface PRs without a
+ * follow-up fetch. Throws the API's `error` envelope on non-2xx.
+ */
+export async function createWorkout(token: string, payload: WorkoutPayload): Promise<Workout> {
+  const resp = await fetch(`${config.apiUrl}/workouts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<Workout | null>(resp, null);
+  if (!created) throw new Error("API did not return the created workout");
+  return created;
+}
+
+/**
  * PUT /workouts/{id}. Full replacement — the body is the complete
  * workout state, not a partial diff. Ownership is enforced server-side;
  * a non-2xx response means the API rejected the payload (validation
