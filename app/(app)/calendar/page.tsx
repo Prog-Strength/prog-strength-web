@@ -1,14 +1,18 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
+  getCalendarConnection,
   listExercises,
+  listPlannedWorkouts,
   listRunningSessions,
   listSteps,
   listWorkouts,
+  resyncPlannedWorkout,
   type Exercise,
+  type PlannedWorkout,
   type RunningSession,
   type StepsEntry,
   type Workout,
@@ -17,6 +21,7 @@ import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { DayDigest } from "@/components/calendar/day-digest";
 import { DayCell } from "@/components/calendar/day-cell";
 import { WeeklyChip, WeeklyTile, type WeeklyStat } from "@/components/calendar/weekly-overview";
+import { PlannedWorkoutModal } from "@/components/planned-workout-modal";
 import type { CalendarEvent } from "@/components/calendar/types";
 
 /**
@@ -39,8 +44,16 @@ export default function CalendarPage() {
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [runs, setRuns] = useState<RunningSession[] | null>(null);
   const [steps, setSteps] = useState<StepsEntry[] | null>(null);
+  const [planned, setPlanned] = useState<PlannedWorkout[] | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Whether the user has a live Google Calendar connection — gates the
+  // "Sync to Google Calendar" checkbox in the planning modal. Fetched once.
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  // When set, the create/edit planning modal is open; null is the plan
+  // being edited (a fresh plan when the modal is open with `editing` null).
+  const [planningOpen, setPlanningOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<PlannedWorkout | null>(null);
   // Cursor identifies which month we're viewing. year + 0-indexed month
   // — using a `Date` directly would carry day/time noise we'd have to
   // strip on every prev/next.
@@ -72,6 +85,12 @@ export default function CalendarPage() {
         }
         setError(err.message);
       });
+    // Calendar connection drives whether the planning modal offers a
+    // "Sync to Google Calendar" checkbox. Best-effort — a failure here
+    // just leaves the checkbox hidden, so we don't surface it as an error.
+    getCalendarConnection(token)
+      .then((conn) => setCalendarConnected(conn.status === "connected"))
+      .catch(() => setCalendarConnected(false));
   }, [router]);
 
   // Refetch workouts + runs each time the cursor changes, scoped to the
@@ -79,7 +98,7 @@ export default function CalendarPage() {
   // serialized to UTC — start_time is stored UTC but the grid is
   // bucketed by local-date, and we want the bounds to comfortably cover
   // the visible cells including the prev/next-month trailing days.
-  useEffect(() => {
+  const loadWindow = useCallback(() => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -96,11 +115,13 @@ export default function CalendarPage() {
       listWorkouts(token, { since: sinceISO, until: untilISO, limit: 100 }),
       listRunningSessions(token, { since: sinceISO, until: untilISO }),
       listSteps(token, { since: stepsSince, until: stepsUntil }),
+      listPlannedWorkouts(token, { since: sinceISO, until: untilISO }),
     ])
-      .then(([wPage, rPage, sPage]) => {
+      .then(([wPage, rPage, sPage, pList]) => {
         setWorkouts(wPage.items);
         setRuns(rPage.activities);
         setSteps(sPage.steps);
+        setPlanned(pList);
       })
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
@@ -111,6 +132,10 @@ export default function CalendarPage() {
         setError(err.message);
       });
   }, [cursor, router]);
+
+  useEffect(() => {
+    loadWindow();
+  }, [loadWindow]);
 
   // Changing months re-anchors the selection to the first of the newly
   // cursored month and clears any auto-expand: a digest left open for a
@@ -147,6 +172,40 @@ export default function CalendarPage() {
     );
   };
 
+  // Re-attempt a failed Google push, then refresh the window so the
+  // pill's sync indicator reflects the new status.
+  const resyncPlan = useCallback(
+    async (id: string) => {
+      const token = getToken();
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      try {
+        await resyncPlannedWorkout(token, id);
+        loadWindow();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Resync failed");
+      }
+    },
+    [router, loadWindow],
+  );
+
+  // Open the planning modal for a brand-new plan (optionally seeded to a
+  // day) or to edit an existing one.
+  const openNewPlan = () => {
+    setEditingPlan(null);
+    setPlanningOpen(true);
+  };
+  const openEditPlan = (plan: PlannedWorkout) => {
+    setEditingPlan(plan);
+    setPlanningOpen(true);
+  };
+  const closePlanning = () => {
+    setPlanningOpen(false);
+    setEditingPlan(null);
+  };
+
   // Lookup map for the shared WorkoutDetails component — resolves
   // exercise_id slugs to catalog entries for name + muscle pills.
   const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
@@ -174,11 +233,19 @@ export default function CalendarPage() {
       if (list) list.push(ev);
       else map.set(key, [ev]);
     }
+    for (const p of planned ?? []) {
+      const start = new Date(p.scheduled_start);
+      const key = localDateKey(start);
+      const ev: CalendarEvent = { kind: "planned", startMs: start.getTime(), planned: p };
+      const list = map.get(key);
+      if (list) list.push(ev);
+      else map.set(key, [ev]);
+    }
     for (const list of map.values()) {
       list.sort((a, b) => a.startMs - b.startMs);
     }
     return map;
-  }, [workouts, runs]);
+  }, [workouts, runs, planned]);
 
   // Per-day step totals keyed by the API's YYYY-MM-DD date, for the digest.
   const stepsByDate = useMemo(() => {
@@ -334,9 +401,18 @@ export default function CalendarPage() {
             Today
           </button>
         </div>
-        <div className="flex gap-1">
-          <NavButton onClick={goPrev} label="Previous month" direction="left" />
-          <NavButton onClick={goNext} label="Next month" direction="right" />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openNewPlan}
+            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-90"
+          >
+            Plan a workout
+          </button>
+          <div className="flex gap-1">
+            <NavButton onClick={goPrev} label="Previous month" direction="left" />
+            <NavButton onClick={goNext} label="Next month" direction="right" />
+          </div>
         </div>
       </header>
 
@@ -441,6 +517,7 @@ export default function CalendarPage() {
                       onSelectDay={() => selectDay(key)}
                       onSelectWorkout={(id) => selectDayAndExpand(key, id)}
                       onSelectRun={(id) => selectDayAndExpand(key, id)}
+                      onSelectPlanned={(id) => selectDayAndExpand(key, id)}
                     />
                   );
                 })}
@@ -471,10 +548,32 @@ export default function CalendarPage() {
               autoExpandId={autoExpandId}
               onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
               onNavigateRun={(id) => router.push(`/running/${id}`)}
+              onPlanWorkout={openNewPlan}
+              onEditPlanned={openEditPlan}
+              onResyncPlanned={resyncPlan}
+              onNavigateSession={(kind, id) =>
+                router.push(kind === "activity" ? `/running/${id}` : `/workouts/${id}`)
+              }
             />
           </div>
         </div>
       </div>
+
+      {planningOpen && (
+        <PlannedWorkoutModal
+          plan={editingPlan}
+          catalog={exercises}
+          calendarConnected={calendarConnected}
+          // Seed a new plan's date to the day the user is looking at, so
+          // "Plan a workout" from a selected day lands on that day.
+          defaultDate={editingPlan ? undefined : selectedDate}
+          onClose={closePlanning}
+          onSaved={() => {
+            closePlanning();
+            loadWindow();
+          }}
+        />
+      )}
     </main>
   );
 }

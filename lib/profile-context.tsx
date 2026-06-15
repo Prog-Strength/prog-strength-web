@@ -28,6 +28,8 @@ type ProfilePatch = {
   height_cm?: number | null;
   weight_unit?: "lb" | "kg";
   distance_unit?: "mi" | "km";
+  timezone?: string;
+  calendar_default_detail?: "time_block" | "full_agenda";
   username?: string;
 };
 

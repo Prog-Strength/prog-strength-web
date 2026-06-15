@@ -306,6 +306,12 @@ export type ResolvedProfile = {
   distance_unit: "mi" | "km";
   height_cm: number | null;
   avatar_url: string | null;
+  // IANA timezone (e.g. "America/Denver"). Anchors the day windows the
+  // planned-workout + Google Calendar sync features push events into.
+  timezone: string;
+  // The user's default calendar-detail level for newly-planned workouts —
+  // whether a synced Google event is a bare time block or a full agenda.
+  calendar_default_detail: "time_block" | "full_agenda";
   // The user's chosen handle (the `/u/{username}` profile slug), or null when
   // they haven't set one yet. Editable via PATCH /me; see `updateMe`.
   username: string | null;
@@ -363,6 +369,10 @@ export async function updateMe(
     height_cm?: number | null;
     weight_unit?: "lb" | "kg";
     distance_unit?: "mi" | "km";
+    // IANA timezone name.
+    timezone?: string;
+    // Default detail level applied to newly-synced calendar events.
+    calendar_default_detail?: "time_block" | "full_agenda";
     // New handle. The server validates charset/length and reserved words and
     // rejects with 400 (invalid/reserved) or 409 (already taken); those
     // surface as the unwrap'd `error` message for the caller to render.
@@ -2335,6 +2345,271 @@ export async function removeTimelineReaction(
       headers: { Authorization: `Bearer ${token}` },
     },
   );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+// --- Planned workouts + Google Calendar sync ----------------------
+//
+// A planned workout is a forward-looking training intent: a named lift
+// scheduled into a time window, optionally with a target agenda
+// (exercises + target sets) and optionally pushed to the user's Google
+// Calendar. Status moves planned → completed (when linked to a logged
+// session) or planned → skipped. Google sync fields track the best-effort
+// push to Calendar so the UI can surface a synced / failed indicator and
+// a resync affordance. See the SOW's Phase 3 + Phase 4.
+
+/** Lifecycle of a planned workout. */
+export type PlannedWorkoutStatus = "planned" | "completed" | "skipped";
+
+/**
+ * Detail level of the synced Google Calendar event. `time_block` is a
+ * bare scheduled block; `full_agenda` spells the exercises out in the
+ * event body. `null` means "use the user's default" (see
+ * `calendar_default_detail` on the profile).
+ */
+export type CalendarDetail = "time_block" | "full_agenda";
+
+/** Per-plan Google push state; null until a sync is attempted. */
+export type GoogleSyncStatus = "pending" | "synced" | "failed";
+
+/** Which logged-session domain fulfilled a completed plan. */
+export type CompletedSessionKind = "workout" | "activity";
+
+/** One target set inside a planned exercise. All targets are optional. */
+export type PlannedSet = {
+  id: string;
+  order_index: number;
+  target_reps: number | null;
+  target_weight: number | null;
+  unit: "lb" | "kg" | null;
+  target_rpe: number | null;
+};
+
+/** One exercise on a planned workout's agenda, with its target sets. */
+export type PlannedExercise = {
+  id: string;
+  exercise_id: string;
+  order_index: number;
+  notes: string | null;
+  sets: PlannedSet[];
+};
+
+/** A planned (scheduled) workout, as returned by the API. */
+export type PlannedWorkout = {
+  id: string;
+  name: string | null;
+  activity_kind: "lift";
+  scheduled_start: string; // RFC3339
+  scheduled_end: string; // RFC3339
+  timezone: string;
+  status: PlannedWorkoutStatus;
+  notes: string | null;
+  completed_session_id: string | null;
+  completed_session_kind: CompletedSessionKind | null;
+  calendar_detail: CalendarDetail | null;
+  google_event_id: string | null;
+  google_sync_status: GoogleSyncStatus | null;
+  last_sync_error: string | null;
+  exercises: PlannedExercise[];
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Body for create/update. Timestamps are RFC3339 (the caller converts
+ * datetime-local values first). Omit `exercises` on update to keep the
+ * existing agenda; send it (even empty) to replace it. `calendar_sync`
+ * triggers a best-effort Google push on create.
+ */
+export type PlannedWorkoutPayload = {
+  name?: string;
+  scheduled_start: string;
+  scheduled_end: string;
+  timezone?: string;
+  notes?: string;
+  calendar_detail?: CalendarDetail | null;
+  calendar_sync?: boolean;
+  exercises?: {
+    exercise_id: string;
+    notes?: string;
+    sets: {
+      target_reps?: number;
+      target_weight?: number;
+      unit?: "lb" | "kg";
+      target_rpe?: number;
+    }[];
+  }[];
+};
+
+/**
+ * GET /planned-workouts?since=&until=. Bounds are RFC3339 (since
+ * inclusive, until exclusive); the calendar fetches the visible window.
+ */
+export async function listPlannedWorkouts(
+  token: string,
+  options: { since?: string; until?: string } = {},
+): Promise<PlannedWorkout[]> {
+  const params = new URLSearchParams();
+  if (options.since) params.set("since", options.since);
+  if (options.until) params.set("until", options.until);
+  const qs = params.toString();
+  const resp = await fetch(`${config.apiUrl}/planned-workouts${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<PlannedWorkout[]>(resp, []);
+}
+
+/** GET /planned-workouts/{id}. */
+export async function getPlannedWorkout(token: string, id: string): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!got) throw new Error("planned workout not found");
+  return got;
+}
+
+/** POST /planned-workouts. Returns the created plan. */
+export async function createPlannedWorkout(
+  token: string,
+  body: PlannedWorkoutPayload,
+): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const created = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!created) throw new Error("API did not return the created planned workout");
+  return created;
+}
+
+/**
+ * PUT /planned-workouts/{id}. Same body as create; omit `exercises` to
+ * keep the agenda, send it to replace.
+ */
+export async function updatePlannedWorkout(
+  token: string,
+  id: string,
+  body: PlannedWorkoutPayload,
+): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const updated = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated planned workout");
+  return updated;
+}
+
+/** DELETE /planned-workouts/{id}. */
+export async function deletePlannedWorkout(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/** POST /planned-workouts/{id}/skip. Returns the plan (status skipped). */
+export async function skipPlannedWorkout(token: string, id: string): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}/skip`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const updated = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!updated) throw new Error("API did not return the skipped planned workout");
+  return updated;
+}
+
+/**
+ * POST /planned-workouts/{id}/schedule. Best-effort Google push; the
+ * returned plan's `google_sync_status` reflects synced/failed.
+ */
+export async function schedulePlannedWorkout(
+  token: string,
+  id: string,
+  body: { detail_level?: CalendarDetail } = {},
+): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}/schedule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const updated = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!updated) throw new Error("API did not return the scheduled planned workout");
+  return updated;
+}
+
+/** POST /planned-workouts/{id}/resync. Re-attempts the Google push. */
+export async function resyncPlannedWorkout(token: string, id: string): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}/resync`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const updated = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!updated) throw new Error("API did not return the resynced planned workout");
+  return updated;
+}
+
+/**
+ * POST /planned-workouts/{id}/complete. Links the plan to a logged
+ * session; returns the plan (status completed).
+ */
+export async function completePlannedWorkout(
+  token: string,
+  id: string,
+  body: { session_id: string; session_kind: CompletedSessionKind },
+): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const updated = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!updated) throw new Error("API did not return the completed planned workout");
+  return updated;
+}
+
+/** The user's Google Calendar connection state. */
+export type CalendarConnection = {
+  status: "connected" | "revoked" | "absent";
+  google_calendar_id?: string;
+  scopes?: string;
+  connected_at?: string;
+};
+
+/** GET /me/calendar/connection. */
+export async function getCalendarConnection(token: string): Promise<CalendarConnection> {
+  const resp = await fetch(`${config.apiUrl}/me/calendar/connection`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<CalendarConnection>(resp, { status: "absent" });
+}
+
+/** DELETE /me/calendar/connection. Revokes the Google connection. */
+export async function disconnectCalendar(token: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/me/calendar/connection`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!resp.ok) {
     let detail: string;
     try {

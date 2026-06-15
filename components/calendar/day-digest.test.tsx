@@ -58,6 +58,7 @@ function renderDigest(date: Date, events: CalendarEvent[], steps?: number | null
         exerciseMap={new Map()}
         onNavigateWorkout={() => {}}
         onNavigateRun={() => {}}
+        onPlanWorkout={() => {}}
       />
     </DistanceUnitProvider>,
   );
@@ -81,7 +82,7 @@ describe("DayDigest", () => {
   it("renders the empty state when there are no events and no steps", () => {
     renderDigest(new Date(2026, 5, 8), []);
     expect(screen.getByText(/No activities on/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Plan one/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Plan a workout/ })).toBeInTheDocument();
   });
 
   it("shows the day's step count when steps were logged", () => {

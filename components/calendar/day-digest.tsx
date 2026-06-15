@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { RunBanner } from "@/components/calendar/run-banner";
 import { WorkoutBanner } from "@/components/calendar/workout-banner";
+import { PlannedBanner } from "@/components/calendar/planned-banner";
 import type { CalendarEvent } from "@/components/calendar/types";
-import type { Exercise } from "@/lib/api";
+import type { CompletedSessionKind, Exercise } from "@/lib/api";
 
 /**
  * Expanded read-out of a single selected day's activities, shown beneath
@@ -20,6 +20,10 @@ export function DayDigest({
   autoExpandId,
   onNavigateWorkout,
   onNavigateRun,
+  onPlanWorkout,
+  onEditPlanned,
+  onResyncPlanned,
+  onNavigateSession,
 }: {
   date: Date; // the selected day
   events: CalendarEvent[]; // that day's events, already start-time sorted
@@ -28,6 +32,14 @@ export function DayDigest({
   autoExpandId?: string | null; // id of the activity whose banner should default-open
   onNavigateWorkout: (workoutId: string) => void;
   onNavigateRun: (runId: string) => void;
+  // Open the create-plan modal (seeded to this day) from the empty state.
+  onPlanWorkout?: () => void;
+  // Open the edit-plan modal for an existing planned workout.
+  onEditPlanned?: (planned: import("@/lib/api").PlannedWorkout) => void;
+  // Re-attempt a failed Google push for a planned workout.
+  onResyncPlanned?: (id: string) => void;
+  // Navigate to the logged session a completed plan was linked to.
+  onNavigateSession?: (kind: CompletedSessionKind, id: string) => void;
 }) {
   const longDate = date.toLocaleDateString("en-US", {
     weekday: "long",
@@ -53,7 +65,7 @@ export function DayDigest({
       </header>
 
       {events.length === 0 && stepCount == null ? (
-        <EmptyState date={date} />
+        <EmptyState date={date} onPlanWorkout={onPlanWorkout} />
       ) : (
         <div className="flex flex-col gap-2">
           {stepCount != null && <StepsBanner steps={stepCount} />}
@@ -63,7 +75,17 @@ export function DayDigest({
           {[...events]
             .sort((a, b) => a.startMs - b.startMs)
             .map((ev) =>
-              ev.kind === "workout" ? (
+              ev.kind === "planned" ? (
+                <PlannedBanner
+                  key={`p-${ev.planned.id}`}
+                  planned={ev.planned}
+                  exerciseMap={exerciseMap}
+                  defaultOpen={ev.planned.id === autoExpandId}
+                  onEdit={onEditPlanned ? () => onEditPlanned(ev.planned) : undefined}
+                  onResync={onResyncPlanned ? () => onResyncPlanned(ev.planned.id) : undefined}
+                  onNavigateSession={onNavigateSession}
+                />
+              ) : ev.kind === "workout" ? (
                 // The `key` deliberately encodes whether this banner is the
                 // auto-expand target. Banners hold their own open state
                 // seeded from `defaultOpen`, so when `autoExpandId` changes
@@ -151,7 +173,7 @@ function FootprintsIcon() {
   );
 }
 
-function EmptyState({ date }: { date: Date }) {
+function EmptyState({ date, onPlanWorkout }: { date: Date; onPlanWorkout?: () => void }) {
   const shortDate = date.toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -160,15 +182,18 @@ function EmptyState({ date }: { date: Date }) {
   return (
     <p className="text-sm text-[var(--muted)]">
       No activities on {shortDate}.{" "}
-      {/* There's no dedicated create route — activity creation is a SOW
-          non-goal — so the call-to-action links to the activities surface
-          rather than a (nonexistent) "new activity" page. */}
-      <Link
-        href="/activities"
-        className="font-medium text-[var(--accent)] transition hover:underline"
-      >
-        Plan one →
-      </Link>
+      {/* Planning a workout is now a first-class action on the calendar
+          (Phase 3), so the empty-state CTA opens the create-plan modal
+          seeded to this day rather than linking elsewhere. */}
+      {onPlanWorkout && (
+        <button
+          type="button"
+          onClick={onPlanWorkout}
+          className="font-medium text-[var(--accent)] transition hover:underline"
+        >
+          Plan a workout →
+        </button>
+      )}
     </p>
   );
 }
