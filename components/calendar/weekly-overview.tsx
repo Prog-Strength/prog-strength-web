@@ -14,8 +14,13 @@ export type WeeklyStat = {
   activities: number;
   liftMinutes: number;
   runMeters: number;
-  runMinutes: number;
+  steps: number;
 };
+
+/** Thousands-separated step count, e.g. 52340 → "52,340". */
+function formatSteps(steps: number): string {
+  return steps.toLocaleString("en-US");
+}
 
 /**
  * Total duration as `Xh Ym`, `Xh`, or `Ym`; "0h" for non-positive.
@@ -63,9 +68,7 @@ export function WeeklyTile({ week, isCurrent }: { week: WeeklyStat; isCurrent: b
       {week.runMeters > 0 && (
         <WeeklyRow label="Run" value={`${formatDistance(week.runMeters)} ${unitLabel}`} />
       )}
-      {week.runMinutes > 0 && (
-        <WeeklyRow label="Run time" value={formatTotalDuration(week.runMinutes)} />
-      )}
+      {week.steps > 0 && <WeeklyRow label="Steps" value={formatSteps(week.steps)} />}
     </div>
   );
 }
@@ -91,7 +94,7 @@ export function WeeklyChip({ week, isCurrent }: { week: WeeklyStat; isCurrent: b
   ];
   if (week.liftMinutes > 0) parts.push(formatTotalDuration(week.liftMinutes));
   if (week.runMeters > 0) parts.push(`${formatDistance(week.runMeters)} ${unitLabel}`);
-  if (week.runMinutes > 0) parts.push(formatTotalDuration(week.runMinutes));
+  if (week.steps > 0) parts.push(`${formatSteps(week.steps)} steps`);
   const toneClass = isCurrent
     ? "border-[var(--accent)] text-[var(--accent)]"
     : "border-[var(--border)] text-[var(--muted)]";

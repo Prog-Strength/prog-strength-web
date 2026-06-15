@@ -2,7 +2,7 @@
 
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { DistanceUnitProvider } from "@/lib/distance-unit-context";
-import type { Workout, RunningSession } from "@/lib/api";
+import type { Workout, RunningSession, StepsEntry } from "@/lib/api";
 
 // --- module mocks ----------------------------------------------------------
 
@@ -32,6 +32,7 @@ vi.mock("@/lib/api", async (orig) => ({
     has_more: false,
   })),
   listRunningSessions: vi.fn(async () => ({ activities: RUNS, next_before: null })),
+  listSteps: vi.fn(async () => ({ steps: STEPS, next_before: null })),
 }));
 
 import { listWorkouts, listRunningSessions } from "@/lib/api";
@@ -122,6 +123,30 @@ const FIRST_RUN = makeRun("r-1", "First Run", 1);
 // own day.
 const WORKOUTS: Workout[] = [TODAY_WORKOUT, DISTINCT_WORKOUT];
 const RUNS: RunningSession[] = [TODAY_RUN, FIRST_RUN];
+
+// Zero-padded YYYY-MM-DD in the cursor month — the steps API's date format.
+function isoDay(day: number): string {
+  return `${YEAR}-${String(MONTH + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// Today and the DISTINCT day each get a step total so the digest (today)
+// and the weekly rollup (both) have step data to assert.
+const STEPS: StepsEntry[] = [
+  {
+    id: "s-today",
+    date: isoDay(TODAY_DAY),
+    steps: 8000,
+    created_at: iso(TODAY_DAY, 23),
+    updated_at: iso(TODAY_DAY, 23),
+  },
+  {
+    id: "s-distinct",
+    date: isoDay(DISTINCT_DAY),
+    steps: 12345,
+    created_at: iso(DISTINCT_DAY, 23),
+    updated_at: iso(DISTINCT_DAY, 23),
+  },
+];
 
 // Long-form date string the digest/aria-label use, e.g. "Monday, June 15, 2026".
 function longDate(d: Date): string {
@@ -265,6 +290,25 @@ describe("CalendarPage", () => {
     // And at least one tile carries a concrete count (sanity that the rollup
     // rendered, not just six empty weeks).
     expect(tiles.some((t) => /[1-9]\d*\s+activit/.test(t.textContent ?? ""))).toBe(true);
+  });
+
+  it("rolls weekly steps into the weekly tiles", async () => {
+    renderPage();
+    await findDigest(TODAY);
+
+    const tiles = await screen.findAllByTestId("weekly-tile");
+    // The seeded step totals (8,000 + 12,345) land in the cursor month, so
+    // at least one week tile carries a Steps row.
+    expect(tiles.some((t) => /Steps/.test(t.textContent ?? ""))).toBe(true);
+  });
+
+  it("shows the selected day's step count in the digest", async () => {
+    renderPage();
+    const digest = await findDigest(TODAY);
+    // Today's fixture logs 8,000 steps.
+    await waitFor(() => {
+      expect(within(digest).getByTestId("steps-banner")).toHaveTextContent("8,000 steps");
+    });
   });
 
   it("shows Avg Pace and Longest Run tiles when the month has runs", async () => {
