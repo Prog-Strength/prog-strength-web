@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import { listTimeline, type TimelinePost } from "@/lib/api";
+import { listExercises, listTimeline, type Exercise, type TimelinePost } from "@/lib/api";
 import { TimelinePostCard } from "./TimelinePostCard";
 
 const PAGE_SIZE = 20;
@@ -31,6 +31,10 @@ export function TimelineFeed() {
   }, [router]);
 
   const [posts, setPosts] = useState<TimelinePost[]>([]);
+  // The exercise catalog, fetched once and passed to every card so workout
+  // posts can resolve exercise names and the muscle radar. Public catalog —
+  // no token needed; failures degrade the cards to title + metric chips.
+  const [exercises, setExercises] = useState<Exercise[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -74,6 +78,21 @@ export function TimelineFeed() {
       cancelled = true;
     };
   }, [handleAuthError]);
+
+  // Exercise catalog on mount, independent of the feed fetch.
+  useEffect(() => {
+    let cancelled = false;
+    listExercises()
+      .then((es) => {
+        if (!cancelled) setExercises(es);
+      })
+      .catch(() => {
+        // Non-fatal: cards fall back to title + metric chips.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Manual refresh: re-fetch page 1 and replace the list + cursor with the
   // fresh first page. Guarded so it can't double-fire while in flight. Not
@@ -155,7 +174,7 @@ export function TimelineFeed() {
       <div className="flex items-center justify-end">{refreshButton}</div>
 
       {posts.map((post) => (
-        <TimelinePostCard key={post.id} post={post} />
+        <TimelinePostCard key={post.id} post={post} exercises={exercises} />
       ))}
 
       {cursor && (
