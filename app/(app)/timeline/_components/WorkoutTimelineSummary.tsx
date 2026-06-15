@@ -14,12 +14,16 @@ import { MuscleGroupRadarChart } from "@/components/muscle-group-radar-chart";
  * (`/workouts/{id}`), so it only resolves for the viewer's own posts; that's
  * the same ownership scope the timeline has today.
  *
- * Two disclosure levels keep a feed card short by default:
+ * Workout notes and the muscle-group radar are first-class: both render by
+ * default because the notes are the lifter's own message about the session
+ * and the radar is a shareable at-a-glance overview of what was trained.
+ *
+ * Only the exercise list is progressively disclosed, to keep the card short:
  *   collapsed — the first {@link MAX_PREVIEW_EXERCISES} exercises by name +
  *               set count, with a "+N more" hint. Just enough to read the
  *               session at a glance without a wall of sets.
- *   expanded  — the full exercise/set breakdown (shared WorkoutDetailsBody)
- *               plus the muscle-group radar, for readers who want the detail.
+ *   expanded  — the full exercise/set breakdown (shared WorkoutDetailsBody),
+ *               for readers who want every set.
  */
 
 const MAX_PREVIEW_EXERCISES = 3;
@@ -74,17 +78,22 @@ export function WorkoutTimelineSummary({
 
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface-2)]/40 px-3 py-2.5">
+      {/* Notes — first-class: the lifter's own message about the session. */}
+      {workout.notes && <p className="whitespace-pre-wrap text-sm">{workout.notes}</p>}
+
+      {/* Radar — first-class: a shareable at-a-glance overview of what muscle
+          groups the session trained. */}
+      <div>
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Muscle groups targeted
+        </h3>
+        <MuscleGroupRadarChart workouts={[workout]} exercises={exercises} />
+      </div>
+
+      {/* Exercises — the only progressively-disclosed section. Notes are
+          rendered above, so the expanded body opts out of repeating them. */}
       {expanded ? (
-        <>
-          <WorkoutDetailsBody workout={workout} exerciseMap={exerciseMap} />
-          <div className="border-t border-[var(--border)] pt-2">
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-              Muscle groups targeted
-            </h3>
-            <MuscleGroupRadarChart workouts={[workout]} exercises={exercises} />
-          </div>
-          <ToggleButton expanded onClick={() => setExpanded(false)} />
-        </>
+        <WorkoutDetailsBody workout={workout} exerciseMap={exerciseMap} showNotes={false} />
       ) : (
         <>
           <ul className="flex flex-col gap-1">
@@ -97,9 +106,9 @@ export function WorkoutTimelineSummary({
               +{remaining} more exercise{remaining === 1 ? "" : "s"}
             </p>
           )}
-          <ToggleButton expanded={false} onClick={() => setExpanded(true)} />
         </>
       )}
+      <ToggleButton expanded={expanded} onClick={() => setExpanded((v) => !v)} />
     </div>
   );
 }
