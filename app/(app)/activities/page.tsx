@@ -9,9 +9,10 @@ import { useActiveWorkoutSession } from "@/lib/active-workout-session";
 import { ActivitiesOverviewView } from "@/components/activities/activities-overview-view";
 import { WorkoutsView } from "@/components/activities/workouts-view";
 import { RunningView } from "@/components/activities/running-view";
+import { StepsView } from "@/components/activities/steps-view";
 import { ToolbarButton } from "@/components/toolbar-button";
 
-type View = "overview" | "workouts" | "running";
+type View = "overview" | "workouts" | "running" | "steps";
 type Timeframe = "7d" | "30d" | "90d" | "all";
 
 const TIMEFRAMES: { id: Timeframe; label: string; days: number | null }[] = [
@@ -45,7 +46,8 @@ function ActivitiesPageInner() {
   const router = useRouter();
   const search = useSearchParams();
   const rawView = search.get("view");
-  const view: View = rawView === "workouts" || rawView === "running" ? rawView : "overview";
+  const view: View =
+    rawView === "workouts" || rawView === "running" || rawView === "steps" ? rawView : "overview";
 
   const [timeframe, setTimeframe] = useState<Timeframe>("30d");
   const days = useMemo(() => TIMEFRAMES.find((t) => t.id === timeframe)?.days ?? null, [timeframe]);
@@ -164,6 +166,12 @@ function ActivitiesPageInner() {
                 label="Running"
                 active={view === "running"}
               />
+              <ToolbarButton
+                onClick={() => setView("steps")}
+                icon={<FootprintsIcon />}
+                label="Steps"
+                active={view === "steps"}
+              />
             </div>
           </div>
 
@@ -182,6 +190,7 @@ function ActivitiesPageInner() {
               onCloseUploadModal={() => setUploadModalOpen(false)}
             />
           )}
+          {view === "steps" && <StepsView days={days} />}
         </div>
       </div>
     </main>
@@ -247,6 +256,27 @@ function RunIcon() {
       <path d="M7 21l3-5 3 2 1 3" />
       <path d="M13 13l-1.5-3.5 3-1.5 2.5 2 2 1" />
       <path d="M4 11l3-1 3 1" />
+    </svg>
+  );
+}
+
+function FootprintsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 16c-.5-2.5-.5-5 .5-7 1-2 3-2 3.5 0 .5 1.5 0 4-.5 6-.5 1.5-3 1.5-3.5 1z" />
+      <path d="M4 20.5c0 1 1 1.5 2 1.5s2-.5 2-1.5V18H4v2.5z" />
+      <path d="M20 11c.5-2.5.5-5-.5-7-1-2-3-2-3.5 0-.5 1.5 0 4 .5 6 .5 1.5 3 1.5 3.5 1z" />
+      <path d="M20 15.5c0 1-1 1.5-2 1.5s-2-.5-2-1.5V13h4v2.5z" />
     </svg>
   );
 }

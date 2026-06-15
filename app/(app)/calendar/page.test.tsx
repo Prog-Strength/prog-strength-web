@@ -229,7 +229,11 @@ describe("CalendarPage", () => {
     // (today) digest.
     const cell = screen.getByLabelText(new RegExp(`^${longDate(DISTINCT_DATE)}`));
     // The pill is a button inside the cell whose accessible name is the name.
-    const pill = within(cell).getByRole("button", { name: "Midmonth Lift" });
+    // Day cells render synchronously from the date grid, but their pills paint
+    // only after the async listWorkouts data settles — so find (await) the
+    // pill rather than get it, or this races on slower (CI) machines and sees
+    // an empty cell.
+    const pill = await within(cell).findByRole("button", { name: "Midmonth Lift" });
     fireEvent.click(pill);
 
     const digest = await findDigest(DISTINCT_DATE);

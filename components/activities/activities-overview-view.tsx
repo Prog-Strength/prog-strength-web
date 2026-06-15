@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import { listRunningSessions, listWorkouts, type RunningSession, type Workout } from "@/lib/api";
+import {
+  getStepsGoal,
+  listRunningSessions,
+  listSteps,
+  listWorkouts,
+  type RunningSession,
+  type StepsEntry,
+  type StepsGoal,
+  type Workout,
+} from "@/lib/api";
 import { StatTile } from "@/components/stat-tile";
 import { ActivitiesCombinedChart } from "@/components/activities/activities-combined-chart";
 import { formatHours } from "@/lib/chart-format";
@@ -38,6 +47,8 @@ export function ActivitiesOverviewView({
   const router = useRouter();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [sessions, setSessions] = useState<RunningSession[] | null>(null);
+  const [steps, setSteps] = useState<StepsEntry[] | null>(null);
+  const [stepsGoal, setStepsGoal] = useState<StepsGoal | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Parallel fetch on mount + on `days` change. since/until derive from
@@ -52,22 +63,33 @@ export function ActivitiesOverviewView({
     const since =
       days !== null ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString() : undefined;
     const until = days !== null ? new Date().toISOString() : undefined;
+    // Steps are date-keyed (YYYY-MM-DD), so its range window uses the
+    // calendar-day form rather than full ISO timestamps.
+    const stepsSince =
+      days !== null ? isoDate(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000)) : undefined;
+    const stepsUntil = days !== null ? isoDate(new Date()) : undefined;
 
     // Reset to the loading state so a window change shows "Loading…"
     // rather than stale aggregates from the prior window.
     setWorkouts(null);
     setSessions(null);
+    setSteps(null);
+    setStepsGoal(null);
     // /activities forbids mixing since/until with limit/before, and the
     // range form is uncapped server-side, so the running fetch omits
     // `limit` and trusts the window to bound the result.
     Promise.all([
       listWorkouts(token, { since, limit: WORKOUTS_LIMIT }),
       listRunningSessions(token, { since, until }),
+      listSteps(token, { since: stepsSince, until: stepsUntil }),
+      getStepsGoal(token),
     ])
-      .then(([wp, sp]) => {
+      .then(([wp, sp, stp, sg]) => {
         setError(null);
         setWorkouts(wp.items);
         setSessions(sp.activities);
+        setSteps(stp.steps);
+        setStepsGoal(sg);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -128,9 +150,21 @@ export function ActivitiesOverviewView({
     };
   }, [workouts, sessions, displayUnit]);
 
-  // Both fetches resolve together (Promise.all), so either being null
-  // means the digest is still loading.
-  const loading = workouts === null || sessions === null;
+  // Steps digest: avg daily steps over the window + goal attainment.
+  // Rendered only when step history exists in the window.
+  const stepsStats = useMemo(() => {
+    const arr = steps ?? [];
+    if (arr.length === 0) return { count: 0, avg: 0, attainment: null as number | null };
+    const total = arr.reduce((a, e) => a + e.steps, 0);
+    const avg = total / arr.length;
+    const goal = stepsGoal?.goal ?? 0;
+    const attainment = goal > 0 ? Math.round((avg / goal) * 100) : null;
+    return { count: arr.length, avg, attainment };
+  }, [steps, stepsGoal]);
+
+  // All fetches resolve together (Promise.all), so any being null means
+  // the digest is still loading.
+  const loading = workouts === null || sessions === null || steps === null;
   // Only workouts can truncate — running uses range mode (uncapped).
   const truncated = (workouts?.length ?? 0) >= WORKOUTS_LIMIT;
 
@@ -187,8 +221,41 @@ export function ActivitiesOverviewView({
               label="Avg session"
             />
           </div>
+
+          {/* Steps digest — only when step history exists in the window.
+              Two tiles: avg daily steps + goal attainment. */}
+          {stepsStats.count > 0 && (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatTile
+                value={Math.round(stepsStats.avg).toLocaleString()}
+                label="Avg daily steps"
+              />
+              <StatTile
+                value={stepsStats.attainment !== null ? `${stepsStats.attainment}%` : "—"}
+                label="Steps goal"
+                sub={
+                  stepsGoal && stepsGoal.goal > 0
+                    ? `of ${stepsGoal.goal.toLocaleString()}`
+                    : "No goal set"
+                }
+                tone={
+                  stepsStats.attainment !== null && stepsStats.attainment >= 100
+                    ? "positive"
+                    : "neutral"
+                }
+              />
+            </div>
+          )}
         </>
       )}
     </div>
   );
+}
+
+/** Local-time YYYY-MM-DD for a Date, matching the date-keyed steps log. */
+function isoDate(d: Date): string {
+  const yyyy = String(d.getFullYear()).padStart(4, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mo}-${dd}`;
 }
