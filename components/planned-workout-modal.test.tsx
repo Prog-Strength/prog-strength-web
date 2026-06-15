@@ -43,6 +43,8 @@ function plannedFixture(): PlannedWorkout {
     google_event_id: null,
     google_sync_status: null,
     last_sync_error: null,
+    run_type: null,
+    run_details: null,
     exercises: [],
     created_at: "2026-06-19T12:00:00Z",
     updated_at: "2026-06-19T12:00:00Z",
@@ -102,6 +104,62 @@ describe("PlannedWorkoutModal", () => {
       expect.objectContaining({ target_reps: 8, target_weight: 60, unit: "lb" }),
     );
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("submits a run plan with run_type + run_details and no exercises", async () => {
+    const onSaved = vi.fn();
+    render(
+      <PlannedWorkoutModal
+        plan={null}
+        catalog={CATALOG}
+        calendarConnected={false}
+        defaultDate={new Date(2026, 5, 20)}
+        onClose={() => {}}
+        onSaved={onSaved}
+      />,
+    );
+
+    // Switch to a run; the exercise agenda is replaced by the run form.
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    expect(screen.queryByRole("button", { name: "+ Add exercise" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Threshold" }));
+    fireEvent.change(screen.getByPlaceholderText(/4x800m/), {
+      target: { value: "20 min @ tempo pace" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan workout" }));
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    const [, body] = createMock.mock.calls[0];
+    expect(body.activity_kind).toBe("run");
+    expect(body.run_type).toBe("threshold");
+    expect(body.run_details).toBe("20 min @ tempo pace");
+    expect(body.exercises).toBeUndefined();
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("lets a run be a bare time block (no details required)", async () => {
+    render(
+      <PlannedWorkoutModal
+        plan={null}
+        catalog={CATALOG}
+        calendarConnected={false}
+        defaultDate={new Date(2026, 5, 20)}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    // Save is enabled with just the seeded time window — no details entered.
+    const save = screen.getByRole("button", { name: "Plan workout" });
+    expect(save).not.toBeDisabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    const [, body] = createMock.mock.calls[0];
+    expect(body.activity_kind).toBe("run");
+    expect(body.run_type).toBe("easy");
+    expect(body.run_details).toBe("");
   });
 
   it("hides the Google sync checkbox when the calendar is not connected", () => {

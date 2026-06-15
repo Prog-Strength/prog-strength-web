@@ -2383,6 +2383,15 @@ export type GoogleSyncStatus = "pending" | "synced" | "failed";
 /** Which logged-session domain fulfilled a completed plan. */
 export type CompletedSessionKind = "workout" | "activity";
 
+/** The kind of training a plan represents. */
+export type ActivityKind = "lift" | "run";
+
+/**
+ * The kind of run a planned run represents. Optional on a run plan — a run
+ * can omit it and just block time (or describe everything in `run_details`).
+ */
+export type RunType = "easy" | "threshold" | "intervals";
+
 /** One target set inside a planned exercise. All targets are optional. */
 export type PlannedSet = {
   id: string;
@@ -2406,7 +2415,7 @@ export type PlannedExercise = {
 export type PlannedWorkout = {
   id: string;
   name: string | null;
-  activity_kind: "lift";
+  activity_kind: ActivityKind;
   scheduled_start: string; // RFC3339
   scheduled_end: string; // RFC3339
   timezone: string;
@@ -2418,6 +2427,10 @@ export type PlannedWorkout = {
   google_event_id: string | null;
   google_sync_status: GoogleSyncStatus | null;
   last_sync_error: string | null;
+  // Run agenda — populated only when activity_kind is "run".
+  run_type: RunType | null;
+  run_details: string | null;
+  // Lift agenda — populated only when activity_kind is "lift".
   exercises: PlannedExercise[];
   created_at: string;
   updated_at: string;
@@ -2431,12 +2444,17 @@ export type PlannedWorkout = {
  */
 export type PlannedWorkoutPayload = {
   name?: string;
+  // Defaults to "lift" server-side when omitted. Send "run" for a run plan.
+  activity_kind?: ActivityKind;
   scheduled_start: string;
   scheduled_end: string;
   timezone?: string;
   notes?: string;
   calendar_detail?: CalendarDetail | null;
   calendar_sync?: boolean;
+  // Run agenda — send for run plans. Both optional (a run can be a bare block).
+  run_type?: RunType;
+  run_details?: string;
   exercises?: {
     exercise_id: string;
     notes?: string;
