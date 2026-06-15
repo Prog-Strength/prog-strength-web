@@ -1189,6 +1189,118 @@ export async function updateBodyweightEntry(
   return updated;
 }
 
+// --- Steps --------------------------------------------------------
+
+/**
+ * One day's step count. The log is date-keyed (one row per calendar
+ * day): the API upserts on PUT /steps/{date}, so re-logging a day
+ * overwrites rather than appending. See
+ * prog-strength-docs/sows/daily-steps-logging.md.
+ */
+export type StepsEntry = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  steps: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * A page of step entries, newest first. `next_before` is an opaque
+ * cursor (a YYYY-MM-DD date) to pass back as `before` for the next
+ * keyset page; null when the last page has been reached.
+ */
+export type StepsPage = {
+  steps: StepsEntry[];
+  next_before: string | null;
+};
+
+export type StepsGoal = {
+  goal: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+/**
+ * Lists step entries newest-first in one of two modes:
+ *   - range: `since` + `until` (YYYY-MM-DD, both inclusive)
+ *   - keyset: `limit` (+ optional `before`, a prior page's
+ *     `next_before`; returns days strictly before that date)
+ * Mixing the two is a server-side error, so callers pick one form.
+ */
+export async function listSteps(
+  token: string,
+  opts: { since?: string; until?: string; limit?: number; before?: string } = {},
+): Promise<StepsPage> {
+  const params = new URLSearchParams();
+  if (opts.since) params.set("since", opts.since);
+  if (opts.until) params.set("until", opts.until);
+  if (opts.limit != null) params.set("limit", String(opts.limit));
+  if (opts.before) params.set("before", opts.before);
+  const qs = params.toString();
+  const resp = await fetch(`${config.apiUrl}/steps${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<StepsPage>(resp, { steps: [], next_before: null });
+}
+
+/** Upserts the step count for a single day. PUT /steps/{date}. */
+export async function upsertStepsForDate(
+  token: string,
+  date: string,
+  steps: number,
+): Promise<StepsEntry> {
+  const resp = await fetch(`${config.apiUrl}/steps/${encodeURIComponent(date)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ steps }),
+  });
+  const saved = await unwrap<StepsEntry | null>(resp, null);
+  if (!saved) throw new Error("API did not return the saved steps entry");
+  return saved;
+}
+
+/** Removes a single day from the step log. DELETE /steps/{date}. */
+export async function deleteStepsForDate(token: string, date: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/steps/${encodeURIComponent(date)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+export async function getStepsGoal(token: string): Promise<StepsGoal> {
+  const resp = await fetch(`${config.apiUrl}/me/steps-goal`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<StepsGoal>(resp, { goal: 0, created_at: null, updated_at: null });
+}
+
+export async function putStepsGoal(token: string, goal: { goal: number }): Promise<StepsGoal> {
+  const resp = await fetch(`${config.apiUrl}/me/steps-goal`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(goal),
+  });
+  const saved = await unwrap<StepsGoal | null>(resp, null);
+  if (!saved) throw new Error("API did not return the saved steps goal");
+  return saved;
+}
+
 // --- Recipes ------------------------------------------------------
 
 /**
