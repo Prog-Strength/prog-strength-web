@@ -17,10 +17,17 @@
  */
 
 import { useEffect, useMemo } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { clearToken, getToken } from "@/lib/auth";
-import { listProgression, listWorkouts, type MuscleGroupProgressionPoint } from "@/lib/api";
+import {
+  getRunningMaxEffortSummary,
+  listProgression,
+  listWorkouts,
+  type MuscleGroupProgressionPoint,
+  type RunningMaxEffortSummary,
+} from "@/lib/api";
 import {
   MovementPatternFilter,
   type Days,
@@ -88,6 +95,22 @@ export default function ProgressPage() {
     staleTime: 60_000,
   });
 
+  // Running max-effort summary — used only to pick which distance the
+  // "Running max-effort estimates" entry links into. Kept lightweight and
+  // non-blocking: a failure here just falls back to the 5K link.
+  const maxEffortQuery = useQuery({
+    queryKey: ["running-max-effort-summary"],
+    queryFn: () => {
+      const token = getToken();
+      if (!token) {
+        router.replace("/login");
+        return Promise.reject(new Error("not authenticated"));
+      }
+      return getRunningMaxEffortSummary(token);
+    },
+    staleTime: 60_000,
+  });
+
   // 401 on either query bounces to /login, clearing the dead token first.
   // Run as an effect (not in render) so navigation/token mutation stays out
   // of the render phase.
@@ -121,6 +144,15 @@ export default function ProgressPage() {
       null,
     );
   }, [progression]);
+
+  // Pick the distance the entry links into: prefer the one with an actual
+  // logged best (more data behind it), tie-broken by the slowest/longest
+  // actual best (the most-run / most-meaningful effort), else the first
+  // distance that has any estimate, else "5k".
+  const featuredDistanceKey = useMemo(
+    () => pickFeaturedDistance(maxEffortQuery.data),
+    [maxEffortQuery.data],
+  );
 
   const errorMessage =
     queryError && !isUnauthorized(queryError) && queryError instanceof Error
@@ -176,9 +208,54 @@ export default function ProgressPage() {
               />
             </div>
           )}
+
+          {/* Running max-effort estimates — a single labeled entry into the
+              detail view, so this strength-focused page stays uncluttered.
+              Always rendered (independent of the strength sections above). */}
+          {!isLoading && <RunningMaxEffortEntry distanceKey={featuredDistanceKey} />}
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Choose which distance the running entry deep-links into. Distances with
+ * an actual logged best win (they carry the most data); among those we
+ * take the longest actual best as the "most-run" proxy. Failing any actual
+ * best, the first distance that has an estimate; failing everything, "5k".
+ */
+function pickFeaturedDistance(summary: RunningMaxEffortSummary | undefined): string {
+  if (!summary || summary.distances.length === 0) return "5k";
+  const withActual = summary.distances.filter((d) => d.actual_best_seconds != null);
+  if (withActual.length > 0) {
+    return withActual.reduce((best, d) =>
+      (d.actual_best_seconds ?? 0) > (best.actual_best_seconds ?? 0) ? d : best,
+    ).distance_key;
+  }
+  const withEstimate = summary.distances.find((d) => d.estimate_seconds != null);
+  return withEstimate?.distance_key ?? "5k";
+}
+
+function RunningMaxEffortEntry({ distanceKey }: { distanceKey: string }) {
+  return (
+    <section className="mt-6">
+      <h2 className="mb-2 text-sm font-semibold tracking-tight">Running max-effort estimates</h2>
+      <Link
+        href={`/progress/running/${distanceKey}`}
+        className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 transition hover:border-[var(--accent)]/50"
+      >
+        <span className="flex flex-col">
+          <span className="text-sm font-medium text-[var(--foreground)]">
+            See your projected race times
+          </span>
+          <span className="text-xs text-[var(--muted)]">
+            Estimated max-effort times across standard distances, with confidence bands.
+          </span>
+        </span>
+        <span className="text-sm text-[var(--accent)]">→</span>
+      </Link>
+    </section>
   );
 }
 

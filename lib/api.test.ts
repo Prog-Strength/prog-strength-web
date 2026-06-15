@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getExerciseOneRMHistory,
   getRunningBestEffortHistory,
+  getRunningMaxEffort,
+  getRunningMaxEffortSummary,
   listProgression,
   listRunningBestEfforts,
 } from "@/lib/api";
@@ -246,5 +248,153 @@ describe("getExerciseOneRMHistory", () => {
   it("rejects with the API error text on a non-ok response", async () => {
     mockFetchError("boom");
     await expect(getExerciseOneRMHistory(TOKEN, "barbell-bench-press")).rejects.toThrow("boom");
+  });
+});
+
+describe("getRunningMaxEffortSummary", () => {
+  const summary = {
+    estimator_version: "v1",
+    distances: [
+      {
+        distance_key: "5k",
+        distance_label: "5K",
+        distance_meters: 5000,
+        estimate_seconds: 1170.0,
+        lower_seconds: 1140.0,
+        upper_seconds: 1205.0,
+        basis: "multi_distance_fit",
+        confidence: "high",
+        actual_best_seconds: 1184.7,
+        actual_best_activity_id: "act_2c1",
+        actual_best_achieved_at: "2026-04-18T06:45:00Z",
+      },
+      {
+        distance_key: "marathon",
+        distance_label: "Marathon",
+        distance_meters: 42195,
+        estimate_seconds: null,
+        lower_seconds: null,
+        upper_seconds: null,
+        basis: "insufficient_data",
+        confidence: "low",
+        actual_best_seconds: null,
+        actual_best_activity_id: null,
+        actual_best_achieved_at: null,
+      },
+    ],
+  };
+
+  it("returns the parsed summary and sends the bearer header", async () => {
+    const fetchMock = mockFetchOk(summary);
+
+    const result = await getRunningMaxEffortSummary(TOKEN);
+
+    expect(result).toEqual(summary);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/running/max-effort`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("falls back to an empty summary when the envelope data is missing", async () => {
+    mockFetchOk(undefined);
+    expect(await getRunningMaxEffortSummary(TOKEN)).toEqual({
+      estimator_version: "",
+      distances: [],
+    });
+  });
+
+  it("rejects with the API error text on a non-ok response", async () => {
+    mockFetchError("boom");
+    await expect(getRunningMaxEffortSummary(TOKEN)).rejects.toThrow("boom");
+  });
+});
+
+describe("getRunningMaxEffort", () => {
+  const detail = {
+    estimator_version: "v1",
+    distance_key: "5k",
+    distance_label: "5K",
+    distance_meters: 5000,
+    estimate: {
+      seconds: 1170.0,
+      lower_seconds: 1140.0,
+      upper_seconds: 1205.0,
+      basis: "multi_distance_fit",
+      confidence: "high",
+      n_points: 12,
+      n_distances: 4,
+    },
+    actual_best: {
+      seconds: 1184.7,
+      activity_id: "act_2c1",
+      achieved_at: "2026-04-18T06:45:00Z",
+    },
+    estimate_history: [
+      {
+        as_of: "2026-03-01T00:00:00Z",
+        seconds: 1210.0,
+        lower_seconds: 1180.0,
+        upper_seconds: 1250.0,
+      },
+    ],
+    attempts: [
+      {
+        activity_id: "act_2c1",
+        achieved_at: "2026-04-18T06:45:00Z",
+        duration_seconds: 1184.7,
+        pace_sec_per_km: 236.9,
+        source: "race_like",
+      },
+    ],
+    stats: {
+      estimated_max_effort_seconds: 1170.0,
+      current_best_seconds: 1184.7,
+      gap_seconds: -14.7,
+      confidence: "high",
+      data_summary: "12 efforts across 4 distances",
+    },
+  };
+
+  it("returns the parsed detail and URL-encodes the distance key", async () => {
+    const fetchMock = mockFetchOk(detail);
+
+    const result = await getRunningMaxEffort(TOKEN, "half_marathon");
+
+    expect(result).toEqual(detail);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/running/max-effort/half_marathon`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("unwraps a null-estimate (insufficient_data) detail response", async () => {
+    const insufficient = {
+      estimator_version: "v1",
+      distance_key: "marathon",
+      distance_label: "Marathon",
+      distance_meters: 42195,
+      estimate: null,
+      actual_best: null,
+      estimate_history: [],
+      attempts: [],
+      stats: {
+        estimated_max_effort_seconds: null,
+        current_best_seconds: null,
+        gap_seconds: null,
+        confidence: "low",
+        data_summary: "insufficient data",
+      },
+    };
+    mockFetchOk(insufficient);
+
+    const result = await getRunningMaxEffort(TOKEN, "marathon");
+
+    expect(result).toEqual(insufficient);
+    expect(result.estimate).toBeNull();
+    expect(result.attempts).toEqual([]);
+  });
+
+  it("rejects with the API error text on a non-ok response", async () => {
+    mockFetchError("boom");
+    await expect(getRunningMaxEffort(TOKEN, "5k")).rejects.toThrow("boom");
   });
 });
