@@ -8,7 +8,7 @@ function makeWeek(weekStart: Date, overrides: Partial<WeeklyStat> = {}): WeeklyS
     activities: 1,
     liftMinutes: 0,
     runMeters: 0,
-    runMinutes: 0,
+    steps: 0,
     ...overrides,
   };
 }
@@ -32,13 +32,13 @@ describe("WeeklyOverviewColumn", () => {
     expect(screen.getAllByTestId("weekly-tile")).toHaveLength(6);
   });
 
-  it("omits zero-value lift/run rows but keeps the sessions count", () => {
+  it("omits zero-value lift/run/steps rows but keeps the sessions count", () => {
     const weeks = [
       makeWeek(new Date(2026, 5, 1), {
         activities: 2,
         liftMinutes: 0,
         runMeters: 0,
-        runMinutes: 0,
+        steps: 0,
       }),
     ];
     renderColumn(weeks, "2099-0-1");
@@ -46,6 +46,22 @@ describe("WeeklyOverviewColumn", () => {
     expect(tile).toHaveTextContent("2 activities");
     expect(tile).not.toHaveTextContent("Lift");
     expect(tile).not.toHaveTextContent("Run");
+    expect(tile).not.toHaveTextContent("Steps");
+  });
+
+  it("shows a steps row with a thousands-separated total when steps are logged", () => {
+    const weeks = [makeWeek(new Date(2026, 5, 1), { activities: 3, steps: 52340 })];
+    renderColumn(weeks, "2099-0-1");
+    const tile = screen.getByTestId("weekly-tile");
+    expect(tile).toHaveTextContent("Steps");
+    expect(tile).toHaveTextContent("52,340");
+  });
+
+  it("never shows a run-time row (replaced by steps)", () => {
+    // runMeters drives the Run distance row; there is no longer a Run time row.
+    const weeks = [makeWeek(new Date(2026, 5, 1), { activities: 1, runMeters: 5000 })];
+    renderColumn(weeks, "2099-0-1");
+    expect(screen.getByTestId("weekly-tile")).not.toHaveTextContent("Run time");
   });
 
   it("accents the tile for the current week", () => {

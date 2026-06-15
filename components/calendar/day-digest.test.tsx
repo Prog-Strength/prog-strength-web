@@ -48,12 +48,13 @@ function runEvent(run: RunningSession): CalendarEvent {
   return { kind: "run", startMs: new Date(run.start_time).getTime(), run };
 }
 
-function renderDigest(date: Date, events: CalendarEvent[]) {
+function renderDigest(date: Date, events: CalendarEvent[], steps?: number | null) {
   return render(
     <DistanceUnitProvider>
       <DayDigest
         date={date}
         events={events}
+        steps={steps}
         exerciseMap={new Map()}
         onNavigateWorkout={() => {}}
         onNavigateRun={() => {}}
@@ -77,10 +78,28 @@ describe("DayDigest", () => {
     expect(screen.getAllByRole("group")).toHaveLength(2);
   });
 
-  it("renders the empty state when there are no events", () => {
+  it("renders the empty state when there are no events and no steps", () => {
     renderDigest(new Date(2026, 5, 8), []);
     expect(screen.getByText(/No activities on/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Plan one/ })).toBeInTheDocument();
+  });
+
+  it("shows the day's step count when steps were logged", () => {
+    renderDigest(new Date(2026, 5, 8), [], 8432);
+    expect(screen.getByTestId("steps-banner")).toHaveTextContent("8,432 steps");
+    // A steps-only day is not "empty".
+    expect(screen.queryByText(/No activities on/)).not.toBeInTheDocument();
+  });
+
+  it("shows steps alongside activity banners", () => {
+    renderDigest(new Date(2026, 5, 8), [runEvent(makeRun())], 12000);
+    expect(screen.getByText("Morning Run")).toBeInTheDocument();
+    expect(screen.getByTestId("steps-banner")).toHaveTextContent("12,000 steps");
+  });
+
+  it("ignores a zero or missing step count", () => {
+    renderDigest(new Date(2026, 5, 8), [runEvent(makeRun())], 0);
+    expect(screen.queryByText(/steps/)).not.toBeInTheDocument();
   });
 
   it("renders banners in start-time order even when passed reversed", () => {

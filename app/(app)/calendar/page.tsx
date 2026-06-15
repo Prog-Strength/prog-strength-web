@@ -6,9 +6,11 @@ import { clearToken, getToken } from "@/lib/auth";
 import {
   listExercises,
   listRunningSessions,
+  listSteps,
   listWorkouts,
   type Exercise,
   type RunningSession,
+  type StepsEntry,
   type Workout,
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
@@ -36,6 +38,7 @@ export default function CalendarPage() {
   const { formatDistance, formatPace, unitLabel } = useDistanceUnit();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [runs, setRuns] = useState<RunningSession[] | null>(null);
+  const [steps, setSteps] = useState<StepsEntry[] | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Cursor identifies which month we're viewing. year + 0-indexed month
@@ -83,13 +86,21 @@ export default function CalendarPage() {
       return;
     }
     const { sinceISO, untilISO } = gridFetchBounds(cursor.year, cursor.month);
+    // Steps are keyed by calendar date (YYYY-MM-DD), so they use the
+    // visible grid's first/last day directly rather than the UTC instant
+    // bounds the timed activities use.
+    const grid = buildMonthGrid(cursor.year, cursor.month);
+    const stepsSince = isoDateKey(grid[0]);
+    const stepsUntil = isoDateKey(grid[grid.length - 1]);
     Promise.all([
       listWorkouts(token, { since: sinceISO, until: untilISO, limit: 100 }),
       listRunningSessions(token, { since: sinceISO, until: untilISO }),
+      listSteps(token, { since: stepsSince, until: stepsUntil }),
     ])
-      .then(([wPage, rPage]) => {
+      .then(([wPage, rPage, sPage]) => {
         setWorkouts(wPage.items);
         setRuns(rPage.activities);
+        setSteps(sPage.steps);
       })
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
@@ -169,6 +180,13 @@ export default function CalendarPage() {
     return map;
   }, [workouts, runs]);
 
+  // Per-day step totals keyed by the API's YYYY-MM-DD date, for the digest.
+  const stepsByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of steps ?? []) map.set(s.date, s.steps);
+    return map;
+  }, [steps]);
+
   const days = useMemo(() => buildMonthGrid(cursor.year, cursor.month), [cursor]);
 
   // Stats for the currently-viewed month, computed only from events
@@ -220,10 +238,13 @@ export default function CalendarPage() {
     for (let i = 0; i < days.length; i += 7) {
       const weekDays = days.slice(i, i + 7);
       const keys = new Set(weekDays.map(localDateKey));
+      // Steps join by their YYYY-MM-DD string, so this week needs the
+      // matching zero-padded key set.
+      const isoKeys = new Set(weekDays.map(isoDateKey));
       let activities = 0,
         liftMinutes = 0,
         runMeters = 0,
-        runMinutes = 0;
+        weekSteps = 0;
       for (const w of workouts ?? []) {
         const key = localDateKey(new Date(w.performed_at));
         if (!keys.has(key)) continue;
@@ -237,13 +258,15 @@ export default function CalendarPage() {
         const key = localDateKey(new Date(r.start_time));
         if (!keys.has(key)) continue;
         activities += 1;
-        runMinutes += Math.round(r.duration_seconds / 60);
         runMeters += r.distance_meters;
       }
-      weeks.push({ weekStart: weekDays[0], activities, liftMinutes, runMeters, runMinutes });
+      for (const s of steps ?? []) {
+        if (isoKeys.has(s.date)) weekSteps += s.steps;
+      }
+      weeks.push({ weekStart: weekDays[0], activities, liftMinutes, runMeters, steps: weekSteps });
     }
     return weeks;
-  }, [days, workouts, runs]);
+  }, [days, workouts, runs, steps]);
 
   // Running-quality stats for the cursor month: average pace and longest
   // run. Filtered to runs whose LOCAL date is in the cursor month (same
@@ -443,6 +466,7 @@ export default function CalendarPage() {
             <DayDigest
               date={selectedDate}
               events={eventsByDate.get(selected) ?? []}
+              steps={stepsByDate.get(isoDateKey(selectedDate)) ?? null}
               exerciseMap={exerciseMap}
               autoExpandId={autoExpandId}
               onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
@@ -560,6 +584,18 @@ function gridFetchBounds(year: number, month: number): { sinceISO: string; until
  */
 export function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
+ * Local-date key in zero-padded `YYYY-MM-DD` form — the calendar-date
+ * format the steps API uses for its `date` field. Distinct from
+ * localDateKey (which is `YYYY-M-D` and only used for equality checks);
+ * this one must match the API's string exactly to join steps to days.
+ */
+function isoDateKey(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 
 /**
