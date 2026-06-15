@@ -25,6 +25,10 @@ export function WorkoutDetailsBody({
   // When true, append a total-volume footer (sum of reps × weight across
   // every set). Off by default so the inline/modal surfaces stay unchanged.
   showTotalVolume = false,
+  // When false, omit the workout notes header. Defaults to true so existing
+  // surfaces are unchanged; the timeline card opts out because it renders the
+  // notes as a first-class block above this body (no duplication).
+  showNotes = true,
   // When provided, each rendered group (a standalone exercise or a whole
   // superset) shows an edit pencil that calls this with the group's
   // exercises and its zero-based index. Omitted ⇒ read-only.
@@ -33,11 +37,14 @@ export function WorkoutDetailsBody({
   workout: Workout;
   exerciseMap: Map<string, Exercise>;
   showTotalVolume?: boolean;
+  showNotes?: boolean;
   onEditGroup?: (group: WorkoutExercise[], groupIndex: number) => void;
 }) {
   return (
     <div>
-      {workout.notes && <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>}
+      {showNotes && workout.notes && (
+        <p className="mb-3 whitespace-pre-wrap text-sm">{workout.notes}</p>
+      )}
       <ul className="flex flex-col gap-3">
         {/* A superset is conceptually a single "block" in the
             workout — performed alternating-set style as one unit.
