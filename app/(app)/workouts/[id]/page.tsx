@@ -6,13 +6,16 @@ import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   deleteWorkout,
+  getPlannedWorkoutBySession,
   getWorkout,
   listExercises,
   type Exercise,
   type PersonalRecordEvent,
+  type PlannedWorkout,
   type Workout,
   type WorkoutExercise,
 } from "@/lib/api";
+import { CompletesPlanBanner } from "@/components/completes-plan-banner";
 import { WorkoutDetailsBody, hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutDetailsEditModal } from "@/components/workout-details-edit-modal";
 import { ExerciseEditModal, newExerciseGroup } from "@/components/exercise-edit-modal";
@@ -45,6 +48,7 @@ export default function WorkoutDetailPage() {
 
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [completesPlan, setCompletesPlan] = useState<PlannedWorkout | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [editingDetails, setEditingDetails] = useState(false);
@@ -58,6 +62,10 @@ export default function WorkoutDetailPage() {
       router.replace("/login");
       return;
     }
+    // Best-effort: surface the plan this workout fulfilled (non-critical).
+    getPlannedWorkoutBySession(token, id, "workout")
+      .then(setCompletesPlan)
+      .catch(() => {});
     Promise.all([getWorkout(token, id), listExercises()])
       .then(([w, es]) => {
         setWorkout(w);
@@ -159,6 +167,12 @@ export default function WorkoutDetailPage() {
 
           {workout && (
             <div className="flex flex-col gap-4">
+              {completesPlan && (
+                <CompletesPlanBanner
+                  plan={completesPlan}
+                  onUnlinked={() => setCompletesPlan(null)}
+                />
+              )}
               {workout.personal_records_set.length > 0 && (
                 <PRBanner events={workout.personal_records_set} exerciseMap={exerciseMap} />
               )}
