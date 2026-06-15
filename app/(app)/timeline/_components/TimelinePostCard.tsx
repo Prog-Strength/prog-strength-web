@@ -2,19 +2,29 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { TimelinePost } from "@/lib/api";
+import type { Exercise, TimelinePost } from "@/lib/api";
 import { ReactionBar } from "./ReactionBar";
 import { CommentThread } from "./CommentThread";
+import { WorkoutTimelineSummary } from "./WorkoutTimelineSummary";
 import { SOURCE_META, formatOccurredAt } from "./reactions";
 
 /**
  * One feed card. Presentation switches on `source_type` for the header
  * glyph/label; the body renders the API's denormalized `content` block
  * (title, subtitle, metric chips) and deep-links to the source detail page
- * via `content.href`. Hosts the <ReactionBar> and a comments affordance
- * that toggles the lazy-loading <CommentThread>.
+ * via `content.href`. Workout posts additionally render a concise, expandable
+ * exercise breakdown (<WorkoutTimelineSummary>). Hosts the <ReactionBar> and a
+ * comments affordance that toggles the lazy-loading <CommentThread>.
  */
-export function TimelinePostCard({ post }: { post: TimelinePost }) {
+export function TimelinePostCard({
+  post,
+  // The shared exercise catalog, passed down from the feed so workout cards
+  // can resolve exercise names and the muscle radar without a per-card fetch.
+  exercises,
+}: {
+  post: TimelinePost;
+  exercises: Exercise[];
+}) {
   const [showComments, setShowComments] = useState(false);
   // Local mirror of the count so the badge updates as the user adds/removes
   // comments in the thread without a feed refetch.
@@ -51,6 +61,10 @@ export function TimelinePostCard({ post }: { post: TimelinePost }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {post.source_type === "workout" && (
+        <WorkoutTimelineSummary sourceId={post.source_id} exercises={exercises} />
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
