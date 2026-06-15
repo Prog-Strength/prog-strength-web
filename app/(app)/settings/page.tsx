@@ -5,6 +5,8 @@ import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useProfile } from "@/lib/profile-context";
 import { useToast } from "@/components/toast";
 import { UsageBar } from "@/components/usage-bar";
+import { checkUsernameAvailable } from "@/lib/api";
+import { getToken } from "@/lib/auth";
 
 /**
  * Settings. A "Profile" section (display name, height, avatar) above a
@@ -46,6 +48,15 @@ export default function SettingsPage() {
               disabled={!profile}
               onSave={async (name) => {
                 await update({ display_name: name });
+              }}
+            />
+
+            <UsernameRow
+              value={profile?.username ?? ""}
+              disabled={!profile}
+              onSave={async (username) => {
+                await update({ username });
+                toast.success("Username updated.");
               }}
             />
 
@@ -192,6 +203,163 @@ function DisplayNameRow({
         </button>
       </div>
       {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
+// Mirrors the server's username validator: 3–30 chars, must start with a
+// lowercase letter, then lowercase letters / digits / underscores. The
+// server is authoritative (it also enforces a reserved-word list and
+// uniqueness, surfaced as 400/409 on save) — this catches the obvious
+// charset/length mistakes inline for snappier feedback.
+const USERNAME_RE = /^[a-z][a-z0-9_]{2,29}$/;
+const USERNAME_AVAILABILITY_DEBOUNCE_MS = 400;
+
+type AvailabilityState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "available" }
+  | { kind: "taken" }
+  | { kind: "error"; message: string };
+
+/**
+ * Username (handle) editor. Lowercases input, validates charset/length
+ * inline against the server's rule, and debounce-probes availability once
+ * the candidate is valid and differs from the current handle. Save writes
+ * through the profile context; the server is authoritative and any
+ * 400 (invalid/reserved) or 409 (taken) surfaces inline + via toast.
+ */
+function UsernameRow({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: string;
+  disabled: boolean;
+  onSave: (username: string) => Promise<void>;
+}) {
+  const toast = useToast();
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [availability, setAvailability] = useState<AvailabilityState>({ kind: "idle" });
+
+  // Re-seed when the profile loads / changes from elsewhere.
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  // The server stores handles lowercase; normalize on the way in so the
+  // charset check and the availability probe both see the canonical form.
+  const normalized = draft.trim().toLowerCase();
+  const charsetOk = USERNAME_RE.test(normalized);
+  const dirty = normalized !== value.trim().toLowerCase();
+
+  // Debounced availability probe: only when the candidate is a valid,
+  // changed handle. Cleanup cancels an in-flight timer on each keystroke so
+  // we don't fire a request per character.
+  useEffect(() => {
+    if (!dirty || !charsetOk) {
+      setAvailability({ kind: "idle" });
+      return;
+    }
+    const token = getToken();
+    if (!token) {
+      setAvailability({ kind: "idle" });
+      return;
+    }
+    setAvailability({ kind: "checking" });
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      checkUsernameAvailable(token, normalized)
+        .then((free) => {
+          if (cancelled) return;
+          setAvailability(free ? { kind: "available" } : { kind: "taken" });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setAvailability({
+            kind: "error",
+            message: err instanceof Error ? err.message : "Couldn't check availability",
+          });
+        });
+    }, USERNAME_AVAILABILITY_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [normalized, dirty, charsetOk]);
+
+  async function save() {
+    setError(null);
+    if (!charsetOk) {
+      setError(
+        "Usernames are 3–30 characters: start with a letter, then lowercase letters, numbers, or underscores.",
+      );
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(normalized);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to save username";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Inline status line: charset error wins; otherwise reflect the probe.
+  const showCharsetHint = dirty && draft.trim() !== "" && !charsetOk;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">Username</p>
+        <p className="text-xs text-[var(--muted)]">
+          Your public handle and profile URL. Changing it changes your profile link — the old one
+          stops working (there&apos;s no redirect).
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-sm text-[var(--muted)]">@</span>
+        <input
+          type="text"
+          aria-label="Username"
+          value={draft}
+          maxLength={30}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          disabled={disabled || saving}
+          onChange={(e) => setDraft(e.target.value)}
+          className={`${inputClass} min-w-0 flex-1`}
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={disabled || saving || !dirty || !charsetOk || availability.kind === "taken"}
+          className="shrink-0 rounded-md bg-[var(--accent)] px-3 py-2 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {error ? (
+        <p className="text-xs text-[var(--danger)]">{error}</p>
+      ) : showCharsetHint ? (
+        <p className="text-xs text-[var(--danger)]">
+          3–30 characters: start with a letter, then lowercase letters, numbers, or underscores.
+        </p>
+      ) : availability.kind === "checking" ? (
+        <p className="text-xs text-[var(--muted)]">Checking availability…</p>
+      ) : availability.kind === "available" ? (
+        <p className="text-xs text-[var(--success)]">@{normalized} is available.</p>
+      ) : availability.kind === "taken" ? (
+        <p className="text-xs text-[var(--danger)]">@{normalized} is taken.</p>
+      ) : availability.kind === "error" ? (
+        <p className="text-xs text-[var(--muted)]">{availability.message}</p>
+      ) : null}
     </div>
   );
 }

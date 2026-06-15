@@ -42,6 +42,7 @@ function profile(over: Partial<ResolvedProfile> = {}): ResolvedProfile {
     distance_unit: "mi",
     height_cm: 180,
     avatar_url: null,
+    username: "sam",
     ...over,
   };
 }
