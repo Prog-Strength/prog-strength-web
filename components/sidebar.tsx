@@ -25,6 +25,11 @@ const NAV: NavItem[] = [
   // Chat history used to be a sibling entry here; it now lives as a
   // drawer inside the chat page so the sidebar has one fewer row.
   { href: "/chat", label: "Chat", icon: <ChatIcon /> },
+  // Timeline = the reverse-chronological feed of the user's own training
+  // activity (completed workouts, imported runs, PRs, best efforts) with
+  // reactions + comments. Slotted directly under Chat — both are
+  // "what's happening" surfaces, distinct from the data-entry views below.
+  { href: "/timeline", label: "Timeline", icon: <TimelineIcon /> },
   // Workouts and Running used to be separate siblings; they're now
   // consolidated into one Activities entry with URL-backed sub-views
   // (/activities?view=workouts|running). The active-highlight logic is
@@ -310,6 +315,32 @@ function ChatIcon() {
       aria-hidden="true"
     >
       <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
+
+function TimelineIcon() {
+  // A stack of feed "rows" — three left-aligned dots with trailing lines,
+  // reading as an activity feed/timeline. Distinct from the Chat bubble
+  // above it and the Activities pulse below it.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="5" cy="6" r="1.5" />
+      <path d="M10 6h10" />
+      <circle cx="5" cy="12" r="1.5" />
+      <path d="M10 12h10" />
+      <circle cx="5" cy="18" r="1.5" />
+      <path d="M10 18h10" />
     </svg>
   );
 }

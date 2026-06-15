@@ -1999,6 +1999,234 @@ export async function getExerciseOneRMHistory(
   });
 }
 
+// --- User timeline (feed) ----------------------------------------
+//
+// The timeline is a reverse-chronological feed of the user's own training
+// activity (completed workouts, imported runs, lifting PRs, running best
+// efforts) rendered as cards the user can react to and comment on. The API
+// owns the projection: each post carries a denormalized `content` block
+// (title/subtitle/metrics/href) so the card renders without a per-source
+// join, plus a reaction summary and a comment count. See
+// prog-strength-docs/sows/user-timeline-feed.md.
+
+/**
+ * Which source domain a timeline post was projected from. Drives the
+ * per-type glyph/label on the card; the denormalized `content` block
+ * means the renderer never has to fetch the source row itself.
+ */
+export type TimelineSourceType = "workout" | "run" | "pr" | "best_effort";
+
+/** The four reaction types a post accepts. Mirrored on the API side. */
+export type ReactionType = "like" | "strong" | "fire" | "celebrate";
+
+/**
+ * The reaction state for a post: `summary` is a per-type count map (a type
+ * is absent when its count is zero), and `mine` lists the types the authed
+ * viewer has applied. Returned inline on every post and, after a toggle,
+ * from the PUT/DELETE reaction endpoints so the client can reconcile.
+ */
+export type ReactionSummary = {
+  summary: Record<string, number>;
+  mine: string[];
+};
+
+/**
+ * One feed entry. `content` is the API's denormalized render block so the
+ * card needs no per-source fetch; `href` deep-links to the source detail
+ * page (e.g. /workouts/{id}, /running/{id}). `occurred_at` is the source
+ * event's timestamp (RFC3339), which is what the feed orders and paginates
+ * on — NOT the row's created_at.
+ */
+export type TimelinePost = {
+  id: string;
+  source_type: TimelineSourceType;
+  source_id: string;
+  occurred_at: string; // RFC3339
+  visibility: string;
+  content: {
+    title: string;
+    subtitle: string;
+    metrics: string[];
+    href: string;
+  };
+  reactions: ReactionSummary;
+  comment_count: number;
+};
+
+/** One comment on a post. `user_id` identifies the author so the UI can
+ * show a delete affordance only on the viewer's own comments. */
+export type TimelineComment = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  body: string;
+  created_at: string; // RFC3339
+};
+
+/**
+ * One page of the feed plus the cursor for the next page. `next_before`
+ * is an opaque cursor (an `occurred_at`) to pass back as `before`; null
+ * when there are no older posts. Mirrors the activities feed shape.
+ */
+export type TimelineFeedPage = {
+  posts: TimelinePost[];
+  next_before: string | null;
+};
+
+/** A post with its comments, returned by the per-id detail GET. */
+export type TimelinePostWithComments = TimelinePost & {
+  comments: TimelineComment[];
+};
+
+/**
+ * GET /timeline. Returns one page of the authed user's feed, newest
+ * first. `limit` caps the page size (the API defaults it when omitted);
+ * `before` is a prior page's `next_before` cursor for pagination.
+ */
+export async function listTimeline(
+  token: string,
+  opts: { limit?: number; before?: string } = {},
+): Promise<TimelineFeedPage> {
+  const params = new URLSearchParams();
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.before) params.set("before", opts.before);
+  const qs = params.toString();
+  const resp = await fetch(`${config.apiUrl}/timeline${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<TimelineFeedPage>(resp, { posts: [], next_before: null });
+}
+
+/**
+ * GET /timeline/posts/{id}. Returns a single post with its full comment
+ * thread (oldest-first). Used to lazy-load comments when the user expands
+ * a card. Throws if the post isn't found / not owned by this user.
+ */
+export async function getTimelinePost(
+  token: string,
+  id: string,
+): Promise<TimelinePostWithComments> {
+  const resp = await fetch(`${config.apiUrl}/timeline/posts/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<TimelinePostWithComments | null>(resp, null);
+  if (!got) {
+    throw new Error("timeline post not found");
+  }
+  return got;
+}
+
+/**
+ * POST /timeline/posts/{id}/comments. Appends a comment and returns the
+ * created row (201). Server validates the body (non-empty, ≤2000 chars);
+ * an invalid body surfaces as the API's `error` envelope.
+ */
+export async function addTimelineComment(
+  token: string,
+  postId: string,
+  body: string,
+): Promise<TimelineComment> {
+  const resp = await fetch(
+    `${config.apiUrl}/timeline/posts/${encodeURIComponent(postId)}/comments`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ body }),
+    },
+  );
+  const created = await unwrap<TimelineComment | null>(resp, null);
+  if (!created) {
+    throw new Error("API did not return the created comment");
+  }
+  return created;
+}
+
+/**
+ * DELETE /timeline/posts/{id}/comments/{commentId}. 204 on success (no
+ * body); throws the API's `error` envelope on non-2xx — typically a 404
+ * when the comment isn't the viewer's own.
+ */
+export async function deleteTimelineComment(
+  token: string,
+  postId: string,
+  commentId: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/timeline/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(
+      commentId,
+    )}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * PUT /timeline/posts/{id}/reactions/{type}. Idempotently applies a
+ * reaction and returns the updated summary + the viewer's reaction set so
+ * the client can reconcile its optimistic state. `type` is one of the
+ * four ReactionType values.
+ */
+export async function addTimelineReaction(
+  token: string,
+  postId: string,
+  type: ReactionType,
+): Promise<ReactionSummary> {
+  const resp = await fetch(
+    `${config.apiUrl}/timeline/posts/${encodeURIComponent(postId)}/reactions/${encodeURIComponent(
+      type,
+    )}`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return unwrap<ReactionSummary>(resp, { summary: {}, mine: [] });
+}
+
+/**
+ * DELETE /timeline/posts/{id}/reactions/{type}. 204 on success (no body);
+ * idempotent — removing a reaction the viewer never applied still
+ * succeeds. Throws the API's `error` envelope on non-2xx.
+ */
+export async function removeTimelineReaction(
+  token: string,
+  postId: string,
+  type: ReactionType,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/timeline/posts/${encodeURIComponent(postId)}/reactions/${encodeURIComponent(
+      type,
+    )}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
 /**
  * Common envelope unwrapper. The API wraps every success response in
  * `{service, message, data}`; the caller only cares about `data`.
