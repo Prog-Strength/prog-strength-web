@@ -64,3 +64,28 @@ describe("PlannedBanner — run", () => {
     expect(screen.queryByRole("button", { name: /Expand details/i })).not.toBeInTheDocument();
   });
 });
+
+describe("PlannedBanner — unlink", () => {
+  const COMPLETED = makePlanned({
+    name: "Easy Run",
+    activity_kind: "run",
+    status: "completed",
+    completed_session_id: "act1",
+    completed_session_kind: "activity",
+    run_type: "easy",
+  });
+
+  it("shows Unlink when onUnlink provided and fires it", () => {
+    const onUnlink = vi.fn();
+    render(
+      <PlannedBanner planned={COMPLETED} exerciseMap={EMPTY_MAP} defaultOpen onUnlink={onUnlink} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(onUnlink).toHaveBeenCalled();
+  });
+
+  it("hides Unlink when onUnlink absent", () => {
+    render(<PlannedBanner planned={COMPLETED} exerciseMap={EMPTY_MAP} defaultOpen />);
+    expect(screen.queryByRole("button", { name: "Unlink" })).not.toBeInTheDocument();
+  });
+});

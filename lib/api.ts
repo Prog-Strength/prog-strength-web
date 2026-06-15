@@ -2588,6 +2588,38 @@ export async function resyncPlannedWorkout(token: string, id: string): Promise<P
 }
 
 /**
+ * POST /planned-workouts/{id}/unlink. Detaches the plan from its
+ * completing session; returns the plan (status back to planned).
+ */
+export async function unlinkPlannedWorkout(token: string, id: string): Promise<PlannedWorkout> {
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}/unlink`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  });
+  const updated = await unwrap<PlannedWorkout | null>(resp, null);
+  if (!updated) throw new Error("API did not return the unlinked planned workout");
+  return updated;
+}
+
+/**
+ * GET /planned-workouts/by-session. Returns the planned workout a logged
+ * session completes, or null when none does (a 404 from the API is the
+ * common case).
+ */
+export async function getPlannedWorkoutBySession(
+  token: string,
+  sessionId: string,
+  sessionKind: CompletedSessionKind,
+): Promise<PlannedWorkout | null> {
+  const params = new URLSearchParams({ session_id: sessionId, session_kind: sessionKind });
+  const resp = await fetch(`${config.apiUrl}/planned-workouts/by-session?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (resp.status === 404) return null;
+  return unwrap<PlannedWorkout | null>(resp, null);
+}
+
+/**
  * POST /planned-workouts/{id}/complete. Links the plan to a logged
  * session; returns the plan (status completed).
  */

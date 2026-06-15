@@ -6,10 +6,13 @@ import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   deleteRunningSession,
+  getPlannedWorkoutBySession,
   getRunningSession,
   renameRunningSession,
+  type PlannedWorkout,
   type RunningSession,
 } from "@/lib/api";
+import { CompletesPlanBanner } from "@/components/completes-plan-banner";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
@@ -36,6 +39,7 @@ export default function RunningDetailPage() {
   const { unit, unitLabel, formatDistance, formatPace } = useDistanceUnit();
 
   const [session, setSession] = useState<RunningSession | null>(null);
+  const [completesPlan, setCompletesPlan] = useState<PlannedWorkout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -59,6 +63,10 @@ export default function RunningDetailPage() {
       router.replace("/login");
       return;
     }
+    // Best-effort: surface the plan this run fulfilled (non-critical).
+    getPlannedWorkoutBySession(token, id, "activity")
+      .then(setCompletesPlan)
+      .catch(() => {});
     getRunningSession(token, id)
       .then((s) => {
         setError(null);
@@ -210,6 +218,9 @@ export default function RunningDetailPage() {
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto flex max-w-4xl flex-col gap-6">
+          {completesPlan && (
+            <CompletesPlanBanner plan={completesPlan} onUnlinked={() => setCompletesPlan(null)} />
+          )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <StatTile
               value={`${formatDistance(session.distance_meters)} ${unitLabel}`}

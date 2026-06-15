@@ -10,6 +10,7 @@ import {
   getPlannedWorkout,
   listExercises,
   resyncPlannedWorkout,
+  unlinkPlannedWorkout,
   type CompletedSessionKind,
   type Exercise,
   type PlannedWorkout,
@@ -84,6 +85,20 @@ export default function PlannedWorkoutDetailPage() {
       setPlan(await resyncPlannedWorkout(token, plan.id));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Resync failed");
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!plan) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    try {
+      setPlan(await unlinkPlannedWorkout(token, plan.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unlink failed");
     }
   };
 
@@ -179,6 +194,7 @@ export default function PlannedWorkoutDetailPage() {
               defaultOpen
               onResync={handleResync}
               onNavigateSession={handleNavigateSession}
+              onUnlink={handleUnlink}
             />
           )}
         </div>
