@@ -70,6 +70,15 @@ export function RunningPRCard({
         </Link>
       )}
 
+      {/* Shown for all six distances (including empty-state ones) — the
+          estimate view stands on its own even before a best effort exists. */}
+      <Link
+        href={`/progress/running/${distanceKey}`}
+        className="text-xs text-[var(--accent)] hover:underline"
+      >
+        View estimate &amp; progress →
+      </Link>
+
       {expanded && entry && <ProgressionChart kind="running" distanceKey={distanceKey} />}
 
       {entry && <ExpandChevron expanded={expanded} onToggle={() => setExpanded((e) => !e)} />}
