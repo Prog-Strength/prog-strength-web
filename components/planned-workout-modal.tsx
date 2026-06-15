@@ -5,10 +5,12 @@ import { getToken } from "@/lib/auth";
 import {
   createPlannedWorkout,
   updatePlannedWorkout,
+  type ActivityKind,
   type CalendarDetail,
   type Exercise,
   type PlannedWorkout,
   type PlannedWorkoutPayload,
+  type RunType,
 } from "@/lib/api";
 import { localInputToRFC3339, rfc3339ToLocalInput } from "@/lib/datetime";
 
@@ -41,12 +43,17 @@ type PlannedExerciseDraft = {
 
 type PlannedDraft = {
   name: string;
+  activity_kind: ActivityKind;
   scheduled_start: string; // datetime-local value
   scheduled_end: string; // datetime-local value
   notes: string;
   // "" → Default (null), else the literal detail level.
   calendar_detail: "" | CalendarDetail;
   calendar_sync: boolean;
+  // Run agenda (used when activity_kind === "run").
+  run_type: RunType;
+  run_details: string;
+  // Lift agenda (used when activity_kind === "lift").
   exercises: PlannedExerciseDraft[];
 };
 
@@ -173,12 +180,24 @@ export function PlannedWorkoutModal({
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-4">
+            <Field label="Activity">
+              <Segmented
+                value={draft.activity_kind}
+                options={[
+                  { value: "lift", label: "Lift" },
+                  { value: "run", label: "Run" },
+                ]}
+                onChange={(v) => updateField("activity_kind", v)}
+                ariaLabel="Activity type"
+              />
+            </Field>
+
             <Field label="Name">
               <input
                 type="text"
                 value={draft.name}
                 onChange={(e) => updateField("name", e.target.value)}
-                placeholder="e.g. Upper 1"
+                placeholder={draft.activity_kind === "run" ? "e.g. Tempo run" : "e.g. Upper 1"}
                 className={inputClasses}
               />
             </Field>
@@ -241,37 +260,63 @@ export function PlannedWorkoutModal({
               </label>
             )}
 
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Agenda (optional)</h3>
-                <button
-                  type="button"
-                  onClick={addExercise}
-                  className="text-xs text-[var(--accent)] hover:underline"
-                >
-                  + Add exercise
-                </button>
+            {draft.activity_kind === "run" ? (
+              <div className="flex flex-col gap-4">
+                <Field label="Run type">
+                  <Segmented
+                    value={draft.run_type}
+                    options={[
+                      { value: "easy", label: "Easy" },
+                      { value: "threshold", label: "Threshold" },
+                      { value: "intervals", label: "Intervals" },
+                    ]}
+                    onChange={(v) => updateField("run_type", v)}
+                    ariaLabel="Run type"
+                  />
+                </Field>
+                <Field label="Details (optional)">
+                  <textarea
+                    value={draft.run_details}
+                    onChange={(e) => updateField("run_details", e.target.value)}
+                    rows={2}
+                    placeholder="e.g. 4x800m @ 5k pace, 90s jog recovery"
+                    className={`${inputClasses} resize-y`}
+                  />
+                </Field>
               </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium">Agenda (optional)</h3>
+                  <button
+                    type="button"
+                    onClick={addExercise}
+                    className="text-xs text-[var(--accent)] hover:underline"
+                  >
+                    + Add exercise
+                  </button>
+                </div>
 
-              {draft.exercises.length === 0 && (
-                <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-                  No agenda — this will be a bare time block.
-                </p>
-              )}
+                {draft.exercises.length === 0 && (
+                  <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
+                    No agenda — this will be a bare time block.
+                  </p>
+                )}
 
-              {draft.exercises.map((ex, exIdx) => (
-                <ExerciseCard
-                  key={exIdx}
-                  exercise={ex}
-                  catalog={catalog}
-                  onChange={(fn) => updateExercise(exIdx, fn)}
-                  onRemove={() => removeExercise(exIdx)}
-                  onAddSet={() => addSet(exIdx)}
-                  onRemoveSet={(setIdx) => removeSet(exIdx, setIdx)}
-                  onSetChange={(setIdx, fn) => updateSet(exIdx, setIdx, fn)}
-                />
-              ))}
-            </div>
+                {draft.exercises.map((ex, exIdx) => (
+                  <ExerciseCard
+                    key={exIdx}
+                    exercise={ex}
+                    catalog={catalog}
+                    onChange={(fn) => updateExercise(exIdx, fn)}
+                    onRemove={() => removeExercise(exIdx)}
+                    onAddSet={() => addSet(exIdx)}
+                    onRemoveSet={(setIdx) => removeSet(exIdx, setIdx)}
+                    onSetChange={(setIdx, fn) => updateSet(exIdx, setIdx, fn)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -436,6 +481,46 @@ function ExerciseCard({
   );
 }
 
+/** A compact pill segmented control, matching the Settings page pattern. */
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className="inline-flex w-fit rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5"
+    >
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(opt.value)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              active
+                ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                : "text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Field({
   label,
   required,
@@ -515,11 +600,14 @@ function freshDraft(day?: Date): PlannedDraft {
   const toInput = (d: Date) => rfc3339ToLocalInput(d.toISOString());
   return {
     name: "",
+    activity_kind: "lift",
     scheduled_start: toInput(start),
     scheduled_end: toInput(end),
     notes: "",
     calendar_detail: "",
     calendar_sync: false,
+    run_type: "easy",
+    run_details: "",
     exercises: [],
   };
 }
@@ -527,12 +615,15 @@ function freshDraft(day?: Date): PlannedDraft {
 function planToDraft(p: PlannedWorkout): PlannedDraft {
   return {
     name: p.name ?? "",
+    activity_kind: p.activity_kind,
     scheduled_start: rfc3339ToLocalInput(p.scheduled_start),
     scheduled_end: rfc3339ToLocalInput(p.scheduled_end),
     notes: p.notes ?? "",
     calendar_detail: p.calendar_detail ?? "",
     // We don't re-trigger a sync on edit unless the user opts in again.
     calendar_sync: false,
+    run_type: p.run_type ?? "easy",
+    run_details: p.run_details ?? "",
     exercises: p.exercises
       .slice()
       .sort((a, b) => a.order_index - b.order_index)
@@ -554,6 +645,7 @@ function planToDraft(p: PlannedWorkout): PlannedDraft {
 
 function draftToPayload(d: PlannedDraft): PlannedWorkoutPayload {
   const payload: PlannedWorkoutPayload = {
+    activity_kind: d.activity_kind,
     scheduled_start: localInputToRFC3339(d.scheduled_start),
     scheduled_end: localInputToRFC3339(d.scheduled_end),
     // null → Default (API falls back to the user's calendar_default_detail).
@@ -562,6 +654,18 @@ function draftToPayload(d: PlannedDraft): PlannedWorkoutPayload {
   if (d.name.trim()) payload.name = d.name.trim();
   if (d.notes.trim()) payload.notes = d.notes.trim();
   if (d.calendar_sync) payload.calendar_sync = true;
+
+  // A run carries run_type + free-text details (no exercises); a lift carries
+  // the exercise agenda (no run fields). Sending run_type/run_details always
+  // for a run lets an edit clear the details by emptying the box. Switching
+  // kinds is coherent because the API drops the opposing agenda when
+  // activity_kind changes.
+  if (d.activity_kind === "run") {
+    payload.run_type = d.run_type;
+    payload.run_details = d.run_details.trim();
+    return payload;
+  }
+
   // Only send `exercises` when the user built an agenda — omitting it on
   // update preserves any existing agenda (per the API contract).
   if (d.exercises.length > 0) {
@@ -590,9 +694,13 @@ function isDraftValid(d: PlannedDraft): boolean {
   if (!d.scheduled_start || !d.scheduled_end) return false;
   // End must be after start.
   if (new Date(d.scheduled_end).getTime() <= new Date(d.scheduled_start).getTime()) return false;
-  for (const ex of d.exercises) {
-    if (!ex.exercise_id) return false;
-    if (ex.sets.length === 0) return false;
+  // A run is valid with just a window — its details are optional. Lift agenda
+  // rows, when present, must name an exercise and carry at least one set.
+  if (d.activity_kind === "lift") {
+    for (const ex of d.exercises) {
+      if (!ex.exercise_id) return false;
+      if (ex.sets.length === 0) return false;
+    }
   }
   return true;
 }

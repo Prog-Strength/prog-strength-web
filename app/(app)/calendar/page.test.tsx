@@ -147,6 +147,8 @@ function makePlanned(id: string, name: string, day: number): PlannedWorkout {
     google_event_id: null,
     google_sync_status: null,
     last_sync_error: null,
+    run_type: null,
+    run_details: null,
     exercises: [],
     created_at: iso(day, 12),
     updated_at: iso(day, 12),

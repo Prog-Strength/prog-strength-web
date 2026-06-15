@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import type { CompletedSessionKind, Exercise, PlannedWorkout } from "@/lib/api";
+import type { CompletedSessionKind, Exercise, PlannedWorkout, RunType } from "@/lib/api";
 
 /**
  * Banner row for a single planned (scheduled) workout in the day digest.
@@ -34,10 +34,21 @@ export function PlannedBanner({
     hour: "numeric",
     minute: "2-digit",
   });
-  const title = planned.name?.trim() || `Planned · ${time}`;
+  const isRun = planned.activity_kind === "run";
+  const kindLabel = isRun ? "Run" : "Lift";
+  // Unnamed plans lead with the kind so "Run · 6:00 AM" vs "Lift · 6:00 PM"
+  // reads at a glance — useful on a two-a-day.
+  const title = planned.name?.trim() || `${kindLabel} · ${time}`;
+
   const exerciseCount = planned.exercises.length;
-  const agendaLabel =
-    exerciseCount > 0
+  const runDetails = planned.run_details?.trim() ?? "";
+  // The agenda summary on the stats line: for a run it's the run type (which
+  // also signals "this is a run"); for a lift it's the exercise count.
+  const agendaLabel = isRun
+    ? planned.run_type
+      ? runTypeLabel(planned.run_type)
+      : "Run"
+    : exerciseCount > 0
       ? `${exerciseCount} ${exerciseCount === 1 ? "exercise" : "exercises"} planned`
       : "No agenda";
   const stats = `${time} · ${agendaLabel}`;
@@ -50,7 +61,9 @@ export function PlannedBanner({
   // skipped.
   const rail = completed ? "bg-emerald-500" : skipped ? "bg-[var(--muted)]" : "bg-[var(--accent)]";
 
-  const hasAgenda = exerciseCount > 0;
+  // Expandable when there's more to show than the stats line: a lift with
+  // exercises, or a run with free-text details.
+  const hasAgenda = isRun ? runDetails !== "" : exerciseCount > 0;
 
   return (
     <div
@@ -154,22 +167,45 @@ export function PlannedBanner({
           id={dropdownId}
           className="flex flex-col gap-2 border-t border-[var(--border)] px-3 py-2.5"
         >
-          {planned.exercises
-            .slice()
-            .sort((a, b) => a.order_index - b.order_index)
-            .map((ex) => {
-              const name = exerciseMap.get(ex.exercise_id)?.name ?? ex.exercise_id;
-              return (
-                <div key={ex.id} className="text-xs">
-                  <p className="font-medium text-[var(--foreground)]">{name}</p>
-                  <p className="text-[var(--muted)]">{setsLabel(ex.sets)}</p>
-                </div>
-              );
-            })}
+          {isRun ? (
+            <div className="text-xs">
+              {planned.run_type && (
+                <p className="font-medium text-[var(--foreground)]">
+                  {runTypeLabel(planned.run_type)}
+                </p>
+              )}
+              <p className="whitespace-pre-wrap text-[var(--muted)]">{runDetails}</p>
+            </div>
+          ) : (
+            planned.exercises
+              .slice()
+              .sort((a, b) => a.order_index - b.order_index)
+              .map((ex) => {
+                const name = exerciseMap.get(ex.exercise_id)?.name ?? ex.exercise_id;
+                return (
+                  <div key={ex.id} className="text-xs">
+                    <p className="font-medium text-[var(--foreground)]">{name}</p>
+                    <p className="text-[var(--muted)]">{setsLabel(ex.sets)}</p>
+                  </div>
+                );
+              })
+          )}
         </div>
       )}
     </div>
   );
+}
+
+/** Human label for a run type, e.g. "Threshold run". */
+function runTypeLabel(rt: RunType): string {
+  switch (rt) {
+    case "easy":
+      return "Easy run";
+    case "threshold":
+      return "Threshold run";
+    case "intervals":
+      return "Interval run";
+  }
 }
 
 /** Compact summary of a planned exercise's target sets. */
