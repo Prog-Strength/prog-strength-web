@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   checkUsernameAvailable,
   getExerciseOneRMHistory,
+  getPlannedWorkoutBySession,
   getProfile,
   getRunningBestEffortHistory,
   getRunningMaxEffort,
@@ -10,6 +11,7 @@ import {
   listRunningBestEfforts,
   removeFollower,
   requestFollow,
+  unlinkPlannedWorkout,
 } from "@/lib/api";
 
 // Unit tests for the running best-efforts + 1RM history client methods.
@@ -530,5 +532,42 @@ describe("checkUsernameAvailable", () => {
   it("throws on an unexpected non-2xx (e.g. 500)", async () => {
     mockFetchError("boom");
     await expect(checkUsernameAvailable(TOKEN, "x")).rejects.toThrow("boom");
+  });
+});
+
+describe("planned-workout reconciliation", () => {
+  it("unlinkPlannedWorkout POSTs to /unlink and returns the updated plan", async () => {
+    const plan = { id: "p1", status: "planned", completed_session_id: null } as unknown;
+    const fetchMock = mockFetchOk(plan);
+    const result = await unlinkPlannedWorkout(TOKEN, "p1");
+    expect(result).toMatchObject({ id: "p1", status: "planned" });
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/planned-workouts/p1/unlink`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("getPlannedWorkoutBySession returns the plan when found", async () => {
+    const plan = { id: "p1", status: "completed", completed_session_id: "act1" } as unknown;
+    const fetchMock = mockFetchOk(plan);
+    const result = await getPlannedWorkoutBySession(TOKEN, "act1", "activity");
+    expect(result).toMatchObject({ id: "p1" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${BASE}/planned-workouts/by-session?session_id=act1&session_kind=activity`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+    );
+  });
+
+  it("getPlannedWorkoutBySession returns null on 404", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: "no planned workout completed by this session" }),
+      }),
+    );
+    const result = await getPlannedWorkoutBySession(TOKEN, "act1", "activity");
+    expect(result).toBeNull();
   });
 });
