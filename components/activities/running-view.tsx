@@ -13,7 +13,7 @@ import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { StatTile } from "@/components/stat-tile";
 import { RunningAnalytics } from "@/components/running-analytics";
-import { RunListRow } from "../../app/(app)/running/_components/RunListRow";
+import { RunHistoryList } from "../../app/(app)/running/_components/RunHistoryList";
 import { UploadTCXModal } from "../../app/(app)/running/_components/UploadTCXModal";
 
 /**
@@ -161,13 +161,7 @@ export function RunningView({
 
       {sessions && sessions.length === 0 && <EmptyState />}
 
-      {sessions && sessions.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {sessions.map((s) => (
-            <RunListRow key={s.id} session={s} />
-          ))}
-        </ul>
-      )}
+      {sessions && sessions.length > 0 && <RunHistoryList sessions={sessions} />}
 
       {uploadModalOpen && (
         <UploadTCXModal onClose={onCloseUploadModal} onUploaded={handleUploaded} />
