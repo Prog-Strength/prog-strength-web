@@ -9,9 +9,17 @@ import type { ResolvedProfile } from "@/lib/api";
 const useUsageMock = vi.hoisted(() => vi.fn());
 const useProfileMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
+const getCalendarConnectionMock = vi.hoisted(() => vi.fn());
+const disconnectCalendarMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+
+vi.mock("@/lib/api", async (orig) => ({
+  ...(await orig<typeof import("@/lib/api")>()),
+  getCalendarConnection: getCalendarConnectionMock,
+  disconnectCalendar: disconnectCalendarMock,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -72,6 +80,8 @@ function profile(over: Partial<ResolvedProfile> = {}): ResolvedProfile {
     distance_unit: "mi",
     height_cm: 180,
     avatar_url: null,
+    timezone: "America/Denver",
+    calendar_default_detail: "time_block",
     ...over,
   };
 }
@@ -92,6 +102,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   useProfileMock.mockReturnValue(profileCtx());
   useUsageMock.mockReturnValue(snapshot());
+  // Default: no calendar connection (so existing tests' "Connect" affordance
+  // is harmless and the connection fetch resolves rather than hitting fetch).
+  getCalendarConnectionMock.mockResolvedValue({ status: "absent" });
+  disconnectCalendarMock.mockResolvedValue(undefined);
 });
 
 function progressFill(): HTMLElement {
@@ -261,5 +275,49 @@ describe("Settings — Profile section", () => {
     const png = new File(["x"], "a.png", { type: "image/png" });
     fireEvent.change(fileInput, { target: { files: [png] } });
     await waitFor(() => expect(uploadAvatarMock).toHaveBeenCalledWith(png));
+  });
+});
+
+describe("Settings — Google Calendar section", () => {
+  it("shows Connect Google Calendar when the connection is absent", async () => {
+    getCalendarConnectionMock.mockResolvedValue({ status: "absent" });
+    render(<SettingsPage />);
+    expect(
+      await screen.findByRole("button", { name: "Connect Google Calendar" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+  });
+
+  it("shows Disconnect when the calendar is connected", async () => {
+    getCalendarConnectionMock.mockResolvedValue({ status: "connected" });
+    render(<SettingsPage />);
+    expect(await screen.findByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Connect Google Calendar" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("disconnects via disconnectCalendar() and refreshes", async () => {
+    getCalendarConnectionMock.mockResolvedValueOnce({ status: "connected" });
+    getCalendarConnectionMock.mockResolvedValueOnce({ status: "revoked" });
+    render(<SettingsPage />);
+    const btn = await screen.findByRole("button", { name: "Disconnect" });
+    fireEvent.click(btn);
+    await waitFor(() => expect(disconnectCalendarMock).toHaveBeenCalled());
+    // After disconnecting it re-reads the (now revoked) connection and flips
+    // back to the Connect affordance.
+    expect(
+      await screen.findByRole("button", { name: "Connect Google Calendar" }),
+    ).toBeInTheDocument();
+  });
+
+  it("changes the default-detail control via update()", async () => {
+    render(<SettingsPage />);
+    // Profile fixture defaults to "time_block"; click "Full agenda".
+    const fullAgenda = await screen.findByRole("button", { name: "Full agenda" });
+    fireEvent.click(fullAgenda);
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith({ calendar_default_detail: "full_agenda" }),
+    );
   });
 });

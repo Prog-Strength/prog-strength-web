@@ -42,6 +42,8 @@ function profile(over: Partial<ResolvedProfile> = {}): ResolvedProfile {
     distance_unit: "mi",
     height_cm: 180,
     avatar_url: null,
+    timezone: "America/Denver",
+    calendar_default_detail: "time_block",
     ...over,
   };
 }

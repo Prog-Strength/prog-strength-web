@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useProfile } from "@/lib/profile-context";
 import { useToast } from "@/components/toast";
 import { UsageBar } from "@/components/usage-bar";
+import { getToken } from "@/lib/auth";
+import { config } from "@/lib/config";
+import { disconnectCalendar, getCalendarConnection, type CalendarConnection } from "@/lib/api";
 
 /**
  * Settings. A "Profile" section (display name, height, avatar) above a
@@ -117,9 +120,149 @@ export default function SettingsPage() {
               <WeightUnitControl />
             </SettingRow>
           </section>
+
+          <section className="flex flex-col gap-4">
+            <h2 className="text-sm font-semibold tracking-tight">Google Calendar</h2>
+
+            <GoogleCalendarConnectionRow />
+
+            <SettingRow
+              label="Default event detail"
+              description="What a synced calendar event shows for a planned workout."
+            >
+              <CalendarDetailControl />
+            </SettingRow>
+          </section>
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Google Calendar connection row. Reads the connection state on mount.
+ * When absent/revoked, a Connect button navigates the browser to the API's
+ * OAuth connect endpoint (which redirects to Google then back to
+ * /settings). When connected, shows the connected state + a Disconnect
+ * button that revokes server-side and refreshes the row.
+ */
+function GoogleCalendarConnectionRow() {
+  const toast = useToast();
+  const [conn, setConn] = useState<CalendarConnection | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const token = getToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setConn(await getCalendarConnection(token));
+    } catch {
+      // Treat a read failure as "not connected" — the Connect button is a
+      // safe default and re-running the OAuth flow is idempotent.
+      setConn({ status: "absent" });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function connect() {
+    const returnTo = `${window.location.origin}/settings`;
+    window.location.href = `${config.apiUrl}/auth/google/calendar/connect?return_to=${encodeURIComponent(
+      returnTo,
+    )}`;
+  }
+
+  async function disconnect() {
+    const token = getToken();
+    if (!token) return;
+    setBusy(true);
+    try {
+      await disconnectCalendar(token);
+      await load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to disconnect calendar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const connected = conn?.status === "connected";
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">Calendar sync</p>
+        <p className="text-xs text-[var(--muted)]">
+          {loading
+            ? "Checking connection…"
+            : connected
+              ? "Connected. Planned workouts can sync to your Google Calendar."
+              : "Connect Google Calendar to sync your planned workouts."}
+        </p>
+      </div>
+      <div className="shrink-0">
+        {connected ? (
+          <button
+            type="button"
+            onClick={disconnect}
+            disabled={busy}
+            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+          >
+            {busy ? "Working…" : "Disconnect"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={connect}
+            disabled={loading}
+            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+          >
+            Connect Google Calendar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Default calendar-detail segmented control, backed by the shared profile's
+ * `calendar_default_detail`. Optimistic like WeightUnitControl.
+ */
+function CalendarDetailControl() {
+  const toast = useToast();
+  const { profile, update } = useProfile();
+  const [pending, setPending] = useState<"time_block" | "full_agenda" | null>(null);
+  const value = pending ?? profile?.calendar_default_detail ?? "time_block";
+
+  function change(next: "time_block" | "full_agenda") {
+    if (next === value) return;
+    setPending(next);
+    update({ calendar_default_detail: next })
+      .catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : "Failed to update default detail");
+      })
+      .finally(() => setPending(null));
+  }
+
+  return (
+    <SegmentedControl
+      value={value}
+      disabled={!profile}
+      options={[
+        { value: "time_block", label: "Time block" },
+        { value: "full_agenda", label: "Full agenda" },
+      ]}
+      onChange={change}
+    />
   );
 }
 

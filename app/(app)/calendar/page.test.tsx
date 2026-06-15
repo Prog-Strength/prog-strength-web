@@ -33,9 +33,13 @@ vi.mock("@/lib/api", async (orig) => ({
   })),
   listRunningSessions: vi.fn(async () => ({ activities: RUNS, next_before: null })),
   listSteps: vi.fn(async () => ({ steps: STEPS, next_before: null })),
+  listPlannedWorkouts: vi.fn(async () => PLANNED),
+  getCalendarConnection: vi.fn(async () => ({ status: "connected" })),
+  resyncPlannedWorkout: vi.fn(async () => PLANNED[0]),
 }));
 
-import { listWorkouts, listRunningSessions } from "@/lib/api";
+import { listWorkouts, listRunningSessions, listPlannedWorkouts } from "@/lib/api";
+import type { PlannedWorkout } from "@/lib/api";
 import CalendarPage from "./page";
 
 // --- fixtures --------------------------------------------------------------
@@ -124,6 +128,34 @@ const FIRST_RUN = makeRun("r-1", "First Run", 1);
 const WORKOUTS: Workout[] = [TODAY_WORKOUT, DISTINCT_WORKOUT];
 const RUNS: RunningSession[] = [TODAY_RUN, FIRST_RUN];
 
+// A planned workout on the DISTINCT day so it renders alongside that day's
+// logged workout — the "distinct from a logged pill" assertion compares the
+// two on the same cell.
+function makePlanned(id: string, name: string, day: number): PlannedWorkout {
+  return {
+    id,
+    name,
+    activity_kind: "lift",
+    scheduled_start: iso(day, 17), // 17:00, after the day's logged events
+    scheduled_end: iso(day, 18),
+    timezone: "America/Denver",
+    status: "planned",
+    notes: null,
+    completed_session_id: null,
+    completed_session_kind: null,
+    calendar_detail: null,
+    google_event_id: null,
+    google_sync_status: null,
+    last_sync_error: null,
+    exercises: [],
+    created_at: iso(day, 12),
+    updated_at: iso(day, 12),
+  };
+}
+
+const PLANNED_WORKOUT = makePlanned("p-distinct", "Planned Squats", DISTINCT_DAY);
+const PLANNED: PlannedWorkout[] = [PLANNED_WORKOUT];
+
 // Zero-padded YYYY-MM-DD in the cursor month — the steps API's date format.
 function isoDay(day: number): string {
   return `${YEAR}-${String(MONTH + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -177,6 +209,7 @@ beforeEach(() => {
     has_more: false,
   });
   vi.mocked(listRunningSessions).mockResolvedValue({ activities: RUNS, next_before: null });
+  vi.mocked(listPlannedWorkouts).mockResolvedValue(PLANNED);
   // Run rAF synchronously so the deferred scrollIntoView fires in-test.
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
     cb(0);
@@ -320,6 +353,35 @@ describe("CalendarPage", () => {
     // Neither tile sits inside a `hidden` wrapper when runs exist.
     expect(avgPace.closest(".hidden")).toBeNull();
     expect(longestRun.closest(".hidden")).toBeNull();
+  });
+
+  it("fetches planned workouts for the visible window", async () => {
+    renderPage();
+    await findDigest(TODAY);
+    await waitFor(() => expect(vi.mocked(listPlannedWorkouts)).toHaveBeenCalled());
+    // Called with the same since/until window as the timed-activity fetches.
+    const call = vi.mocked(listPlannedWorkouts).mock.calls[0];
+    expect(call[1]).toEqual(expect.objectContaining({ since: expect.any(String) }));
+    expect(call[1]).toEqual(expect.objectContaining({ until: expect.any(String) }));
+  });
+
+  it("renders a planned pill distinct from a logged workout pill", async () => {
+    renderPage();
+    await findDigest(TODAY);
+
+    const cell = screen.getByLabelText(new RegExp(`^${longDate(DISTINCT_DATE)}`));
+    // The logged workout renders as a solid pill (its accessible name is the
+    // workout name); the planned workout renders as a dashed pill carrying
+    // the planned-pill test id — visually and structurally distinct.
+    const loggedPill = await within(cell).findByRole("button", { name: "Midmonth Lift" });
+    const plannedPill = await within(cell).findByTestId("planned-pill");
+    expect(plannedPill).toBeInTheDocument();
+    expect(plannedPill).toHaveTextContent("Planned Squats");
+    // The planned pill uses a dashed outline; the logged pill does not.
+    expect(plannedPill.className).toMatch(/border-dashed/);
+    expect(loggedPill.className).not.toMatch(/border-dashed/);
+    // And they're two different elements.
+    expect(plannedPill).not.toBe(loggedPill);
   });
 
   it("hides Avg Pace and Longest Run tiles when the month has no runs", async () => {
