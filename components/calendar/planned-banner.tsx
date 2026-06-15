@@ -19,6 +19,7 @@ export function PlannedBanner({
   onEdit,
   onResync,
   onNavigateSession,
+  onUnlink,
 }: {
   planned: PlannedWorkout;
   exerciseMap: Map<string, Exercise>;
@@ -26,6 +27,7 @@ export function PlannedBanner({
   onEdit?: () => void;
   onResync?: () => void;
   onNavigateSession?: (kind: CompletedSessionKind, id: string) => void;
+  onUnlink?: () => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const dropdownId = useId();
@@ -157,6 +159,15 @@ export function PlannedBanner({
               className="font-medium text-[var(--accent)] transition hover:underline"
             >
               View logged {planned.completed_session_kind === "activity" ? "run" : "workout"} →
+            </button>
+          )}
+          {onUnlink && (
+            <button
+              type="button"
+              onClick={onUnlink}
+              className="text-xs font-medium text-[var(--muted)] transition hover:text-[var(--danger)]"
+            >
+              Unlink
             </button>
           )}
         </div>
