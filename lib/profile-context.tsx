@@ -28,6 +28,7 @@ type ProfilePatch = {
   height_cm?: number | null;
   weight_unit?: "lb" | "kg";
   distance_unit?: "mi" | "km";
+  username?: string;
 };
 
 type ProfileContextValue = {

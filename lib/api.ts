@@ -306,6 +306,9 @@ export type ResolvedProfile = {
   distance_unit: "mi" | "km";
   height_cm: number | null;
   avatar_url: string | null;
+  // The user's chosen handle (the `/u/{username}` profile slug), or null when
+  // they haven't set one yet. Editable via PATCH /me; see `updateMe`.
+  username: string | null;
 };
 
 /**
@@ -360,6 +363,10 @@ export async function updateMe(
     height_cm?: number | null;
     weight_unit?: "lb" | "kg";
     distance_unit?: "mi" | "km";
+    // New handle. The server validates charset/length and reserved words and
+    // rejects with 400 (invalid/reserved) or 409 (already taken); those
+    // surface as the unwrap'd `error` message for the caller to render.
+    username?: string;
   },
 ): Promise<ResolvedProfile> {
   const resp = await fetch(`${config.apiUrl}/me`, {
@@ -2337,6 +2344,321 @@ export async function removeTimelineReaction(
     }
     throw new Error(detail);
   }
+}
+
+// --- Social graph: profiles, follows, search ---------------------
+//
+// The social layer adds public profiles addressable by `username`, a
+// follow graph with an approval state machine (request → accept/reject,
+// plus cancel/unfollow/remove-follower), user search, and a viewer-scoped
+// timeline. Every list endpoint paginates with an opaque keyset `cursor`
+// (echoed back as `next_cursor`, null on the last page). The follow
+// mutations return the affected edge's `relationship` so the caller can
+// reconcile a profile/list row without a refetch. See
+// prog-strength-docs/sows/followers-profile-search-and-social-timeline.md.
+
+/**
+ * The viewer's relationship to another user, from the viewer's side of the
+ * edge:
+ *   - "none"             no edge in either direction
+ *   - "requested"        viewer asked to follow; awaiting the target's accept
+ *   - "pending_incoming" the target asked to follow the viewer; viewer can
+ *                        accept/reject
+ *   - "following"        viewer follows the target (accepted)
+ *   - "self"             the target is the viewer
+ */
+export type Relationship = "none" | "requested" | "pending_incoming" | "following" | "self";
+
+/**
+ * The compact card shape used across search results, follower/following
+ * lists, and follow-request rows. `username` is nullable because a user may
+ * not have chosen a handle yet (the row still resolves by `user_id`).
+ */
+export type ProfileSummary = {
+  user_id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  relationship: Relationship;
+};
+
+/**
+ * A full public profile (GET /users/{username}) — a `ProfileSummary` plus
+ * the aggregate follower/following counts the profile header renders.
+ */
+export type PublicProfile = ProfileSummary & {
+  follower_count: number;
+  following_count: number;
+};
+
+/**
+ * One pending follow request — a `ProfileSummary` for the other party plus
+ * `created_at` (RFC3339) so the inbox can sort/relativize the request age.
+ */
+export type FollowRequest = ProfileSummary & {
+  created_at: string;
+};
+
+/**
+ * One page of profile summaries plus the keyset cursor for the next page.
+ * `next_cursor` is opaque; pass it back as `cursor` to advance. Null when
+ * there are no more rows. Shared by search and the follower/following lists.
+ */
+export type ProfilePage = {
+  users: ProfileSummary[];
+  next_cursor: string | null;
+};
+
+/** One page of follow requests plus the keyset cursor for the next page. */
+export type FollowRequestPage = {
+  requests: FollowRequest[];
+  next_cursor: string | null;
+};
+
+/**
+ * GET /users/{username}. Returns the public profile addressed by handle.
+ * Throws (via unwrap's error path) when the handle is unknown — the API
+ * returns a 404 whose `error` envelope becomes the thrown message.
+ */
+export async function getProfile(token: string, username: string): Promise<PublicProfile> {
+  const resp = await fetch(`${config.apiUrl}/users/${encodeURIComponent(username)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<PublicProfile | null>(resp, null);
+  if (!got) {
+    throw new Error("profile not found");
+  }
+  return got;
+}
+
+/**
+ * GET /users/search?q=. Returns one page of matching profiles, ranked
+ * server-side. `cursor` advances the keyset; omit it for the first page.
+ */
+export async function searchProfiles(
+  token: string,
+  q: string,
+  cursor?: string,
+): Promise<ProfilePage> {
+  const params = new URLSearchParams();
+  params.set("q", q);
+  if (cursor) params.set("cursor", cursor);
+  const resp = await fetch(`${config.apiUrl}/users/search?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<ProfilePage>(resp, { users: [], next_cursor: null });
+}
+
+/**
+ * GET /users/{username}/followers. One page of the users who follow
+ * `username`, newest-first. `cursor` advances the keyset.
+ */
+export async function listFollowers(
+  token: string,
+  username: string,
+  cursor?: string,
+): Promise<ProfilePage> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const qs = params.toString();
+  const resp = await fetch(
+    `${config.apiUrl}/users/${encodeURIComponent(username)}/followers${qs ? `?${qs}` : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return unwrap<ProfilePage>(resp, { users: [], next_cursor: null });
+}
+
+/**
+ * GET /users/{username}/following. One page of the users `username`
+ * follows, newest-first. `cursor` advances the keyset.
+ */
+export async function listFollowing(
+  token: string,
+  username: string,
+  cursor?: string,
+): Promise<ProfilePage> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const qs = params.toString();
+  const resp = await fetch(
+    `${config.apiUrl}/users/${encodeURIComponent(username)}/following${qs ? `?${qs}` : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return unwrap<ProfilePage>(resp, { users: [], next_cursor: null });
+}
+
+/**
+ * GET /follows/requests?direction=. Lists the viewer's pending follow
+ * requests in the given direction: "incoming" (others asking to follow the
+ * viewer — the inbox to accept/reject) or "outgoing" (the viewer's own
+ * pending requests they can cancel). `cursor` advances the keyset.
+ */
+export async function listFollowRequests(
+  token: string,
+  direction: "incoming" | "outgoing",
+  cursor?: string,
+): Promise<FollowRequestPage> {
+  const params = new URLSearchParams();
+  params.set("direction", direction);
+  if (cursor) params.set("cursor", cursor);
+  const resp = await fetch(`${config.apiUrl}/follows/requests?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<FollowRequestPage>(resp, { requests: [], next_cursor: null });
+}
+
+/**
+ * POST /follows. Follows `followee` (a username or user_id). For a public
+ * target this takes effect immediately (relationship → "following"); for a
+ * private one it creates a pending request (relationship → "requested").
+ * Returns the affected edge so the caller can reconcile its row. Throws the
+ * API's `error` envelope on 400/404/409/429.
+ */
+export async function requestFollow(token: string, followee: string): Promise<ProfileSummary> {
+  const resp = await fetch(`${config.apiUrl}/follows`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ followee }),
+  });
+  const edge = await unwrap<ProfileSummary | null>(resp, null);
+  if (!edge) {
+    throw new Error("API did not return the follow edge");
+  }
+  return edge;
+}
+
+/**
+ * POST /follows/{username}/accept. Accepts an incoming follow request (the
+ * other user now follows the viewer). Returns the updated edge so the inbox
+ * can reconcile the row. Throws the API's `error` envelope on non-2xx.
+ */
+export async function acceptFollow(token: string, username: string): Promise<ProfileSummary> {
+  const resp = await fetch(`${config.apiUrl}/follows/${encodeURIComponent(username)}/accept`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const edge = await unwrap<ProfileSummary | null>(resp, null);
+  if (!edge) {
+    throw new Error("API did not return the follow edge");
+  }
+  return edge;
+}
+
+/**
+ * POST /follows/{username}/reject. Rejects an incoming follow request. 204
+ * on success (no body); throws the API's `error` envelope on non-2xx.
+ */
+export async function rejectFollow(token: string, username: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/follows/${encodeURIComponent(username)}/reject`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * DELETE /follows/{username}. Tears down the viewer's outbound edge to
+ * `username`: cancels a still-pending request, or unfollows an accepted
+ * one. 204 on success (no body); throws the API's `error` envelope on
+ * non-2xx.
+ */
+export async function cancelOrUnfollow(token: string, username: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/follows/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * DELETE /followers/{username}. Removes `username` from the viewer's
+ * followers (the inbound edge). 204 on success (no body); throws the API's
+ * `error` envelope on non-2xx.
+ */
+export async function removeFollower(token: string, username: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/followers/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * GET /timeline?user={username}. The viewer-scoped feed for another user's
+ * profile, reusing the timeline feed shape. When the viewer isn't allowed
+ * to see the user's activity the API returns `locked: true` with an empty
+ * `posts` array (the profile renders a gated state rather than throwing);
+ * `locked` is absent / false on an accessible feed. `before` is a prior
+ * page's `next_before` cursor for pagination.
+ */
+export async function listUserTimeline(
+  token: string,
+  username: string,
+  before?: string,
+): Promise<TimelineFeedPage & { locked?: boolean }> {
+  const params = new URLSearchParams();
+  params.set("user", username);
+  if (before) params.set("before", before);
+  const resp = await fetch(`${config.apiUrl}/timeline?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<TimelineFeedPage & { locked?: boolean }>(resp, {
+    posts: [],
+    next_before: null,
+    locked: false,
+  });
+}
+
+/**
+ * Availability probe for a candidate username, used by the Settings handle
+ * editor to give snappy "available / taken" feedback before the user saves.
+ * Implemented against GET /users/{username}: a 200 means the handle resolves
+ * to an existing profile (taken → false); a 404 means no such profile
+ * (available → true). Because a 404 is the expected/non-error outcome here,
+ * this inspects `resp.status` directly rather than going through `unwrap`
+ * (which would throw on the 404). Any other non-2xx is surfaced as an error
+ * so the caller can fall back to letting the server be authoritative on save.
+ */
+export async function checkUsernameAvailable(token: string, username: string): Promise<boolean> {
+  const resp = await fetch(`${config.apiUrl}/users/${encodeURIComponent(username)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (resp.status === 404) return true; // no such profile → available
+  if (resp.ok) return false; // resolves to a profile → taken
+  let detail: string;
+  try {
+    detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+  } catch {
+    detail = `HTTP ${resp.status}`;
+  }
+  throw new Error(detail);
 }
 
 /**
