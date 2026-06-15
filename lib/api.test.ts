@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  checkUsernameAvailable,
   getExerciseOneRMHistory,
+  getProfile,
   getRunningBestEffortHistory,
   getRunningMaxEffort,
   getRunningMaxEffortSummary,
   listProgression,
   listRunningBestEfforts,
+  removeFollower,
+  requestFollow,
 } from "@/lib/api";
 
 // Unit tests for the running best-efforts + 1RM history client methods.
@@ -396,5 +400,135 @@ describe("getRunningMaxEffort", () => {
   it("rejects with the API error text on a non-ok response", async () => {
     mockFetchError("boom");
     await expect(getRunningMaxEffort(TOKEN, "5k")).rejects.toThrow("boom");
+  });
+});
+
+// --- Social graph: profiles, follows, search ---------------------
+
+describe("getProfile", () => {
+  const prof = {
+    user_id: "u_42",
+    username: "lifter_sam",
+    display_name: "Sam",
+    avatar_url: null,
+    relationship: "following" as const,
+    follower_count: 12,
+    following_count: 7,
+  };
+
+  it("unwraps the envelope and URL-encodes the username", async () => {
+    const fetchMock = mockFetchOk(prof);
+
+    const result = await getProfile(TOKEN, "lifter sam");
+
+    expect(result).toEqual(prof);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/users/lifter%20sam`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("rejects with the API error text on a 404", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "user not found" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getProfile(TOKEN, "ghost")).rejects.toThrow("user not found");
+  });
+});
+
+describe("requestFollow", () => {
+  it("posts the followee and returns the edge", async () => {
+    const edge = {
+      user_id: "u_9",
+      username: "coach",
+      display_name: "Coach",
+      avatar_url: null,
+      relationship: "requested" as const,
+    };
+    const fetchMock = mockFetchOk(edge);
+
+    const result = await requestFollow(TOKEN, "coach");
+
+    expect(result).toEqual(edge);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/follows`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ followee: "coach" }),
+    });
+  });
+
+  it("rejects with the API error text on a 409", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: "already following" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(requestFollow(TOKEN, "coach")).rejects.toThrow("already following");
+  });
+});
+
+describe("removeFollower", () => {
+  it("resolves on a 204 without parsing a body", async () => {
+    // The 204 path must not call resp.json() — give it a json that throws
+    // so a regression that tries to unwrap an empty body would fail loudly.
+    const json = vi.fn(async () => {
+      throw new Error("should not parse a 204 body");
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(removeFollower(TOKEN, "sam")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/followers/sam`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it("rejects with the API error text on a non-2xx", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "not a follower" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(removeFollower(TOKEN, "sam")).rejects.toThrow("not a follower");
+  });
+});
+
+describe("checkUsernameAvailable", () => {
+  it("returns true (available) on a 404", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "user not found" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkUsernameAvailable(TOKEN, "freehandle")).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/users/freehandle`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("returns false (taken) on a 200", async () => {
+    mockFetchOk({
+      user_id: "u_1",
+      username: "taken",
+      display_name: "Taken",
+      avatar_url: null,
+      relationship: "none",
+      follower_count: 0,
+      following_count: 0,
+    });
+    await expect(checkUsernameAvailable(TOKEN, "taken")).resolves.toBe(false);
+  });
+
+  it("throws on an unexpected non-2xx (e.g. 500)", async () => {
+    mockFetchError("boom");
+    await expect(checkUsernameAvailable(TOKEN, "x")).rejects.toThrow("boom");
   });
 });

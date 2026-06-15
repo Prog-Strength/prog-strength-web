@@ -30,6 +30,7 @@ type ProfilePatch = {
   distance_unit?: "mi" | "km";
   timezone?: string;
   calendar_default_detail?: "time_block" | "full_agenda";
+  username?: string;
 };
 
 type ProfileContextValue = {

@@ -30,6 +30,11 @@ const NAV: NavItem[] = [
   // reactions + comments. Slotted directly under Chat — both are
   // "what's happening" surfaces, distinct from the data-entry views below.
   { href: "/timeline", label: "Timeline", icon: <TimelineIcon /> },
+  // Search + Requests are the social-graph entries — finding people to follow
+  // and triaging incoming follow requests. They cluster with Timeline as the
+  // "social" surfaces, above the data-entry views.
+  { href: "/search", label: "Search", icon: <SearchIcon /> },
+  { href: "/requests", label: "Requests", icon: <RequestsIcon /> },
   // Workouts and Running used to be separate siblings; they're now
   // consolidated into one Activities entry with URL-backed sub-views
   // (/activities?view=workouts|running). The active-highlight logic is
@@ -341,6 +346,50 @@ function TimelineIcon() {
       <path d="M10 12h10" />
       <circle cx="5" cy="18" r="1.5" />
       <path d="M10 18h10" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  // Magnifying glass — the universal "search" glyph. Used for the people
+  // search entry.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </svg>
+  );
+}
+
+function RequestsIcon() {
+  // A person with a small "+" — reads as a follow / friend request. Anchors
+  // the requests inbox entry, distinct from the Chat bubble and Timeline rows.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6" />
+      <path d="M22 11h-6" />
     </svg>
   );
 }

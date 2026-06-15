@@ -19,10 +19,12 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/api", () => ({
   listTimeline: listTimelineMock,
+  listExercises: vi.fn(() => Promise.resolve([])),
 }));
 
-// TimelinePostCard pulls in ReactionBar (toast) + CommentThread (profile);
-// stub them to a trivial node so this test stays focused on pagination.
+// TimelinePostCard pulls in ReactionBar (toast) + CommentThread (profile) and
+// now WorkoutTimelineSummary (workout fetch); stub it to a trivial node so this
+// test stays focused on pagination.
 vi.mock("./TimelinePostCard", () => ({
   TimelinePostCard: ({ post }: { post: TimelinePost }) => <div>{post.content.title}</div>,
 }));

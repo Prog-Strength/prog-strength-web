@@ -9,8 +9,10 @@ import type { ResolvedProfile } from "@/lib/api";
 const useUsageMock = vi.hoisted(() => vi.fn());
 const useProfileMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
+const toastSuccessMock = vi.hoisted(() => vi.fn());
 const getCalendarConnectionMock = vi.hoisted(() => vi.fn());
 const disconnectCalendarMock = vi.hoisted(() => vi.fn());
+const checkUsernameAvailableMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
@@ -20,6 +22,7 @@ vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
   getCalendarConnection: getCalendarConnectionMock,
   disconnectCalendar: disconnectCalendarMock,
+  checkUsernameAvailable: checkUsernameAvailableMock,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -33,7 +36,7 @@ vi.mock("@/lib/distance-unit-context", () => ({
 
 vi.mock("@/components/toast", () => ({
   useToast: () => ({
-    success: vi.fn(),
+    success: toastSuccessMock,
     error: toastErrorMock,
     info: vi.fn(),
     dismiss: vi.fn(),
@@ -82,6 +85,7 @@ function profile(over: Partial<ResolvedProfile> = {}): ResolvedProfile {
     avatar_url: null,
     timezone: "America/Denver",
     calendar_default_detail: "time_block",
+    username: "sam",
     ...over,
   };
 }
@@ -106,6 +110,8 @@ beforeEach(() => {
   // is harmless and the connection fetch resolves rather than hitting fetch).
   getCalendarConnectionMock.mockResolvedValue({ status: "absent" });
   disconnectCalendarMock.mockResolvedValue(undefined);
+  // Default: a free handle. Tests that need "taken" override per-case.
+  checkUsernameAvailableMock.mockResolvedValue(true);
 });
 
 function progressFill(): HTMLElement {
@@ -222,9 +228,9 @@ describe("Settings — Profile section", () => {
     render(<SettingsPage />);
     const input = screen.getByLabelText("Height (in)");
     fireEvent.change(input, { target: { value: "72" } });
-    // The Height row's own Save button is the second "Save" button.
+    // Save buttons render in DOM order: display name, username, height.
     const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[1]);
+    fireEvent.click(saveButtons[2]);
     // 72 in * 2.54 = 182.88 → rounded to 182.9.
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ height_cm: 182.9 }));
   });
@@ -319,5 +325,77 @@ describe("Settings — Google Calendar section", () => {
     await waitFor(() =>
       expect(updateMock).toHaveBeenCalledWith({ calendar_default_detail: "full_agenda" }),
     );
+  });
+});
+
+describe("Settings — Username row", () => {
+  // The username row's own Save button is the second of the three Save
+  // buttons (display name, username, height).
+  function usernameSave(): HTMLElement {
+    return screen.getAllByRole("button", { name: "Save" })[1];
+  }
+
+  it("renders the current username", () => {
+    render(<SettingsPage />);
+    expect(screen.getByLabelText("Username")).toHaveValue("sam");
+  });
+
+  it("shows the charset hint, disables Save, and skips probe on an invalid handle", async () => {
+    render(<SettingsPage />);
+    const input = screen.getByLabelText("Username");
+    // Leading digit + uppercase → fails the ^[a-z][a-z0-9_]{2,29}$ rule.
+    fireEvent.change(input, { target: { value: "1Bad" } });
+    // The inline charset hint renders immediately for invalid, dirty input.
+    await waitFor(() =>
+      expect(screen.getByText(/3–30 characters: start with a letter/)).toBeInTheDocument(),
+    );
+    // Save is disabled (can't be clicked) and no availability probe fires.
+    expect(usernameSave()).toBeDisabled();
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(checkUsernameAvailableMock).not.toHaveBeenCalled();
+  });
+
+  it("debounce-probes and shows 'available' for a free, valid handle", async () => {
+    checkUsernameAvailableMock.mockResolvedValue(true);
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "newhandle" } });
+    await waitFor(() =>
+      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "newhandle"),
+    );
+    await waitFor(() => expect(screen.getByText("@newhandle is available.")).toBeInTheDocument());
+  });
+
+  it("shows 'taken' and disables Save when the handle is taken", async () => {
+    checkUsernameAvailableMock.mockResolvedValue(false);
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "occupied" } });
+    await waitFor(() => expect(screen.getByText("@occupied is taken.")).toBeInTheDocument());
+    expect(usernameSave()).toBeDisabled();
+  });
+
+  it("lowercases input and saves via update(), toasting success", async () => {
+    checkUsernameAvailableMock.mockResolvedValue(true);
+    render(<SettingsPage />);
+    // Uppercase entry is normalized to lowercase before save + probe.
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "NewSam" } });
+    await waitFor(() =>
+      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "newsam"),
+    );
+    fireEvent.click(usernameSave());
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ username: "newsam" }));
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith("Username updated."));
+  });
+
+  it("surfaces a server 409 inline and via toast", async () => {
+    checkUsernameAvailableMock.mockResolvedValue(true);
+    updateMock.mockRejectedValueOnce(new Error("username already taken"));
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "racey" } });
+    await waitFor(() =>
+      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "racey"),
+    );
+    fireEvent.click(usernameSave());
+    await waitFor(() => expect(screen.getByText("username already taken")).toBeInTheDocument());
+    expect(toastErrorMock).toHaveBeenCalledWith("username already taken");
   });
 });

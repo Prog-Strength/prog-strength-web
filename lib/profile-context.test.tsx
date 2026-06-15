@@ -44,6 +44,7 @@ function profile(over: Partial<ResolvedProfile> = {}): ResolvedProfile {
     avatar_url: null,
     timezone: "America/Denver",
     calendar_default_detail: "time_block",
+    username: "sam",
     ...over,
   };
 }
