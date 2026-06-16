@@ -142,7 +142,13 @@ export function ConversationList({
           </div>
         )}
 
-        {sessions && sessions.length > 0 && (
+        {sessions && sessions.length > 0 && filtered.length === 0 && (
+          <p className="px-2 py-3 text-center text-xs text-[var(--muted)]">
+            No chats match &ldquo;{query.trim()}&rdquo;.
+          </p>
+        )}
+
+        {sessions && sessions.length > 0 && filtered.length > 0 && (
           <ul className="flex flex-col gap-1">
             {filtered.map((s) => (
               <li key={s.id}>
