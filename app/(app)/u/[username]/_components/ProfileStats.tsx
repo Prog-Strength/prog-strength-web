@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import { getProfileStats, type ProfileStats as ProfileStatsData } from "@/lib/api";
-import { formatHours } from "@/lib/chart-format";
+import { formatHours, formatYTick } from "@/lib/chart-format";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { WeeklySeriesChart } from "@/components/profile-stats-chart";
 
@@ -115,6 +115,7 @@ export function ProfileStats({ username }: { username: string }) {
           points={stats.lift_session_minutes}
           label="Total"
           valueFormatter={formatHours}
+          yTickFormatter={formatYTick}
         />
       </div>
 

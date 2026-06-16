@@ -33,17 +33,25 @@ export function WeeklySeriesChart({
   points,
   label,
   valueFormatter,
+  yTickFormatter,
   unitLabel,
 }: {
   points: StatsPoint[];
   // The series name, used as the tooltip's metric row label.
   label: string;
-  // Turns a raw `value` into the displayed string (Y tick + tooltip).
+  // Turns a raw `value` into the tooltip's display string (verbose form).
   valueFormatter: (v: number) => string;
+  // Optional terser formatter for the Y-axis ticks; defaults to
+  // `valueFormatter` so axis and tooltip stay in the same unit. Callers pass a
+  // tighter form (e.g. formatYTick) when the verbose tooltip label is too busy
+  // for an axis tick — mirroring WorkoutDurationChart's formatYTick/formatHours
+  // split.
+  yTickFormatter?: (v: number) => string;
   // Optional accessible heading hint; unused for layout but kept so callers
   // can document the series. Headings live in the parent.
   unitLabel?: string;
 }) {
+  const yTick = yTickFormatter ?? valueFormatter;
   // Project the API series onto the recharts datum shape the existing charts
   // use: a numeric `t` (week_start epoch ms) for the time axis and the raw
   // `value` for the area. A numeric X axis with a dataMin/dataMax domain keeps
@@ -91,7 +99,7 @@ export function WeeklySeriesChart({
           <YAxis
             stroke="#a1a1aa"
             tick={{ fill: "#a1a1aa", fontSize: 11 }}
-            tickFormatter={(v: number) => valueFormatter(v)}
+            tickFormatter={(v: number) => yTick(v)}
             width={48}
           />
           <Tooltip
@@ -109,6 +117,10 @@ export function WeeklySeriesChart({
             }
             formatter={(v) => (typeof v === "number" ? [valueFormatter(v), label] : ["—", label])}
           />
+          {/* `value` is plotted raw; it only ever reaches the user through
+              valueFormatter (tooltip) / yTickFormatter (axis), so both share a
+              single unit source and can't disagree — same rationale as
+              RunningMileageChart. Don't read this datum as display units. */}
           <Area
             type="monotone"
             dataKey="value"
