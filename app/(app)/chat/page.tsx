@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { clearToken, getToken } from "@/lib/auth";
 import { BrandMark } from "@/components/brand-mark";
-import { ChatHistoryDrawer } from "@/components/chat/chat-history-drawer";
+import { MessageBubble } from "@/components/chat/message-bubble";
+import { Composer } from "@/components/chat/composer";
+import { ConversationList } from "@/components/chat/conversation-list";
+import { ChatEmptyState } from "@/components/chat/chat-empty-state";
+import { PlusIcon, SpeakerIcon } from "@/components/chat/icons";
+import type { Message, ToolCall } from "@/components/chat/types";
 import { config } from "@/lib/config";
 import { parseSSE } from "@/lib/stream";
 import {
@@ -59,33 +62,8 @@ function acceptImageFile(
   return { blob: file, mediaType };
 }
 
-/**
- * A tool the agent invoked during a single assistant turn. State
- * starts as "running" when we see tool_use_start, transitions to "ok"
- * or "error" on tool_result. Persisted on the Message so the history
- * shows "the agent called X to answer this" even after streaming ends.
- */
-type ToolCall = {
-  name: string;
-  state: "running" | "ok" | "error";
-};
-
-type Message = {
-  role: "user" | "assistant";
-  // Plain string for assistant turns and text-only user turns (exactly
-  // as persisted). A user turn that carried an image holds a
-  // ContentBlock[] in-memory so the bubble can paint the image inline —
-  // this never gets persisted (the API stores the placeholder string).
-  content: string | ContentBlock[];
-  // Only populated on assistant messages — the tools the agent
-  // invoked while producing this turn. Order reflects call order.
-  tools?: ToolCall[];
-  // The Claude model that produced this turn, e.g. "claude-haiku-4-5…"
-  // or "claude-sonnet-4-6". Set when the agent emits model_chosen at
-  // the start of the response, kept on the message so historical
-  // turns show "via Haiku" / "via Sonnet" labels.
-  model?: string;
-};
+// `Message` and `ToolCall` are imported from @/components/chat/types —
+// the shared shapes the extracted chat components render against.
 
 // Feature-detect SpeechRecognition once at module load. Anywhere in the
 // page that gates a mic-related affordance reads this — null means we
@@ -163,11 +141,10 @@ export default function ChatPage() {
   // their daily cap. Drives a small inline note next to the voice
   // toggle so the user knows why it switched off (rather than silently).
   const [voiceForcedOff, setVoiceForcedOff] = useState(false);
-  // History drawer (replaces the deleted /chat/history route). The
-  // drawer fetches the sessions list lazily on first open and on
-  // every subsequent open so the list is fresh after the user lands
-  // a new turn in the current conversation.
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // Mobile-only conversation pane. On lg+ the ConversationList is a
+  // persistent column; below lg it's a slide-over toggled by the
+  // header's "Chats" button. Desktop never reads this flag.
+  const [paneOpen, setPaneOpen] = useState(false);
   // True while the mic button is held and the Web Speech API is
   // actively listening. Drives the pulsing-red mic visual.
   const [listening, setListening] = useState(false);
@@ -790,286 +767,289 @@ export default function ChatPage() {
     router.push("/chat");
   };
 
+  // Escape closes the mobile conversation sheet, matching the dismissal
+  // affordance the retired History drawer offered. Only wired while the
+  // sheet is open so the listener doesn't run on desktop.
+  useEffect(() => {
+    if (!paneOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPaneOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [paneOpen]);
+
   return (
-    <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-6">
-        <h1 className="text-sm font-semibold tracking-tight">Chat</h1>
-        {/* Three pill controls. Below sm: the text labels collapse to
-            icon-only so the row doesn't outgrow a phone viewport;
-            aria-label preserves discoverability. The pills keep their
-            border + rounded-full chrome at all sizes so they read as
-            controls even without a label. */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <button
-            type="button"
-            onClick={toggleVoiceMode}
-            disabled={capped}
-            aria-disabled={capped}
-            aria-pressed={voiceMode}
-            aria-label={voiceMode ? "Turn voice mode off" : "Turn voice mode on"}
-            title={
-              capped
-                ? cappedTooltip
-                : voiceMode
-                  ? "Voice mode on — agent replies play as audio"
-                  : "Voice mode off — turn on to hear agent replies"
-            }
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 ${
-              voiceMode
-                ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
-                : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
-            }`}
-          >
-            <SpeakerIcon muted={!voiceMode} />
-            <span className="hidden sm:inline">{voiceMode ? "Voice on" : "Voice off"}</span>
-          </button>
-          <button
-            type="button"
-            onClick={startNewChat}
-            aria-label="Start a new chat"
-            title="Start a new chat"
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium transition hover:text-[var(--foreground)] sm:px-3"
-          >
-            <PlusIcon />
-            <span className="hidden sm:inline">New chat</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistoryOpen(true)}
-            aria-expanded={historyOpen}
-            aria-controls="chat-history-drawer"
-            aria-label="Open chat history"
-            title="Open chat history"
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium transition hover:text-[var(--foreground)] sm:px-3"
-          >
-            <HistoryIcon />
-            <span className="hidden sm:inline">History</span>
-          </button>
-        </div>
-      </header>
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-6 py-6" aria-live="polite">
-        <div className="mx-auto flex max-w-2xl flex-col gap-4">
-          {messages.length === 0 && (
-            // Empty-state card. Brand mark up top gives a fresh chat
-            // surface a clear visual identity instead of a wall of
-            // muted text — feels like opening "the Prog Strength app"
-            // rather than a generic chat box.
-            <div className="flex flex-col items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-center text-sm text-[var(--muted)]">
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)]">
-                <BrandMark size={36} />
-              </div>
-              <div className="space-y-1">
-                <p className="font-medium text-[var(--foreground)]">Ask about your training.</p>
-                <p>
-                  Try <em>&quot;what chest exercises are in the catalog?&quot;</em> or paste a
-                  workout log and ask it to record the session.
-                </p>
-              </div>
-            </div>
-          )}
+    <div className="flex flex-1 overflow-hidden">
+      {/* Persistent conversation pane on desktop. */}
+      <ConversationList
+        activeSessionId={sessionId}
+        onNewChat={startNewChat}
+        className="hidden lg:flex"
+      />
 
-          {messages.map((m, i) => (
-            <MessageBubble
-              key={i}
-              role={m.role}
-              content={m.content}
-              tools={m.tools}
-              model={m.model}
+      {/* Mobile: the same pane in a slide-over overlay, toggled by the
+          header's "Chats" button. */}
+      {paneOpen && (
+        // The mobile sheet is a second ConversationList instance — the
+        // desktop pane above stays mounted (CSS-hidden) but only one is
+        // ever visible at a breakpoint, so the duplicate mount is benign
+        // (the sessions GET is idempotent). Backdrop click + Escape (effect
+        // above) dismiss, matching the retired drawer.
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chats"
+          className="fixed inset-0 z-40 flex lg:hidden"
+        >
+          <div
+            className="absolute inset-0 bg-black/50"
+            aria-hidden="true"
+            onClick={() => setPaneOpen(false)}
+          />
+          <div className="relative z-10">
+            <ConversationList
+              activeSessionId={sessionId}
+              onNewChat={() => {
+                setPaneOpen(false);
+                startNewChat();
+              }}
             />
-          ))}
+          </div>
+        </div>
+      )}
 
-          {error && (
-            <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
-              {error}
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <ChatHeader
+          voiceMode={voiceMode}
+          onToggleVoice={toggleVoiceMode}
+          capped={capped}
+          cappedTooltip={cappedTooltip}
+          onNewChat={startNewChat}
+          onOpenChats={() => setPaneOpen(true)}
+        />
+
+        <div
+          ref={scrollerRef}
+          className="flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+          aria-live="polite"
+        >
+          <div className="mx-auto flex max-w-2xl flex-col gap-4">
+            {messages.length === 0 && <ChatEmptyState />}
+
+            {messages.map((m, i) => (
+              <MessageBubble
+                key={i}
+                role={m.role}
+                content={m.content}
+                tools={m.tools}
+                model={m.model}
+              />
+            ))}
+
+            {error && (
+              <div className="rounded-[var(--radius-card)] border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <footer
+          className="border-t border-[var(--border)] px-3 py-3 sm:px-6 sm:py-4"
+          // The whole footer is a drop target. preventDefault on dragOver
+          // is what actually enables the drop (the browser blocks it
+          // otherwise); on drop we route the first dropped file through the
+          // same validation path as the picker, and preventDefault stops
+          // the browser from navigating to the image.
+          onDragOver={(e) => {
+            e.preventDefault();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (streaming || loading || !sessionId) return;
+            const file = e.dataTransfer.files?.[0];
+            if (file) onSelectImage(file);
+          }}
+        >
+          {capped && (
+            // Capped banner above the composer. Same copy as the settings
+            // 100% state + the 429 toast so the message is consistent.
+            <div
+              role="status"
+              className="mx-auto mb-2 max-w-2xl rounded-[var(--radius-card)] border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]"
+            >
+              {cappedMessage(resetsAt)}
             </div>
           )}
+          {voiceForcedOff && (
+            // Inline note: voice mode was auto-disabled because of the cap.
+            <div className="mx-auto mb-2 max-w-2xl px-1 text-xs text-[var(--muted)]">
+              Voice mode turned off — daily AI allowance used.
+            </div>
+          )}
+          <div className="mx-auto max-w-2xl">
+            <Composer
+              input={input}
+              onInputChange={setInput}
+              onSend={send}
+              onKeyDown={handleKeyDown}
+              onAttachClick={() => fileInputRef.current?.click()}
+              onPaste={(e) => {
+                // Pull the first image/* item off the clipboard (a pasted
+                // screenshot) and route it through the same validation
+                // path. Text pastes fall through to the default handler.
+                for (const item of e.clipboardData.items) {
+                  if (item.type.startsWith("image/")) {
+                    const file = item.getAsFile();
+                    if (file) {
+                      e.preventDefault();
+                      onSelectImage(file);
+                    }
+                    break;
+                  }
+                }
+              }}
+              fileInputRef={fileInputRef}
+              onFileChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onSelectImage(file);
+                // Reset so picking the same file twice in a row still fires
+                // onChange (the value is unchanged otherwise).
+                e.currentTarget.value = "";
+              }}
+              pendingImage={
+                pendingImage
+                  ? { previewUrl: pendingImage.previewUrl, filename: pendingImage.filename }
+                  : null
+              }
+              onDismissImage={onDismissImage}
+              speechSupported={SPEECH_SUPPORTED}
+              listening={listening}
+              onMicDown={startListening}
+              onMicUp={stopListening}
+              capped={capped}
+              cappedTooltip={cappedTooltip}
+              streaming={streaming}
+              loading={loading}
+              sessionId={sessionId}
+              placeholder={
+                loading ? "Loading…" : listening ? "Listening…" : "Message Prog Strength…"
+              }
+            />
+          </div>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
+/**
+ * Chat thread header. Carries the assistant identity (brand badge +
+ * presence dot + title/status), the voice on/off toggle, the New chat
+ * button, and a mobile-only "Chats" toggle that opens the conversation
+ * pane overlay. Presentational — every action is a prop the page owns.
+ */
+function ChatHeader({
+  voiceMode,
+  onToggleVoice,
+  capped,
+  cappedTooltip,
+  onNewChat,
+  onOpenChats,
+}: {
+  voiceMode: boolean;
+  onToggleVoice: () => void;
+  capped: boolean;
+  cappedTooltip: string;
+  onNewChat: () => void;
+  onOpenChats: () => void;
+}) {
+  return (
+    <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-6">
+      <div className="flex items-center gap-3">
+        <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
+          <BrandMark size={20} />
+          {/* Tiny presence dot — the assistant is always "available", so
+              the green success token reads as an online indicator. */}
+          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface)] bg-[var(--success)]" />
+        </div>
+        <div className="flex flex-col leading-tight">
+          <h1 className="text-sm font-semibold tracking-tight">Chat</h1>
+          <span className="text-[11px] text-[var(--muted)]">Prog Strength assistant</span>
         </div>
       </div>
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Mobile-only: open the conversation pane. Hidden on lg where the
+            pane is a persistent column. */}
+        <button
+          type="button"
+          onClick={onOpenChats}
+          aria-label="Open chats"
+          title="Open chats"
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium text-[var(--muted)] transition hover:text-[var(--foreground)] sm:px-3 lg:hidden"
+        >
+          <ChatsIcon />
+          <span className="hidden sm:inline">Chats</span>
+        </button>
+        <button
+          type="button"
+          onClick={onToggleVoice}
+          disabled={capped}
+          aria-disabled={capped}
+          aria-pressed={voiceMode}
+          aria-label={voiceMode ? "Turn voice mode off" : "Turn voice mode on"}
+          title={
+            capped
+              ? cappedTooltip
+              : voiceMode
+                ? "Voice mode on — agent replies play as audio"
+                : "Voice mode off — turn on to hear agent replies"
+          }
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 ${
+            voiceMode
+              ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
+              : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          }`}
+        >
+          <SpeakerIcon muted={!voiceMode} />
+          <span className="hidden sm:inline">{voiceMode ? "Voice on" : "Voice off"}</span>
+        </button>
+        <button
+          type="button"
+          onClick={onNewChat}
+          aria-label="Start a new chat"
+          title="Start a new chat"
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium text-[var(--muted)] transition hover:text-[var(--foreground)] sm:px-3"
+        >
+          <PlusIcon />
+          <span className="hidden sm:inline">New chat</span>
+        </button>
+      </div>
+    </header>
+  );
+}
 
-      <footer
-        className="border-t border-[var(--border)] px-3 py-3 sm:px-6 sm:py-4"
-        // The whole footer is a drop target. preventDefault on dragOver
-        // is what actually enables the drop (the browser blocks it
-        // otherwise); on drop we route the first dropped file through the
-        // same validation path as the picker, and preventDefault stops
-        // the browser from navigating to the image.
-        onDragOver={(e) => {
-          e.preventDefault();
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (streaming || loading || !sessionId) return;
-          const file = e.dataTransfer.files?.[0];
-          if (file) onSelectImage(file);
-        }}
-      >
-        {capped && (
-          // Capped banner above the composer. Same copy as the settings
-          // 100% state + the 429 toast so the message is consistent.
-          <div
-            role="status"
-            className="mx-auto mb-2 max-w-2xl rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]"
-          >
-            {cappedMessage(resetsAt)}
-          </div>
-        )}
-        {voiceForcedOff && (
-          // Inline note: voice mode was auto-disabled because of the cap.
-          <div className="mx-auto mb-2 max-w-2xl px-1 text-xs text-[var(--muted)]">
-            Voice mode turned off — daily AI allowance used.
-          </div>
-        )}
-        {pendingImage && (
-          // Staged-image chip above the textarea: thumbnail + truncated
-          // filename + dismiss. The thumbnail uses the chip's own object
-          // URL (the scrollback bubble uses the base64 data URL instead).
-          <div className="mx-auto flex max-w-2xl items-center gap-2 px-1 pb-1">
-            <div className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
-              {/* eslint-disable-next-line @next/next/no-img-element -- blob/object URL preview; next/image can't optimize and would force a remote loader */}
-              <img
-                src={pendingImage.previewUrl}
-                alt=""
-                className="h-10 w-10 rounded object-cover"
-              />
-              <span className="max-w-[180px] truncate text-xs text-[var(--muted)]">
-                {pendingImage.filename}
-              </span>
-              <button
-                type="button"
-                onClick={onDismissImage}
-                aria-label="Remove image"
-                className="text-[var(--muted)] transition hover:text-[var(--foreground)]"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="mx-auto flex max-w-2xl items-end gap-2">
-          {SPEECH_SUPPORTED && (
-            // Push-and-hold mic. mouseLeave is treated as "release"
-            // too — without it a user who slides off the button
-            // would never get an onMouseUp and the recognizer would
-            // keep listening forever. Same shape for touch.
-            <button
-              type="button"
-              onMouseDown={startListening}
-              onMouseUp={stopListening}
-              onMouseLeave={stopListening}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                startListening();
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                stopListening();
-              }}
-              disabled={streaming || loading || !sessionId || capped}
-              aria-disabled={capped}
-              title={
-                capped ? cappedTooltip : listening ? "Listening… release to stop" : "Hold to speak"
-              }
-              aria-pressed={listening}
-              aria-label={listening ? "Stop voice input" : "Start voice input"}
-              className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border transition disabled:opacity-40 ${
-                listening
-                  ? "animate-pulse border-[var(--danger)]/60 bg-[var(--danger)]/10 text-[var(--danger)]"
-                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
-              }`}
-            >
-              <MicIcon />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={streaming || loading || !sessionId}
-            aria-label="Attach image"
-            title="Attach image"
-            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] transition hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            <PaperclipIcon />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onSelectImage(file);
-              // Reset so picking the same file twice in a row still fires
-              // onChange (the value is unchanged otherwise).
-              e.currentTarget.value = "";
-            }}
-          />
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={(e) => {
-              // Pull the first image/* item off the clipboard (a pasted
-              // screenshot) and route it through the same validation
-              // path. Text pastes fall through to the default handler.
-              for (const item of e.clipboardData.items) {
-                if (item.type.startsWith("image/")) {
-                  const file = item.getAsFile();
-                  if (file) {
-                    e.preventDefault();
-                    onSelectImage(file);
-                  }
-                  break;
-                }
-              }
-            }}
-            placeholder={loading ? "Loading…" : listening ? "Listening…" : "Message Prog Strength…"}
-            rows={1}
-            // field-sizing-content lets the textarea grow with typed
-            // content up to max-h, so the user can see what they wrote
-            // before sending. Falls back to the rows=1 + min-h floor
-            // on older browsers (pre-Chrome 123 / Safari 17.4 / FF 130).
-            // max-h-[200px] caps growth so a runaway paste still scrolls
-            // internally rather than swallowing the whole composer.
-            className="min-h-[44px] max-h-[200px] flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm placeholder:text-[var(--muted)] field-sizing-content focus:border-[var(--accent)] focus:outline-none"
-            disabled={streaming || loading || !sessionId}
-          />
-          <button
-            type="button"
-            onClick={send}
-            disabled={
-              streaming ||
-              loading ||
-              !sessionId ||
-              capped ||
-              (input.trim().length === 0 && pendingImage === null)
-            }
-            aria-disabled={capped}
-            title={capped ? cappedTooltip : undefined}
-            aria-label="Send message"
-            // Mobile: 44×44 icon-only square that matches the mic and
-            // paperclip's hit-target. Desktop (sm: and up): grows to
-            // fit the "Send" text + the existing px-4 / py-2.5
-            // padding, restoring the desktop look pixel-for-pixel.
-            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40 sm:w-auto sm:px-4 sm:py-2.5"
-          >
-            {streaming ? (
-              "…"
-            ) : (
-              <>
-                <SendIcon />
-                <span className="hidden sm:inline">Send</span>
-              </>
-            )}
-          </button>
-        </div>
-      </footer>
-
-      <ChatHistoryDrawer
-        open={historyOpen}
-        activeSessionId={sessionId}
-        onClose={() => setHistoryOpen(false)}
-      />
-    </main>
+/**
+ * Speech-bubble glyph for the mobile "Chats" toggle. Local to the page
+ * (the shared icon set has no chat-thread icon); matches the rest of the
+ * header's 12px stroked-icon vocabulary.
+ */
+function ChatsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5Z" />
+    </svg>
   );
 }
 
@@ -1142,141 +1122,6 @@ function persistedToUI(m: PersistedChatMessage): Message {
   return ui;
 }
 
-function MessageBubble({
-  role,
-  content,
-  tools,
-  model,
-}: {
-  role: "user" | "assistant";
-  content: string | ContentBlock[];
-  tools?: ToolCall[];
-  model?: string;
-}) {
-  const isUser = role === "user";
-  const hasTools = !isUser && tools && tools.length > 0;
-  const hasModel = !isUser && !!model;
-  const hasMetadata = hasTools || hasModel;
-  // For the typing-placeholder decision only the string-content emptiness
-  // matters — a block list always has visible content (the image).
-  const hasContent = typeof content === "string" ? content.length > 0 : true;
-
-  // User messages render as plain text (the user didn't intentionally
-  // write Markdown when typing). Assistant messages render through
-  // ReactMarkdown so `**bold**`, lists, code, and tables come out
-  // formatted instead of as literal asterisks. `remark-gfm` enables
-  // GitHub-flavored Markdown — tables, strikethrough, autolinked URLs,
-  // task lists — which Claude tends to use in tool-rich responses.
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-          isUser
-            ? "whitespace-pre-wrap bg-[var(--accent)] text-[var(--accent-fg)]"
-            : "bg-[var(--surface)] text-[var(--foreground)]"
-        }`}
-      >
-        {hasMetadata && (
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            {hasModel && <ModelLabel model={model} />}
-            {hasTools && tools.map((t, i) => <ToolPill key={i} tool={t} />)}
-          </div>
-        )}
-        {typeof content !== "string" ? (
-          // Multimodal user turn (in-flight, this session only): paint the
-          // image inline from its base64 data URL — NOT the composer's
-          // blob URL, which is revoked on send — and the caption below.
-          <ImageMessage blocks={content} />
-        ) : !hasContent && !hasMetadata ? (
-          // No text and no metadata yet — show the typing placeholder.
-          // Once any signal arrives (model_chosen, tool start, text)
-          // the metadata row acts as the in-progress indicator.
-          <span className="inline-block animate-pulse text-[var(--muted)]">…</span>
-        ) : isUser ? (
-          content
-        ) : hasContent ? (
-          <AssistantMarkdown content={content} />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Render an in-flight multimodal user turn: the attached image (from its
- * base64 data URL) above the caption text. Only the current session's
- * optimistic user messages take this path — persisted turns come back as
- * the `[image attached] …` string and render as plain text. The image
- * block is always present (the composer guarantees it); the text block's
- * text may be a single space for an image-only send, in which case we
- * render no caption line.
- */
-function ImageMessage({ blocks }: { blocks: ContentBlock[] }) {
-  const image = blocks.find((b) => b.type === "image");
-  const text = blocks.find((b) => b.type === "text");
-  const caption = text && text.text.trim().length > 0 ? text.text : null;
-  return (
-    <div className="flex flex-col gap-2">
-      {image && (
-        // eslint-disable-next-line @next/next/no-img-element -- in-memory base64 data URL; next/image can't optimize and would force a remote loader
-        <img
-          src={`data:${image.source.media_type};base64,${image.source.data}`}
-          alt="Attached"
-          className="max-h-64 max-w-full rounded-md object-contain"
-        />
-      )}
-      {caption && <span>{caption}</span>}
-    </div>
-  );
-}
-
-/**
- * Small "via Haiku 4.5" label that sits in the assistant bubble's
- * metadata row. Styled as muted plain text rather than a colored pill
- * so it recedes against the more visually weighted tool pills next to
- * it — the model is contextual info, not an action.
- */
-function ModelLabel({ model }: { model: string }) {
-  return (
-    <span className="text-[10px] font-medium text-[var(--muted)]">
-      via {humanizeModelName(model)}
-    </span>
-  );
-}
-
-/**
- * Persistent indicator that the agent invoked a tool. Each pill shows
- * the tool's humanized name and its state — running (animated dots),
- * ok (check), or error (red x). Stays on the message after the turn
- * completes so the user can scroll back and see which tools answered
- * which prompt.
- */
-function ToolPill({ tool }: { tool: ToolCall }) {
-  const name = humanizeToolName(tool.name);
-  if (tool.state === "running") {
-    return (
-      <span className="inline-flex animate-pulse items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-medium text-[var(--muted)]">
-        <DotsIcon />
-        <span>Calling {name}…</span>
-      </span>
-    );
-  }
-  if (tool.state === "ok") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-        <CheckIcon />
-        <span>{name}</span>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--danger)]">
-      <XIcon />
-      <span>{name} failed</span>
-    </span>
-  );
-}
-
 // --- helpers -----------------------------------------------------------
 
 /**
@@ -1291,331 +1136,4 @@ function replaceLast<T>(arr: T[], fn: (last: T) => T): T[] {
   const next = arr.slice();
   next[next.length - 1] = fn(next[next.length - 1]);
   return next;
-}
-
-/**
- * Display form for the agent's tool names. The MCP tools are snake_case
- * ("list_exercises"); Title Case reads more naturally to the user
- * ("List Exercises") without losing the operation's identity.
- */
-function humanizeToolName(name: string): string {
-  return name
-    .split("_")
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ");
-}
-
-/**
- * Friendly form for a Claude model id. `claude-haiku-4-5-20251001` →
- * `Haiku 4.5`, `claude-sonnet-4-6` → `Sonnet 4.6`. Falls back to the
- * raw id if the pattern doesn't match — better to show the cryptic
- * value than nothing when a new model family lands.
- */
-function humanizeModelName(model: string): string {
-  const match = model.match(/^claude-([a-z]+)-(\d+)-(\d+)/);
-  if (!match) return model;
-  const [, family, major, minor] = match;
-  const familyTitle = family[0].toUpperCase() + family.slice(1);
-  return `${familyTitle} ${major}.${minor}`;
-}
-
-// --- icons -------------------------------------------------------------
-
-function MicIcon() {
-  // Rounded mic body with a stand. 14px so the button stays visually
-  // balanced against the Send button's text label height.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={14}
-      height={14}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M5 11a7 7 0 0 0 14 0" />
-      <path d="M12 18v3" />
-      <path d="M9 21h6" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  // Used by the header's "New chat" pill. 12px so it sits naturally
-  // next to the 12px text label without towering over it.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={12}
-      height={12}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function HistoryIcon() {
-  // Clock face + counterclockwise arrow at top-left — the common
-  // "past activity" idiom. Same 12px height as PlusIcon so both
-  // header pills (New chat / History) read as a matching pair.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={12}
-      height={12}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 12a9 9 0 1 0 3-6.7" />
-      <path d="M3 4v5h5" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function SendIcon() {
-  // Paper-plane icon used inside the Send button on mobile (sm: and
-  // above the button shows the "Send" text instead). 16px so the
-  // glyph is large enough to be tappable on its own without a label.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M22 2 11 13" />
-      <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
-    </svg>
-  );
-}
-
-function PaperclipIcon() {
-  // Standard paperclip, matching the mic icon's vocabulary (1.75 stroke,
-  // rounded joins). 16px to sit a touch larger than the mic in the same
-  // 44px button.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 8.5l-9.2 9.2a4 4 0 0 1-5.66-5.66l9.2-9.2a2.667 2.667 0 0 1 3.77 3.77l-9.2 9.2a1.333 1.333 0 0 1-1.89-1.89l8.49-8.49" />
-    </svg>
-  );
-}
-
-function SpeakerIcon({ muted }: { muted: boolean }) {
-  // Speaker + waves on (voice mode active) or speaker + slash on
-  // (muted). Same outer body so the icon doesn't visually jump
-  // between states.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={12}
-      height={12}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M11 5L6 9H3v6h3l5 4z" />
-      {muted ? (
-        <>
-          <path d="M17 9l5 6" />
-          <path d="M22 9l-5 6" />
-        </>
-      ) : (
-        <>
-          <path d="M15.5 9a3.5 3.5 0 0 1 0 6" />
-          <path d="M18.5 6a7 7 0 0 1 0 12" />
-        </>
-      )}
-    </svg>
-  );
-}
-
-function DotsIcon() {
-  // Three small dots — used inside the running-state pill alongside
-  // the surrounding animate-pulse so the whole pill breathes while
-  // a tool call is in flight.
-  return (
-    <svg viewBox="0 0 24 24" width={10} height={10} fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="2" />
-      <circle cx="12" cy="12" r="2" />
-      <circle cx="19" cy="12" r="2" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={10}
-      height={10}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M5 12l5 5L20 7" />
-    </svg>
-  );
-}
-
-function XIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={10}
-      height={10}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M18 6L6 18" />
-      <path d="M6 6l12 12" />
-    </svg>
-  );
-}
-
-/**
- * Markdown renderer for assistant turns. Each element is mapped to a
- * Tailwind-styled component so the rendered output sits naturally in
- * the dark chat bubble — no `prose` plugin, no global typography
- * styles to maintain.
- *
- * `react-markdown` is safe-by-default (raw HTML in input is escaped),
- * so we don't need a sanitizer step.
- */
-function AssistantMarkdown({ content }: { content: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        // Paragraphs: tight by default. The bubble already has padding,
-        // so internal margins only need to separate consecutive blocks.
-        p: ({ children }) => <p className="my-1 first:mt-0 last:mb-0">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-        em: ({ children }) => <em className="italic">{children}</em>,
-        // Lists indent with bullets / numbers; tight vertical rhythm
-        // matches the surrounding text.
-        ul: ({ children }) => (
-          <ul className="my-2 list-disc space-y-1 pl-5 first:mt-0 last:mb-0 marker:text-[var(--muted)]">
-            {children}
-          </ul>
-        ),
-        ol: ({ children }) => (
-          <ol className="my-2 list-decimal space-y-1 pl-5 first:mt-0 last:mb-0 marker:text-[var(--muted)]">
-            {children}
-          </ol>
-        ),
-        li: ({ children }) => <li className="leading-snug">{children}</li>,
-        // Headings inside a chat bubble are usually small (Claude uses
-        // them as section labels, not page titles), so we cap the size.
-        h1: ({ children }) => (
-          <h1 className="mb-2 mt-3 text-base font-semibold first:mt-0">{children}</h1>
-        ),
-        h2: ({ children }) => (
-          <h2 className="mb-2 mt-3 text-sm font-semibold first:mt-0">{children}</h2>
-        ),
-        h3: ({ children }) => (
-          <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h3>
-        ),
-        // Inline `code` gets a subtle background; fenced code blocks
-        // get their own dark block + horizontal scroll for long lines.
-        code: ({ className, children, ...rest }) => {
-          const isInline = !className;
-          if (isInline) {
-            return (
-              <code
-                className="rounded bg-[var(--surface-2)] px-1 py-0.5 font-mono text-[0.85em]"
-                {...rest}
-              >
-                {children}
-              </code>
-            );
-          }
-          return (
-            <code className={`${className ?? ""} font-mono text-xs`} {...rest}>
-              {children}
-            </code>
-          );
-        },
-        pre: ({ children }) => (
-          <pre className="my-2 overflow-x-auto rounded-md bg-[var(--surface-2)] p-3 first:mt-0 last:mb-0">
-            {children}
-          </pre>
-        ),
-        // Links open in a new tab — Claude often surfaces external
-        // references and you don't want to lose the chat scroll.
-        a: ({ href, children }) => (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--accent)] underline-offset-4 hover:underline"
-          >
-            {children}
-          </a>
-        ),
-        blockquote: ({ children }) => (
-          <blockquote className="my-2 border-l-2 border-[var(--border)] pl-3 italic text-[var(--muted)] first:mt-0 last:mb-0">
-            {children}
-          </blockquote>
-        ),
-        // GFM tables. Horizontal scroll on overflow so long workout
-        // tables don't blow out the bubble width.
-        table: ({ children }) => (
-          <div className="my-2 overflow-x-auto first:mt-0 last:mb-0">
-            <table className="min-w-full border-collapse text-xs">{children}</table>
-          </div>
-        ),
-        th: ({ children }) => (
-          <th className="border-b border-[var(--border)] px-2 py-1 text-left font-medium">
-            {children}
-          </th>
-        ),
-        td: ({ children }) => (
-          <td className="border-b border-[var(--border)]/50 px-2 py-1">{children}</td>
-        ),
-        hr: () => <hr className="my-3 border-[var(--border)]" />,
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
 }

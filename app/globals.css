@@ -1,37 +1,61 @@
 @import "tailwindcss";
 
-/* Force dark. The user explicitly preferred dark; not following the OS
-   toggle keeps the rest of the styling tree simple (one palette, no
-   `dark:` variant sprinkled across every component). Flip to a
-   prefers-color-scheme guard later if light mode is ever wanted. */
+/* Force dark. Soft-modern-messenger slate-dark system — the app's
+   foundational visual language (see sows/chat-and-app-shell-redesign.md).
+   One palette, no `dark:` variants. */
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --surface: #18181b; /* zinc-900 — message bubbles, cards */
-  --surface-2: #27272a; /* zinc-800 — hover states, dividers */
-  --border: #3f3f46; /* zinc-700 */
-  --muted: #a1a1aa; /* zinc-400 — secondary text */
-  --accent: #3b82f6; /* blue-500 — primary action */
+  /* Neutrals — slate ramp */
+  --background: #15171c; /* base */
+  --surface: #1e2128; /* panels / rails / bubbles */
+  --surface-2: #272b33; /* raised — hover, chips */
+  --surface-3: #2e333c; /* raised-2 */
+  --foreground: #eef0f4; /* primary text */
+  --muted: #9aa1ad; /* secondary text */
+  --faint: #6b7280; /* tertiary text */
+  /* Hairline borders — white-alpha so they read on any slate surface */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.1);
+
+  /* Accent — violet (replaces blue). Solid hex so `/NN` opacity
+     modifiers on existing consumers keep working; soft/line are
+     named tints for new code. */
+  --accent: #8b7cf6;
+  --accent-dark: #7765ec;
   --accent-fg: #ffffff;
-  --warning: #f59e0b; /* amber-500 — at-threshold usage */
-  --danger: #ef4444; /* red-500 */
-  --success: #22c55e; /* green-500 — positive confirmation (e.g. handle available) */
-  /* Warm-organic coaching tokens (calendar redesign), re-toned for the
-     dark surface. The DX variant's light triples are the hue reference;
-     these dark-surface equivalents hold WCAG-AA contrast for chip text. */
-  --warm-accent: #e08a5e; /* clay, lightened from #cd6f3e for AA on dark */
-  --warm-accent-fg: #1b1206; /* near-black warm text on a filled warm-accent */
+  --accent-soft: rgba(139, 124, 246, 0.14);
+  --accent-line: rgba(139, 124, 246, 0.3);
+
+  /* Macro tints — macro card P/F/C chips (each ~13%-alpha bg) */
+  --macro-protein: #34d399;
+  --macro-protein-bg: rgba(52, 211, 153, 0.13);
+  --macro-fat: #fbbf24;
+  --macro-fat-bg: rgba(251, 191, 36, 0.13);
+  --macro-carb: #60a5fa;
+  --macro-carb-bg: rgba(96, 165, 250, 0.13);
+
+  /* Status */
+  --warning: #fbbf24;
+  --danger: #ef4444;
+  --success: #34d399;
+
+  /* Radii + soft depth */
+  --radius-card: 1rem; /* rounded-2xl */
+  --radius-card-lg: 1.5rem; /* rounded-3xl */
+  --radius-pill: 9999px;
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
+
+  /* Warm-organic coaching tokens (shipped calendar). Unchanged — the
+     accent flip is blue→violet only; warm-accent is a separate token. */
+  --warm-accent: #e08a5e;
+  --warm-accent-fg: #1b1206;
 
   --discipline-run-bg: #3a241a;
   --discipline-run-fg: #f0b48f;
   --discipline-run-dot: #e08a5e;
-
   --discipline-lift-bg: #332a16;
   --discipline-lift-fg: #e8c878;
   --discipline-lift-dot: #d6ab54;
-
-  /* Reserved discipline slots — not produced from data today (only run and
-     lift are inferred); kept so a future mobility/core surface composes. */
   --discipline-mobility-bg: #1f3330;
   --discipline-mobility-fg: #8fd6c4;
   --discipline-mobility-dot: #4fbfa3;
@@ -45,10 +69,22 @@
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
+  --color-faint: var(--faint);
   --color-accent: var(--accent);
+  --color-accent-dark: var(--accent-dark);
   --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+  --color-macro-protein: var(--macro-protein);
+  --color-macro-protein-bg: var(--macro-protein-bg);
+  --color-macro-fat: var(--macro-fat);
+  --color-macro-fat-bg: var(--macro-fat-bg);
+  --color-macro-carb: var(--macro-carb);
+  --color-macro-carb-bg: var(--macro-carb-bg);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-success: var(--success);
@@ -66,7 +102,7 @@
   --color-discipline-core-bg: var(--discipline-core-bg);
   --color-discipline-core-fg: var(--discipline-core-fg);
   --color-discipline-core-dot: var(--discipline-core-dot);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-nunito);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -74,5 +110,5 @@ html,
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-nunito), ui-rounded, system-ui, sans-serif;
 }

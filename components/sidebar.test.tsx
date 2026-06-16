@@ -101,6 +101,36 @@ describe("Sidebar — account anchor", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
   });
 
+  it("renders all 12 nav destinations", () => {
+    render(<Sidebar />);
+    for (const label of [
+      "Chat",
+      "Timeline",
+      "Search",
+      "Requests",
+      "Activities",
+      "Exercises",
+      "Calendar",
+      "Nutrition",
+      "Bodyweight",
+      "Progress",
+      "Personal Records",
+      "Settings",
+    ]) {
+      expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("marks the active route with aria-current", () => {
+    render(<Sidebar />);
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("shows the user email as the account secondary line", () => {
+    render(<Sidebar />);
+    expect(screen.getByText("lifter@example.com")).toBeInTheDocument();
+  });
+
   it("collapsed: renders avatar only but the menu still opens", async () => {
     localStorage.setItem("ps_sidebar_collapsed", "true");
     render(<Sidebar />);

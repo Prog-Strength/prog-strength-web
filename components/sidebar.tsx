@@ -22,8 +22,9 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
-  // Chat history used to be a sibling entry here; it now lives as a
-  // drawer inside the chat page so the sidebar has one fewer row.
+  // Chat history used to be a sibling entry here; it now lives as the
+  // persistent conversation-list pane inside the chat page so the
+  // sidebar has one fewer row.
   { href: "/chat", label: "Chat", icon: <ChatIcon /> },
   // Timeline = the reverse-chronological feed of the user's own training
   // activity (completed workouts, imported runs, PRs, best efforts) with
@@ -117,21 +118,30 @@ export function Sidebar() {
             onClick={toggle}
             aria-label="Expand sidebar"
             title="Expand sidebar"
-            className="mx-auto flex items-center justify-center rounded p-1 text-[var(--foreground)] transition hover:bg-[var(--surface-2)]"
+            className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] transition hover:opacity-90"
           >
-            <BrandMark size={22} />
+            <BrandMark size={20} />
           </button>
         ) : (
           <>
-            {/* Expanded: brand mark + wordmark are a Link home, and the
-                collapse chevron lives on the right. */}
+            {/* Expanded: a violet-tinted brand badge + two-line lockup are a
+                Link home, and the collapse chevron lives on the right. */}
             <Link
               href="/chat"
               aria-label="Prog Strength home"
-              className="flex min-w-0 items-center gap-2 text-[var(--foreground)] transition hover:opacity-80"
+              className="flex min-w-0 items-center gap-2.5 transition hover:opacity-90"
             >
-              <BrandMark size={22} className="shrink-0" />
-              <span className="truncate text-sm font-semibold">Prog Strength</span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
+                <BrandMark size={20} />
+              </span>
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-sm font-extrabold text-[var(--foreground)]">
+                  Prog Strength
+                </span>
+                <span className="truncate text-[10px] font-semibold text-[var(--muted)]">
+                  AI Coach
+                </span>
+              </span>
             </Link>
             <button
               type="button"
@@ -158,10 +168,10 @@ export function Sidebar() {
               // for "what's this icon?" without bringing in a tooltip lib.
               title={collapsed ? item.label : undefined}
               aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm transition ${
+              className={`flex items-center gap-3 rounded-xl border px-2 py-2 text-sm font-semibold transition ${
                 active
-                  ? "bg-[var(--surface-2)] text-[var(--foreground)]"
-                  : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                  ? "border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                  : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               }`}
             >
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">{item.icon}</span>
@@ -196,6 +206,7 @@ function AccountAnchor({ collapsed, onSignOut }: { collapsed: boolean; onSignOut
 
   const displayName = profile?.display_name?.trim() || "Account";
   const avatarUrl = profile?.avatar_url ?? null;
+  const email = profile?.email ?? null;
 
   // Close on Escape and on click/focus outside the anchor. Only wired
   // while the menu is open so the listeners don't run for every sidebar.
@@ -255,8 +266,14 @@ function AccountAnchor({ collapsed, onSignOut }: { collapsed: boolean; onSignOut
       >
         <Avatar url={avatarUrl} name={displayName} />
         {!collapsed && (
-          <span className="truncate text-[var(--foreground)]" title={displayName}>
-            {displayName}
+          <span className="flex min-w-0 flex-col leading-tight text-left">
+            <span
+              className="truncate text-sm font-semibold text-[var(--foreground)]"
+              title={displayName}
+            >
+              {displayName}
+            </span>
+            {email && <span className="truncate text-[11px] text-[var(--muted)]">{email}</span>}
           </span>
         )}
       </button>
@@ -266,26 +283,26 @@ function AccountAnchor({ collapsed, onSignOut }: { collapsed: boolean; onSignOut
 
 /**
  * Circular avatar: the resolved image when present, otherwise an initials
- * placeholder (first two word-initials of the display name). Sized to the
- * sidebar's 20px icon hit area so the row aligns with the nav items above.
+ * placeholder (first two word-initials of the display name). Sized up to a
+ * 32px circle to give the account card more presence at the foot of the rail.
  */
 function Avatar({ url, name }: { url: string | null; name: string }) {
   if (url) {
     // Presigned S3 / OAuth URLs are arbitrary remote hosts; next/image
-    // would require per-host remotePatterns config for a tiny 20px avatar.
+    // would require per-host remotePatterns config for a small 32px avatar.
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={url}
         alt={`${name} avatar`}
-        className="h-5 w-5 shrink-0 rounded-full object-cover"
+        className="h-8 w-8 shrink-0 rounded-full object-cover"
       />
     );
   }
   return (
     <span
       aria-hidden="true"
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)] text-[9px] font-semibold uppercase text-[var(--foreground)]"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)] text-[11px] font-semibold uppercase text-[var(--foreground)]"
     >
       {initials(name)}
     </span>
