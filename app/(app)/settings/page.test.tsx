@@ -338,10 +338,12 @@ describe("Settings — Bio row", () => {
 
   it("shows the rune counter and caps input at 160 runes", () => {
     render(<SettingsPage />);
-    const input = screen.getByLabelText("Bio");
-    // 200-char input gets trimmed to 160; the counter reflects the cap.
-    fireEvent.change(input, { target: { value: "a".repeat(200) } });
-    expect(input).toHaveValue("a".repeat(160));
+    const input = screen.getByLabelText("Bio") as HTMLTextAreaElement;
+    // Use a multibyte emoji (😀 is 2 UTF-16 code units) so the cap is
+    // exercised by rune count, not `.length`: a `.length`-based clamp would
+    // cap this at 80 emoji and fail. 200 runes in → capped to 160 runes.
+    fireEvent.change(input, { target: { value: "😀".repeat(200) } });
+    expect([...input.value].length).toBe(160);
     expect(screen.getByText("160/160")).toBeInTheDocument();
   });
 
@@ -362,6 +364,17 @@ describe("Settings — Bio row", () => {
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ bio: "New bio" }));
   });
 
+  it("shows the server error inline when update() rejects", async () => {
+    // The api layer surfaces a server error as a thrown Error; the bio row's
+    // catch should setError and render the message inline.
+    updateMock.mockRejectedValueOnce(new Error("Bio too long"));
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "New bio" } });
+    const saveButtons = screen.getAllByRole("button", { name: "Save" });
+    fireEvent.click(saveButtons[2]);
+    await waitFor(() => expect(screen.getByText("Bio too long")).toBeInTheDocument());
+  });
+
   it("clears the bio by sending an empty string", async () => {
     useProfileMock.mockReturnValue(profileCtx({ bio: "Old bio" }));
     render(<SettingsPage />);
@@ -373,8 +386,8 @@ describe("Settings — Bio row", () => {
 });
 
 describe("Settings — Username row", () => {
-  // The username row's own Save button is the second of the three Save
-  // buttons (display name, username, height).
+  // The username row's own Save button is the second of the four Save
+  // buttons (display name, username, bio, height).
   function usernameSave(): HTMLElement {
     return screen.getAllByRole("button", { name: "Save" })[1];
   }
