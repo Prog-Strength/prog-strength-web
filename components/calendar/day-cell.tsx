@@ -81,6 +81,21 @@ export function DayCell({
             />
           ) : ev.kind === "run" ? (
             <RunPill key={`r-${ev.run.id}`} run={ev.run} onClick={() => onSelectRun(ev.run.id)} />
+          ) : ev.kind === "completed-planned" ? (
+            // A planned session that's been completed + linked. Renders as a
+            // single solid "done" pill (not the planned pill stacked on its
+            // logged twin). Clicking auto-expands the LOGGED session's banner
+            // in the digest, so it reuses the same select-and-expand paths as
+            // a standalone logged pill.
+            <CompletedPlannedPill
+              key={`cp-${ev.planned.id}`}
+              event={ev}
+              onClick={() =>
+                ev.logged.kind === "workout"
+                  ? onSelectWorkout(ev.logged.workout.id)
+                  : onSelectRun(ev.logged.run.id)
+              }
+            />
           ) : (
             <PlannedPill
               key={`p-${ev.planned.id}`}
@@ -117,8 +132,15 @@ function ariaLabelFor(day: Date, events: CalendarEvent[]): string {
     year: "numeric",
   });
   if (events.length === 0) return dateLabel;
-  const lifts = events.filter((e) => e.kind === "workout").length;
-  const runs = events.filter((e) => e.kind === "run").length;
+  // A completed-planned event is a logged session (of its `logged.kind`)
+  // that also fulfilled a plan — count it toward its activity kind so the
+  // label reads "1 run" rather than inventing a separate category.
+  const lifts = events.filter(
+    (e) => e.kind === "workout" || (e.kind === "completed-planned" && e.logged.kind === "workout"),
+  ).length;
+  const runs = events.filter(
+    (e) => e.kind === "run" || (e.kind === "completed-planned" && e.logged.kind === "run"),
+  ).length;
   const plans = events.filter((e) => e.kind === "planned").length;
   const parts: string[] = [];
   if (lifts > 0) parts.push(`${lifts} ${lifts === 1 ? "workout" : "workouts"}`);
@@ -227,6 +249,56 @@ function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: (
       {completed ? <CheckGlyph /> : skipped ? null : <ClockGlyph />}
       <span className="truncate">{label}</span>
       {synced && <SyncGlyph />}
+    </button>
+  );
+}
+
+/**
+ * A planned session that's been completed and linked to the logged session
+ * that fulfilled it. Unlike PlannedPill (dashed, forward-looking), this
+ * reads as done: a SOLID fill in the logged activity's color (accent for a
+ * lift, teal for a run) with a leading check. The single pill replaces what
+ * used to be a dashed planned pill stacked on its identical logged pill.
+ */
+function CompletedPlannedPill({
+  event,
+  onClick,
+}: {
+  event: Extract<CalendarEvent, { kind: "completed-planned" }>;
+  onClick: () => void;
+}) {
+  const isRun = event.logged.kind === "run";
+  // Pull from the logged session, narrowing on the discriminant directly so
+  // TS can see which arm we're in.
+  const start = new Date(
+    event.logged.kind === "run" ? event.logged.run.start_time : event.logged.workout.performed_at,
+  );
+  const time = start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  // Prefer the plan's name (the thing the user scheduled, e.g. "W7 D1 -
+  // Easy Run"); fall back to the logged session's name, then the time.
+  const loggedName =
+    event.logged.kind === "run" ? event.logged.run.name : event.logged.workout.name;
+  const label = event.planned.name?.trim() || loggedName?.trim() || time;
+  // Match the logged-pill palettes so a completed plan is visually a logged
+  // session, just carrying a check to mark that it closed out a plan.
+  const tone = isRun
+    ? "bg-teal-500/20 text-teal-300 hover:bg-teal-500/30"
+    : "bg-[var(--accent)] text-[var(--accent-fg)] hover:opacity-90";
+  return (
+    <button
+      type="button"
+      data-testid="completed-planned-pill"
+      // stopPropagation so selecting this banner doesn't also fire the cell's
+      // whitespace-click (which would clear the auto-expand).
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      title={`${time} · ${label} (completed planned ${isRun ? "run" : "workout"})`}
+      className={`flex items-center gap-1 truncate rounded px-1 py-px text-left text-[9px] font-medium leading-tight transition md:px-1.5 md:py-0.5 md:text-[10px] md:leading-normal ${tone}`}
+    >
+      <CheckGlyph />
+      <span className="truncate">{label}</span>
     </button>
   );
 }

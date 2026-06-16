@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { DistanceUnitProvider } from "@/lib/distance-unit-context";
-import type { RunningSession, Workout } from "@/lib/api";
+import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 import type { CalendarEvent } from "./types";
 import { DayDigest } from "./day-digest";
 
@@ -40,8 +40,42 @@ function makeRun(overrides: Partial<RunningSession> = {}): RunningSession {
   };
 }
 
+function makePlanned(overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
+  return {
+    id: "p-1",
+    name: "W7 D1 - Easy Run",
+    activity_kind: "run",
+    scheduled_start: "2026-06-08T13:00:00Z",
+    scheduled_end: "2026-06-08T14:00:00Z",
+    timezone: "America/Denver",
+    status: "completed",
+    notes: null,
+    completed_session_id: "r-1",
+    completed_session_kind: "activity",
+    calendar_detail: null,
+    google_event_id: null,
+    google_sync_status: null,
+    last_sync_error: null,
+    run_type: "easy",
+    run_details: "4 miles easy, conversational pace",
+    exercises: [],
+    created_at: "2026-06-08T12:00:00Z",
+    updated_at: "2026-06-08T12:00:00Z",
+    ...overrides,
+  };
+}
+
 function workoutEvent(workout: Workout): CalendarEvent {
   return { kind: "workout", startMs: new Date(workout.performed_at).getTime(), workout };
+}
+
+function completedPlannedRunEvent(planned: PlannedWorkout, run: RunningSession): CalendarEvent {
+  return {
+    kind: "completed-planned",
+    startMs: new Date(run.start_time).getTime(),
+    planned,
+    logged: { kind: "run", run },
+  };
 }
 
 function runEvent(run: RunningSession): CalendarEvent {
@@ -101,6 +135,35 @@ describe("DayDigest", () => {
   it("ignores a zero or missing step count", () => {
     renderDigest(new Date(2026, 5, 8), [runEvent(makeRun())], 0);
     expect(screen.queryByText(/steps/)).not.toBeInTheDocument();
+  });
+
+  it("collapses a completed planned session + its linked run into one banner", () => {
+    const run = makeRun({ name: "W7 D1 - Easy Run" });
+    const planned = makePlanned();
+    renderDigest(new Date(2026, 5, 8), [completedPlannedRunEvent(planned, run)]);
+
+    // Exactly one banner — not a separate planned banner stacked on the run.
+    const banner = screen.getByTestId("completed-planned-banner");
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    // Reads as completed, names the plan it closed, and surfaces logged stats.
+    expect(within(banner).getByText("Completed")).toBeInTheDocument();
+    expect(within(banner).getByText("Completed planned session")).toBeInTheDocument();
+    expect(within(banner).getByText("W7 D1 - Easy Run")).toBeInTheDocument();
+    // The standalone planned-banner test id is absent — it really collapsed.
+    expect(screen.queryByTestId("planned-banner")).not.toBeInTheDocument();
+    // Count line treats it as one activity (one run), not "planned + run".
+    expect(screen.getByText(/1 activity · 1 run/)).toBeInTheDocument();
+  });
+
+  it("reveals the plan's target detail when 'View plan' is clicked", () => {
+    const run = makeRun();
+    const planned = makePlanned({ run_details: "4 miles easy, conversational pace" });
+    renderDigest(new Date(2026, 5, 8), [completedPlannedRunEvent(planned, run)]);
+
+    // The plan target is hidden until requested.
+    expect(screen.queryByText(/conversational pace/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /View plan/ }));
+    expect(screen.getByText(/conversational pace/)).toBeInTheDocument();
   });
 
   it("renders banners in start-time order even when passed reversed", () => {

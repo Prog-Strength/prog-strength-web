@@ -3,6 +3,7 @@
 import { RunBanner } from "@/components/calendar/run-banner";
 import { WorkoutBanner } from "@/components/calendar/workout-banner";
 import { PlannedBanner } from "@/components/calendar/planned-banner";
+import { CompletedPlannedBanner } from "@/components/calendar/completed-planned-banner";
 import type { CalendarEvent } from "@/components/calendar/types";
 import type { CompletedSessionKind, Exercise } from "@/lib/api";
 
@@ -48,8 +49,15 @@ export function DayDigest({
     year: "numeric",
   });
 
-  const lifts = events.filter((e) => e.kind === "workout").length;
-  const runs = events.filter((e) => e.kind === "run").length;
+  // A completed-planned event counts as a logged session of its
+  // `logged.kind` — it's one finished activity, so the count line reads
+  // "1 run" rather than "1 planned · 1 run".
+  const lifts = events.filter(
+    (e) => e.kind === "workout" || (e.kind === "completed-planned" && e.logged.kind === "workout"),
+  ).length;
+  const runs = events.filter(
+    (e) => e.kind === "run" || (e.kind === "completed-planned" && e.logged.kind === "run"),
+  ).length;
   // Steps are a daily total, not a timed event — they live outside the
   // event list (their own banner) but still count toward "is this day
   // empty?", so a day with only steps reads as logged rather than blank.
@@ -75,7 +83,30 @@ export function DayDigest({
           {[...events]
             .sort((a, b) => a.startMs - b.startMs)
             .map((ev) =>
-              ev.kind === "planned" ? (
+              ev.kind === "completed-planned" ? (
+                // The collapsed banner is keyed on the LOGGED session id —
+                // that's the id the grid pill auto-expands with, and varying
+                // the key on the open/closed flag forces the remount the
+                // other banners rely on for `defaultOpen` to re-apply.
+                (() => {
+                  const loggedId =
+                    ev.logged.kind === "workout" ? ev.logged.workout.id : ev.logged.run.id;
+                  return (
+                    <CompletedPlannedBanner
+                      key={`cp-${ev.planned.id}-${loggedId === autoExpandId ? "open" : "closed"}`}
+                      planned={ev.planned}
+                      logged={ev.logged}
+                      exerciseMap={exerciseMap}
+                      defaultOpen={loggedId === autoExpandId}
+                      onNavigate={() =>
+                        ev.logged.kind === "workout"
+                          ? onNavigateWorkout(ev.logged.workout.id)
+                          : onNavigateRun(ev.logged.run.id)
+                      }
+                    />
+                  );
+                })()
+              ) : ev.kind === "planned" ? (
                 <PlannedBanner
                   key={`p-${ev.planned.id}`}
                   planned={ev.planned}
