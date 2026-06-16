@@ -39,6 +39,11 @@ vi.mock("@/lib/api", async (orig) => ({
   getChatSession: vi.fn(),
   appendChatTurn: vi.fn(),
   patchChatSessionTitle: vi.fn(),
+  // The persistent ConversationList pane now renders inside the page and
+  // fetches the session list on mount; stub both list/delete calls so the
+  // page renders without hitting a real fetch under test.
+  listChatSessions: vi.fn(async () => []),
+  deleteChatSession: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/agent", async (orig) => ({
