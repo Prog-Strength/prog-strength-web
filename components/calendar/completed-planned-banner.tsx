@@ -68,13 +68,15 @@ export function CompletedPlannedBanner({
       })();
 
   const planHasAgenda = hasPlannedAgenda(planned);
-  const ringColor = isRun ? "ring-teal-500" : "ring-[var(--accent)]";
+  const ringColor = isRun
+    ? "ring-[var(--discipline-run-dot)]"
+    : "ring-[var(--discipline-lift-dot)]";
 
   return (
     <div
       role="group"
       data-testid="completed-planned-banner"
-      className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]"
+      className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]"
     >
       <div className="flex items-stretch">
         <button

@@ -61,7 +61,7 @@ export function PlannedBanner({
       data-testid="planned-banner"
       // Dashed border distinguishes a forward-looking plan from the solid
       // logged-event banners.
-      className="overflow-hidden rounded-lg border border-dashed border-[var(--accent)]/50 bg-[var(--surface)]"
+      className="overflow-hidden rounded-2xl border border-dashed border-[var(--accent)]/50 bg-[var(--surface)]"
     >
       <div className="flex items-stretch">
         <button

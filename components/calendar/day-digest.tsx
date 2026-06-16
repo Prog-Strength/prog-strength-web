@@ -170,7 +170,7 @@ function StepsBanner({ steps }: { steps: number }) {
   return (
     <div
       data-testid="steps-banner"
-      className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+      className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
     >
       <FootprintsIcon />
       <span className="font-medium text-[var(--foreground)]">
