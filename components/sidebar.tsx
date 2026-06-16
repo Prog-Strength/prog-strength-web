@@ -288,7 +288,7 @@ function AccountAnchor({ collapsed, onSignOut }: { collapsed: boolean; onSignOut
 function Avatar({ url, name }: { url: string | null; name: string }) {
   if (url) {
     // Presigned S3 / OAuth URLs are arbitrary remote hosts; next/image
-    // would require per-host remotePatterns config for a tiny 20px avatar.
+    // would require per-host remotePatterns config for a small 32px avatar.
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
