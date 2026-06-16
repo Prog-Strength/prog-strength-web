@@ -2971,6 +2971,43 @@ export async function listUserTimeline(
 }
 
 /**
+ * A single weekly point in a profile-stats series: the Monday-anchored
+ * `week_start` (ISO string) and the week's aggregated `value`. The unit of
+ * `value` depends on the series (minutes for lifts, meters for running).
+ */
+export type StatsPoint = { week_start: string; value: number };
+
+/**
+ * The public-profile weekly graphs payload from GET /users/{username}/stats.
+ * Each series is a dense 12-element, zero-filled array. `locked: true` (with
+ * both series empty) when the viewer is neither the user nor an accepted
+ * follower; `locked` is absent / false on an accessible profile.
+ */
+export type ProfileStats = {
+  lift_session_minutes: StatsPoint[];
+  running_distance_meters: StatsPoint[];
+  locked?: boolean;
+};
+
+/**
+ * GET /users/{username}/stats — the weekly lift-minutes and running-distance
+ * series powering the profile graphs. Mirrors `listUserTimeline`: a locked
+ * profile is a normal response (`locked: true`, empty series) rather than an
+ * error, so this returns the parsed body as-is without throwing on locked.
+ * Non-2xx responses still throw (so callers can clear the token on a 401).
+ */
+export async function getProfileStats(token: string, username: string): Promise<ProfileStats> {
+  const resp = await fetch(`${config.apiUrl}/users/${encodeURIComponent(username)}/stats`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<ProfileStats>(resp, {
+    lift_session_minutes: [],
+    running_distance_meters: [],
+    locked: false,
+  });
+}
+
+/**
  * Availability probe for a candidate username, used by the Settings handle
  * editor to give snappy "available / taken" feedback before the user saves.
  * Implemented against GET /users/{username}: a 200 means the handle resolves

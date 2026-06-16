@@ -22,10 +22,14 @@ vi.mock("@/lib/api", async (orig) => ({
   getProfile: getProfileMock,
 }));
 
-// The activity feed makes its own API calls; stub it so the header tests stay
-// isolated to the profile payload.
+// The activity feed and stats sections make their own API calls; stub them so
+// the header tests stay isolated to the profile payload.
 vi.mock("./_components/ProfileActivityFeed", () => ({
   ProfileActivityFeed: () => null,
+}));
+
+vi.mock("./_components/ProfileStats", () => ({
+  ProfileStats: () => null,
 }));
 
 import ProfilePage from "./page";
