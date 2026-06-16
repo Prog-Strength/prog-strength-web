@@ -61,6 +61,7 @@ function plannedWithAgenda(): PlannedWorkout {
         exercise_id: "back-squat",
         order_index: 0,
         notes: null,
+        superset_group: null,
         sets: [0, 1, 2].map((i) => ({
           id: `s${i}`,
           order_index: i,
@@ -97,20 +98,19 @@ describe("PlannedWorkoutModal", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. Upper 1"), {
       target: { value: "Leg Day" },
     });
-    fireEvent.change(screen.getByLabelText("Starts at"), {
-      target: { value: "2026-06-20T18:00" },
-    });
-    fireEvent.change(screen.getByLabelText("Ends at"), {
-      target: { value: "2026-06-20T19:30" },
-    });
+    // The schedule defaults (date/start/duration from the picker) are fine; the
+    // payload derives scheduled_start/end from them — asserted below.
 
     // Google sync is on by default when a calendar is connected — syncing is
     // the intended behavior, so the checkbox starts checked (no click).
     expect(screen.getByLabelText("Sync to Google Calendar")).toBeChecked();
 
-    // Add an exercise with a target set.
-    fireEvent.click(screen.getByRole("button", { name: "+ Add exercise" }));
-    fireEvent.change(screen.getByLabelText("Exercise"), { target: { value: "bench-press" } });
+    // Add an exercise and pick it via the searchable picker, then a target set.
+    fireEvent.click(screen.getByRole("button", { name: /Add exercise/i }));
+    const picker = screen.getByLabelText("Exercise");
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "Bench" } });
+    fireEvent.click(screen.getByRole("button", { name: /Bench Press/i }));
     fireEvent.change(screen.getByLabelText("Target reps"), { target: { value: "8" } });
     fireEvent.change(screen.getByLabelText("Target weight"), { target: { value: "60" } });
 
@@ -273,7 +273,7 @@ describe("PlannedWorkoutModal", () => {
         onSaved={() => {}}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "+ Add exercise" }));
+    fireEvent.click(screen.getByRole("button", { name: /Add exercise/i }));
     // The seeded set has reps "5" → saveable. Clearing reps disables save;
     // an empty weight does not.
     const save = screen.getByRole("button", { name: "Plan workout" });

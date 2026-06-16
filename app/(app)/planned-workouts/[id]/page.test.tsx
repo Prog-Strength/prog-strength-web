@@ -58,6 +58,7 @@ const PLAN: PlannedWorkout = {
       exercise_id: "bench-press",
       order_index: 0,
       notes: null,
+      superset_group: null,
       sets: [
         {
           id: "ps-1",

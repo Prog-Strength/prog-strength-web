@@ -6,15 +6,21 @@ import {
   createPlannedWorkout,
   updatePlannedWorkout,
   type ActivityKind,
-  type CalendarDetail,
   type Exercise,
   type PlannedWorkout,
   type PlannedWorkoutPayload,
   type PlannedWorkoutStatus,
   type RunType,
 } from "@/lib/api";
-import { localInputToRFC3339, rfc3339ToLocalInput } from "@/lib/datetime";
+import {
+  dateToDateValue,
+  dateToTimeValue,
+  rfc3339ToSchedule,
+  scheduleToRFC3339,
+} from "@/lib/datetime";
 import { PlannedAgendaDetails } from "@/components/calendar/planned-agenda-details";
+import { PlanScheduleField } from "@/components/calendar/plan-schedule-field";
+import { AgendaEditor, type PlannedExerciseDraft } from "@/components/calendar/agenda-editor";
 
 /**
  * The planned-workout detail surface, opened from the calendar. Two modes
@@ -34,27 +40,15 @@ import { PlannedAgendaDetails } from "@/components/calendar/planned-agenda-detai
  * parent refreshes the calendar via `onSaved`); it no longer closes.
  */
 
-type PlannedSetDraft = {
-  target_reps: string;
-  target_weight: string;
-  unit: "lb" | "kg";
-  target_rpe: string;
-};
-
-type PlannedExerciseDraft = {
-  exercise_id: string;
-  notes: string;
-  sets: PlannedSetDraft[];
-};
-
 type PlannedDraft = {
   name: string;
   activity_kind: ActivityKind;
-  scheduled_start: string; // datetime-local value
-  scheduled_end: string; // datetime-local value
+  // The schedule is modeled as a local date + start time + duration; the
+  // RFC3339 window is derived at save (scheduleToRFC3339).
+  date: string; // YYYY-MM-DD (local)
+  start_time: string; // HH:MM (24h, local)
+  duration_min: number;
   notes: string;
-  // "" → Default (null), else the literal detail level.
-  calendar_detail: "" | CalendarDetail;
   calendar_sync: boolean;
   // Run agenda (used when activity_kind === "run").
   run_type: RunType;
@@ -166,39 +160,6 @@ export function PlannedWorkoutModal({
   const updateField = <K extends keyof PlannedDraft>(key: K, value: PlannedDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
-  const updateExercise = (i: number, fn: (ex: PlannedExerciseDraft) => PlannedExerciseDraft) =>
-    setDraft((d) => ({
-      ...d,
-      exercises: d.exercises.map((ex, idx) => (idx === i ? fn(ex) : ex)),
-    }));
-
-  const updateSet = (exIdx: number, setIdx: number, fn: (s: PlannedSetDraft) => PlannedSetDraft) =>
-    updateExercise(exIdx, (ex) => ({
-      ...ex,
-      sets: ex.sets.map((s, j) => (j === setIdx ? fn(s) : s)),
-    }));
-
-  const addExercise = () =>
-    setDraft((d) => ({
-      ...d,
-      exercises: [
-        ...d.exercises,
-        { exercise_id: catalog[0]?.id ?? "", notes: "", sets: [defaultSet()] },
-      ],
-    }));
-
-  const removeExercise = (i: number) =>
-    setDraft((d) => ({ ...d, exercises: d.exercises.filter((_, idx) => idx !== i) }));
-
-  const addSet = (exIdx: number) =>
-    updateExercise(exIdx, (ex) => ({
-      ...ex,
-      sets: [...ex.sets, ex.sets[ex.sets.length - 1] ?? defaultSet()],
-    }));
-
-  const removeSet = (exIdx: number, setIdx: number) =>
-    updateExercise(exIdx, (ex) => ({ ...ex, sets: ex.sets.filter((_, j) => j !== setIdx) }));
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -265,26 +226,19 @@ export function PlannedWorkoutModal({
                 />
               </Field>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Starts at" required>
-                  <input
-                    type="datetime-local"
-                    aria-label="Starts at"
-                    value={draft.scheduled_start}
-                    onChange={(e) => updateField("scheduled_start", e.target.value)}
-                    className={inputClasses}
-                  />
-                </Field>
-                <Field label="Ends at" required>
-                  <input
-                    type="datetime-local"
-                    aria-label="Ends at"
-                    value={draft.scheduled_end}
-                    onChange={(e) => updateField("scheduled_end", e.target.value)}
-                    className={inputClasses}
-                  />
-                </Field>
-              </div>
+              <PlanScheduleField
+                date={draft.date}
+                time={draft.start_time}
+                durationMin={draft.duration_min}
+                onChange={(next) =>
+                  setDraft((d) => ({
+                    ...d,
+                    ...(next.date !== undefined ? { date: next.date } : {}),
+                    ...(next.time !== undefined ? { start_time: next.time } : {}),
+                    ...(next.durationMin !== undefined ? { duration_min: next.durationMin } : {}),
+                  }))
+                }
+              />
 
               <Field label="Notes">
                 <textarea
@@ -295,33 +249,6 @@ export function PlannedWorkoutModal({
                   className={`${inputClasses} resize-y`}
                 />
               </Field>
-
-              <Field label="Calendar detail">
-                <select
-                  aria-label="Calendar detail"
-                  value={draft.calendar_detail}
-                  onChange={(e) =>
-                    updateField("calendar_detail", e.target.value as "" | CalendarDetail)
-                  }
-                  className={inputClasses}
-                >
-                  <option value="">Default</option>
-                  <option value="time_block">Time block</option>
-                  <option value="full_agenda">Full agenda</option>
-                </select>
-              </Field>
-
-              {calendarConnected && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={draft.calendar_sync}
-                    onChange={(e) => updateField("calendar_sync", e.target.checked)}
-                    className="h-4 w-4 rounded border-[var(--border)]"
-                  />
-                  <span>Sync to Google Calendar</span>
-                </label>
-              )}
 
               {draft.activity_kind === "run" ? (
                 <div className="flex flex-col gap-4">
@@ -348,37 +275,26 @@ export function PlannedWorkoutModal({
                   </Field>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium">Agenda (optional)</h3>
-                    <button
-                      type="button"
-                      onClick={addExercise}
-                      className="text-xs text-[var(--accent)] hover:underline"
-                    >
-                      + Add exercise
-                    </button>
-                  </div>
+                <AgendaEditor
+                  exercises={draft.exercises}
+                  catalog={catalog}
+                  onChange={(next) => updateField("exercises", next)}
+                />
+              )}
 
-                  {draft.exercises.length === 0 && (
-                    <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-                      No agenda — this will be a bare time block.
-                    </p>
-                  )}
-
-                  {draft.exercises.map((ex, exIdx) => (
-                    <ExerciseCard
-                      key={exIdx}
-                      exercise={ex}
-                      catalog={catalog}
-                      onChange={(fn) => updateExercise(exIdx, fn)}
-                      onRemove={() => removeExercise(exIdx)}
-                      onAddSet={() => addSet(exIdx)}
-                      onRemoveSet={(setIdx) => removeSet(exIdx, setIdx)}
-                      onSetChange={(setIdx, fn) => updateSet(exIdx, setIdx, fn)}
-                    />
-                  ))}
-                </div>
+              {/* Calendar sync is demoted to a quiet footer toggle and on by
+                  default — syncing is the intended behavior, not a decision the
+                  user should make up front. */}
+              {calendarConnected && (
+                <label className="mt-1 flex items-center gap-2 border-t border-[var(--border)] pt-3 text-xs text-[var(--muted)]">
+                  <input
+                    type="checkbox"
+                    checked={draft.calendar_sync}
+                    onChange={(e) => updateField("calendar_sync", e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-[var(--border)]"
+                  />
+                  <span>Sync to Google Calendar</span>
+                </label>
               )}
             </div>
           )}
@@ -575,136 +491,6 @@ function viewTitle(plan: PlannedWorkout): string {
 
 // --- nested components -----------------------------------------------------
 
-function ExerciseCard({
-  exercise,
-  catalog,
-  onChange,
-  onRemove,
-  onAddSet,
-  onRemoveSet,
-  onSetChange,
-}: {
-  exercise: PlannedExerciseDraft;
-  catalog: Exercise[];
-  onChange: (fn: (ex: PlannedExerciseDraft) => PlannedExerciseDraft) => void;
-  onRemove: () => void;
-  onAddSet: () => void;
-  onRemoveSet: (setIdx: number) => void;
-  onSetChange: (setIdx: number, fn: (s: PlannedSetDraft) => PlannedSetDraft) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3">
-      <div className="flex items-start gap-2">
-        <select
-          aria-label="Exercise"
-          value={exercise.exercise_id}
-          onChange={(e) => onChange((ex) => ({ ...ex, exercise_id: e.target.value }))}
-          className={`${inputClasses} flex-1`}
-        >
-          {!catalog.some((c) => c.id === exercise.exercise_id) && (
-            <option value={exercise.exercise_id}>{exercise.exercise_id || "Select…"}</option>
-          )}
-          {catalog.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label="Remove exercise"
-          className="rounded p-1.5 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--danger)]"
-        >
-          <TrashIcon />
-        </button>
-      </div>
-
-      <input
-        type="text"
-        value={exercise.notes}
-        onChange={(e) => onChange((ex) => ({ ...ex, notes: e.target.value }))}
-        placeholder="Notes for this exercise"
-        className={`${inputClasses} text-xs`}
-      />
-
-      <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-[1fr_1fr_auto_1fr_auto] items-center gap-2 text-[10px] uppercase tracking-wide text-[var(--muted)]">
-          <span>Reps</span>
-          <span>Weight</span>
-          <span>Unit</span>
-          <span>RPE</span>
-          <span />
-        </div>
-        {exercise.sets.map((s, setIdx) => (
-          <div key={setIdx} className="grid grid-cols-[1fr_1fr_auto_1fr_auto] items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              aria-label="Target reps"
-              value={s.target_reps}
-              onChange={(e) =>
-                onSetChange(setIdx, (set) => ({ ...set, target_reps: e.target.value }))
-              }
-              className={inputClasses}
-            />
-            <input
-              type="number"
-              min={0}
-              step={0.5}
-              aria-label="Target weight"
-              value={s.target_weight}
-              onChange={(e) =>
-                onSetChange(setIdx, (set) => ({ ...set, target_weight: e.target.value }))
-              }
-              className={inputClasses}
-            />
-            <select
-              aria-label="Unit"
-              value={s.unit}
-              onChange={(e) =>
-                onSetChange(setIdx, (set) => ({ ...set, unit: e.target.value as "lb" | "kg" }))
-              }
-              className={inputClasses}
-            >
-              <option value="lb">lb</option>
-              <option value="kg">kg</option>
-            </select>
-            <input
-              type="number"
-              min={0}
-              max={10}
-              step={0.5}
-              aria-label="Target RPE"
-              value={s.target_rpe}
-              onChange={(e) =>
-                onSetChange(setIdx, (set) => ({ ...set, target_rpe: e.target.value }))
-              }
-              className={inputClasses}
-            />
-            <button
-              type="button"
-              onClick={() => onRemoveSet(setIdx)}
-              aria-label="Remove set"
-              className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--danger)]"
-              disabled={exercise.sets.length === 1}
-            >
-              <TrashIcon small />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={onAddSet}
-          className="self-start text-xs text-[var(--accent)] hover:underline"
-        >
-          + Add set
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /** A compact pill segmented control, matching the Settings page pattern. */
 function Segmented<T extends string>({
   value,
@@ -766,7 +552,7 @@ function Field({
 }
 
 const inputClasses =
-  "rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none";
+  "w-full rounded-lg border border-transparent bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition focus-visible:border-[var(--accent)] focus-visible:outline-none";
 
 // --- icons -----------------------------------------------------------------
 
@@ -808,51 +594,23 @@ function CloseIcon() {
   );
 }
 
-function TrashIcon({ small = false }: { small?: boolean }) {
-  const size = small ? 12 : 14;
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-    </svg>
-  );
-}
-
 // --- helpers ---------------------------------------------------------------
 
-function defaultSet(): PlannedSetDraft {
-  return { target_reps: "5", target_weight: "", unit: "lb", target_rpe: "" };
-}
-
 /**
- * A fresh draft seeded to 18:00 on `day` (or today), one hour long.
- * `syncDefault` (the calendar-connected flag) makes Google Calendar sync
- * the default — syncing is the intended behavior whenever a calendar is
- * connected.
+ * A fresh draft seeded to 6:00 PM on `day` (or today), 1h long. `syncDefault`
+ * (the calendar-connected flag) makes Google Calendar sync the default —
+ * syncing is the intended behavior whenever a calendar is connected.
  */
 function freshDraft(day: Date | undefined, syncDefault: boolean): PlannedDraft {
   const base = day ? new Date(day) : new Date();
   const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 18, 0);
-  const end = new Date(start.getTime() + 60 * 60 * 1000);
-  const toInput = (d: Date) => rfc3339ToLocalInput(d.toISOString());
   return {
     name: "",
     activity_kind: "lift",
-    scheduled_start: toInput(start),
-    scheduled_end: toInput(end),
+    date: dateToDateValue(start),
+    start_time: dateToTimeValue(start),
+    duration_min: 60,
     notes: "",
-    calendar_detail: "",
     calendar_sync: syncDefault,
     run_type: "easy",
     run_details: "",
@@ -861,15 +619,16 @@ function freshDraft(day: Date | undefined, syncDefault: boolean): PlannedDraft {
 }
 
 function planToDraft(p: PlannedWorkout, syncDefault: boolean): PlannedDraft {
+  const sched = rfc3339ToSchedule(p.scheduled_start, p.scheduled_end);
   return {
     name: p.name ?? "",
     activity_kind: p.activity_kind,
-    scheduled_start: rfc3339ToLocalInput(p.scheduled_start),
-    scheduled_end: rfc3339ToLocalInput(p.scheduled_end),
+    date: sched.date,
+    start_time: sched.time,
+    duration_min: sched.durationMin,
     notes: p.notes ?? "",
-    calendar_detail: p.calendar_detail ?? "",
-    // Syncing is the default behavior — default the checkbox on (when a
-    // calendar is connected) so edits propagate to Google Calendar.
+    // Syncing is the default behavior — default on (when a calendar is
+    // connected) so edits propagate to Google Calendar.
     calendar_sync: syncDefault,
     run_type: p.run_type ?? "easy",
     run_details: p.run_details ?? "",
@@ -879,6 +638,7 @@ function planToDraft(p: PlannedWorkout, syncDefault: boolean): PlannedDraft {
       .map((ex) => ({
         exercise_id: ex.exercise_id,
         notes: ex.notes ?? "",
+        superset_group: ex.superset_group ?? null,
         sets: ex.sets
           .slice()
           .sort((a, b) => a.order_index - b.order_index)
@@ -893,12 +653,11 @@ function planToDraft(p: PlannedWorkout, syncDefault: boolean): PlannedDraft {
 }
 
 function draftToPayload(d: PlannedDraft): PlannedWorkoutPayload {
+  const { start, end } = scheduleToRFC3339(d.date, d.start_time, d.duration_min);
   const payload: PlannedWorkoutPayload = {
     activity_kind: d.activity_kind,
-    scheduled_start: localInputToRFC3339(d.scheduled_start),
-    scheduled_end: localInputToRFC3339(d.scheduled_end),
-    // null → Default (API falls back to the user's calendar_default_detail).
-    calendar_detail: d.calendar_detail === "" ? null : d.calendar_detail,
+    scheduled_start: start,
+    scheduled_end: end,
   };
   if (d.name.trim()) payload.name = d.name.trim();
   if (d.notes.trim()) payload.notes = d.notes.trim();
@@ -933,6 +692,7 @@ function draftToPayload(d: PlannedDraft): PlannedWorkoutPayload {
         }),
       };
       if (ex.notes.trim()) out.notes = ex.notes.trim();
+      if (ex.superset_group != null) out.superset_group = ex.superset_group;
       return out;
     });
   }
@@ -940,9 +700,10 @@ function draftToPayload(d: PlannedDraft): PlannedWorkoutPayload {
 }
 
 function isDraftValid(d: PlannedDraft): boolean {
-  if (!d.scheduled_start || !d.scheduled_end) return false;
-  // End must be after start.
-  if (new Date(d.scheduled_end).getTime() <= new Date(d.scheduled_start).getTime()) return false;
+  // The schedule is always well-formed (date from the picker, duration from a
+  // fixed list ≥ 15m), so the only failure mode is a missing date.
+  if (!d.date) return false;
+  if (d.duration_min <= 0) return false;
   // A run is valid with just a window — its details are optional. A lift's
   // agenda is optional too (a bare time block is fine), but any exercise the
   // user adds must name an exercise and carry at least one set, and every
