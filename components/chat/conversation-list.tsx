@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import { deleteChatSession, listChatSessions, type ChatSessionListItem } from "@/lib/api";
@@ -30,11 +30,7 @@ export function ConversationList({
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
-  // Fetch once on mount. Unlike the drawer (which refetched on each
-  // open), this pane is always visible, so a single load is enough;
-  // the chat page resumes/creates sessions and can nudge a remount if
-  // it ever needs the list refreshed.
-  useEffect(() => {
+  const reload = useCallback(() => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -52,6 +48,15 @@ export function ConversationList({
         setError(err.message);
       });
   }, [router]);
+
+  // Load on mount and whenever the active session changes. The pane is
+  // always visible, so it can't refetch "on open" like the drawer did;
+  // keying on activeSessionId keeps it fresh across the moves that change
+  // the list — resuming another chat, and starting a new one (which lands
+  // the just-left session, now carrying its generated title).
+  useEffect(() => {
+    reload();
+  }, [reload, activeSessionId]);
 
   const handleResume = (session: ChatSessionListItem) => {
     router.push(`/chat?session=${encodeURIComponent(session.id)}`);
