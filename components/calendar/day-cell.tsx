@@ -196,10 +196,10 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
 }
 
 /**
- * Distinct from `WorkoutPill` by color (teal vs accent) so a stacked
- * run + lift reads as two different things at a glance, not just two
- * sessions of the same kind. Clicking selects the day and auto-expands
- * this run's banner in the digest below the grid.
+ * Distinct from `WorkoutPill` by discipline tone (warm clay run hue vs the
+ * warm amber lift hue) so a stacked run + lift reads as two different things
+ * at a glance, not just two sessions of the same kind. Clicking selects the
+ * day and auto-expands this run's banner in the digest below the grid.
  */
 function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
   const time = new Date(run.start_time).toLocaleTimeString("en-US", {
@@ -277,8 +277,8 @@ function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: (
 /**
  * A planned session that's been completed and linked to the logged session
  * that fulfilled it. Unlike PlannedPill (dashed, forward-looking), this
- * reads as done: a SOLID fill in the logged activity's color (accent for a
- * lift, teal for a run) with a leading check. The single pill replaces what
+ * reads as done: a SOLID fill in the logged activity's discipline tone (the
+ * amber lift hue, or the clay run hue) with a leading check. The single pill replaces what
  * used to be a dashed planned pill stacked on its identical logged pill.
  */
 function CompletedPlannedPill({
