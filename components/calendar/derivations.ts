@@ -23,9 +23,17 @@ export function disciplineOf(event: CalendarEvent): Discipline {
     case "workout":
       return "lift";
     case "completed-planned":
+      // The logged session is always a real run or workout (lift).
       return event.logged.kind === "run" ? "run" : "lift";
     case "planned":
-      return event.planned.activity_kind === "run" ? "run" : "lift";
+      // Exhaustive over ActivityKind so a future kind (e.g. mobility/core)
+      // breaks the build here instead of silently mapping to "lift".
+      switch (event.planned.activity_kind) {
+        case "run":
+          return "run";
+        case "lift":
+          return "lift";
+      }
   }
 }
 
