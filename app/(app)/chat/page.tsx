@@ -767,6 +767,18 @@ export default function ChatPage() {
     router.push("/chat");
   };
 
+  // Escape closes the mobile conversation sheet, matching the dismissal
+  // affordance the retired History drawer offered. Only wired while the
+  // sheet is open so the listener doesn't run on desktop.
+  useEffect(() => {
+    if (!paneOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPaneOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [paneOpen]);
+
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Persistent conversation pane on desktop. */}
@@ -779,7 +791,17 @@ export default function ChatPage() {
       {/* Mobile: the same pane in a slide-over overlay, toggled by the
           header's "Chats" button. */}
       {paneOpen && (
-        <div className="fixed inset-0 z-40 flex lg:hidden">
+        // The mobile sheet is a second ConversationList instance — the
+        // desktop pane above stays mounted (CSS-hidden) but only one is
+        // ever visible at a breakpoint, so the duplicate mount is benign
+        // (the sessions GET is idempotent). Backdrop click + Escape (effect
+        // above) dismiss, matching the retired drawer.
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chats"
+          className="fixed inset-0 z-40 flex lg:hidden"
+        >
           <div
             className="absolute inset-0 bg-black/50"
             aria-hidden="true"
@@ -948,8 +970,9 @@ function ChatHeader({
       <div className="flex items-center gap-3">
         <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
           <BrandMark size={20} />
-          {/* Tiny presence dot — the assistant is always "available". */}
-          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface)] bg-[var(--accent)]" />
+          {/* Tiny presence dot — the assistant is always "available", so
+              the green success token reads as an online indicator. */}
+          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface)] bg-[var(--success)]" />
         </div>
         <div className="flex flex-col leading-tight">
           <h1 className="text-sm font-semibold tracking-tight">Chat</h1>

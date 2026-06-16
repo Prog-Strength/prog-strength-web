@@ -22,8 +22,9 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
-  // Chat history used to be a sibling entry here; it now lives as a
-  // drawer inside the chat page so the sidebar has one fewer row.
+  // Chat history used to be a sibling entry here; it now lives as the
+  // persistent conversation-list pane inside the chat page so the
+  // sidebar has one fewer row.
   { href: "/chat", label: "Chat", icon: <ChatIcon /> },
   // Timeline = the reverse-chronological feed of the user's own training
   // activity (completed workouts, imported runs, PRs, best efforts) with
