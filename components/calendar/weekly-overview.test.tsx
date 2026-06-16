@@ -101,11 +101,12 @@ describe("WeekStreakStrip", () => {
     );
   });
 
-  it("renders metric labels for lift time and steps when present", () => {
+  it("renders metric labels for lift time, run distance, and steps when present", () => {
     const week = makeWeek({ activities: 3, liftMinutes: 90, runMeters: 5000, steps: 8200 });
     renderStrip(week);
     const strip = screen.getByTestId("week-streak-strip");
     expect(strip).toHaveTextContent("1h 30m"); // lift time
+    expect(strip).toHaveTextContent("🏃"); // run distance label (unit via context)
     expect(strip).toHaveTextContent("8,200"); // steps, thousands-separated
   });
 
