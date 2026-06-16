@@ -67,6 +67,7 @@ const PLAN: PlannedWorkout = {
           target_weight: 135,
           unit: "lb",
           target_rpe: 8,
+          amrap: false,
         },
       ],
     },

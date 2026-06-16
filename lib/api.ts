@@ -2424,6 +2424,9 @@ export type PlannedSet = {
   target_weight: number | null;
   unit: "lb" | "kg" | null;
   target_rpe: number | null;
+  // AMRAP ("as many reps as possible"): no fixed rep target. When true,
+  // target_reps is ignored for display.
+  amrap: boolean;
 };
 
 /** One exercise on a planned workout's agenda, with its target sets. */
@@ -2491,6 +2494,7 @@ export type PlannedWorkoutPayload = {
       target_weight?: number;
       unit?: "lb" | "kg";
       target_rpe?: number;
+      amrap?: boolean;
     }[];
   }[];
 };

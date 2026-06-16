@@ -63,16 +63,26 @@ describe("groupRuns", () => {
 describe("summarizeDraftSets", () => {
   it("collapses identical sets and shows weight when present", () => {
     const sets = [
-      { target_reps: "5", target_weight: "135", unit: "lb" as const, target_rpe: "" },
-      { target_reps: "5", target_weight: "135", unit: "lb" as const, target_rpe: "" },
-      { target_reps: "5", target_weight: "135", unit: "lb" as const, target_rpe: "" },
+      { target_reps: "5", target_weight: "135", unit: "lb" as const, target_rpe: "", amrap: false },
+      { target_reps: "5", target_weight: "135", unit: "lb" as const, target_rpe: "", amrap: false },
+      { target_reps: "5", target_weight: "135", unit: "lb" as const, target_rpe: "", amrap: false },
     ];
     expect(summarizeDraftSets(sets)).toBe("3×5 @ 135 lb");
   });
 
   it("omits weight when unset", () => {
     expect(
-      summarizeDraftSets([{ target_reps: "8", target_weight: "", unit: "lb", target_rpe: "" }]),
+      summarizeDraftSets([
+        { target_reps: "8", target_weight: "", unit: "lb", target_rpe: "", amrap: false },
+      ]),
     ).toBe("1×8");
+  });
+
+  it("shows AMRAP for an AMRAP set (ignoring the reps field)", () => {
+    expect(
+      summarizeDraftSets([
+        { target_reps: "8", target_weight: "", unit: "lb", target_rpe: "", amrap: true },
+      ]),
+    ).toBe("1×AMRAP");
   });
 });

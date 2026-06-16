@@ -21,6 +21,9 @@ export type PlannedSetDraft = {
   target_weight: string;
   unit: "lb" | "kg";
   target_rpe: string;
+  // AMRAP ("as many reps as possible") — no fixed rep target. When true, the
+  // reps input is disabled and the set reads "AMRAP".
+  amrap: boolean;
 };
 
 export type PlannedExerciseDraft = {
@@ -33,7 +36,7 @@ export type PlannedExerciseDraft = {
 };
 
 export function defaultSetDraft(): PlannedSetDraft {
-  return { target_reps: "5", target_weight: "", unit: "lb", target_rpe: "" };
+  return { target_reps: "5", target_weight: "", unit: "lb", target_rpe: "", amrap: false };
 }
 
 export function AgendaEditor({
@@ -201,24 +204,27 @@ function FocusedExercise({
       />
 
       <div className="flex flex-col gap-1.5">
-        <div className="grid grid-cols-[1fr_1fr_auto_1fr_auto] items-center gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <div className="grid grid-cols-[1fr_1fr_auto_1fr_auto_auto] items-center gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
           <span>
             Reps<span className="text-[var(--danger)]">*</span>
           </span>
           <span>Weight</span>
           <span>Unit</span>
           <span>RPE</span>
+          <span className="text-center">AMRAP</span>
           <span />
         </div>
         {exercise.sets.map((s, j) => (
-          <div key={j} className="grid grid-cols-[1fr_1fr_auto_1fr_auto] items-center gap-2">
+          <div key={j} className="grid grid-cols-[1fr_1fr_auto_1fr_auto_auto] items-center gap-2">
             <input
               type="number"
               min={0}
               aria-label="Target reps"
-              value={s.target_reps}
+              value={s.amrap ? "" : s.target_reps}
+              disabled={s.amrap}
+              placeholder={s.amrap ? "AMRAP" : ""}
               onChange={(e) => setSet(j, (set) => ({ ...set, target_reps: e.target.value }))}
-              className={cellClasses}
+              className={`${cellClasses} ${s.amrap ? "italic text-[var(--muted)]" : ""}`}
             />
             <input
               type="number"
@@ -250,6 +256,19 @@ function FocusedExercise({
               onChange={(e) => setSet(j, (set) => ({ ...set, target_rpe: e.target.value }))}
               className={cellClasses}
             />
+            <button
+              type="button"
+              aria-label="Toggle AMRAP"
+              aria-pressed={s.amrap}
+              onClick={() => setSet(j, (set) => ({ ...set, amrap: !set.amrap }))}
+              className={`rounded-md px-1.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide transition ${
+                s.amrap
+                  ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                  : "bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              ∞
+            </button>
             <button
               type="button"
               onClick={() => removeSet(j)}
@@ -482,20 +501,27 @@ export function groupRuns(
 
 /** Compact one-line summary of a draft exercise's sets for the read card. */
 export function summarizeDraftSets(sets: PlannedSetDraft[]): string {
-  const groups: { count: number; reps: string; weight: string; unit: string }[] = [];
+  const groups: { count: number; reps: string; weight: string; unit: string; amrap: boolean }[] =
+    [];
   for (const s of sets) {
     const reps = s.target_reps.trim();
     const weight = s.target_weight.trim();
     const last = groups[groups.length - 1];
-    if (last && last.reps === reps && last.weight === weight && last.unit === s.unit) {
+    if (
+      last &&
+      last.amrap === s.amrap &&
+      last.reps === reps &&
+      last.weight === weight &&
+      last.unit === s.unit
+    ) {
       last.count += 1;
     } else {
-      groups.push({ count: 1, reps, weight, unit: s.unit });
+      groups.push({ count: 1, reps, weight, unit: s.unit, amrap: s.amrap });
     }
   }
   return groups
     .map((g) => {
-      const reps = g.reps !== "" ? `${g.reps}` : "—";
+      const reps = g.amrap ? "AMRAP" : g.reps !== "" ? g.reps : "—";
       let line = `${g.count}×${reps}`;
       if (g.weight !== "") line += ` @ ${g.weight} ${g.unit}`;
       return line;

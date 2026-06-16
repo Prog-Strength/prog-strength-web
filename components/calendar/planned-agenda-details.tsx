@@ -78,8 +78,9 @@ export function formatPlannedSets(sets: PlannedSet[]): string[] {
 
   return groups.map((g) => {
     const setsPart = `${g.count} ${pluralize("set", g.count)}`;
-    let line =
-      g.set.target_reps != null
+    let line = g.set.amrap
+      ? `AMRAP × ${setsPart}`
+      : g.set.target_reps != null
         ? `${g.set.target_reps} ${pluralize("rep", g.set.target_reps)} × ${setsPart}`
         : setsPart;
     if (g.set.target_weight != null) {
@@ -94,6 +95,7 @@ export function formatPlannedSets(sets: PlannedSet[]): string[] {
 
 function plannedSetsEqual(a: PlannedSet, b: PlannedSet): boolean {
   return (
+    a.amrap === b.amrap &&
     a.target_reps === b.target_reps &&
     a.target_weight === b.target_weight &&
     a.unit === b.unit &&
