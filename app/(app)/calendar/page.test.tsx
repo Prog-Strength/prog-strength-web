@@ -19,6 +19,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, replace: vi.fn() }),
 }));
 
+// The calendar reads the active-workout session to start a workout from a
+// planned lift; stub it so the page renders without the full provider tree.
+const startMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/active-workout-session", () => ({
+  useActiveWorkoutSession: () => ({ start: startMock }),
+}));
+
 // Keep the real type exports (Workout, RunningSession, etc.) resolving by
 // spreading the actual module, then overriding only the three data fns.
 vi.mock("@/lib/api", async (orig) => ({

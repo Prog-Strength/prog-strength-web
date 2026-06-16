@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { Exercise, PlannedWorkout } from "@/lib/api";
+import type { PlannedWorkout } from "@/lib/api";
 import { PlannedBanner } from "./planned-banner";
 
 function makePlanned(overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
@@ -17,8 +17,8 @@ function makePlanned(overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
     completed_session_kind: null,
     calendar_detail: null,
     google_event_id: null,
-    google_sync_status: null,
     last_sync_error: null,
+    google_sync_status: null,
     run_type: null,
     run_details: null,
     exercises: [],
@@ -28,44 +28,40 @@ function makePlanned(overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
   };
 }
 
-const EMPTY_MAP = new Map<string, Exercise>();
+describe("PlannedBanner", () => {
+  it("labels an unnamed run with the kind and run type", () => {
+    render(
+      <PlannedBanner planned={makePlanned({ activity_kind: "run", run_type: "intervals" })} />,
+    );
+    // Unnamed run leads with "Run · <time>".
+    expect(screen.getByText(/Run · /)).toBeInTheDocument();
+    // The stats line surfaces the run type.
+    expect(screen.getByText(/Interval run/)).toBeInTheDocument();
+  });
 
-describe("PlannedBanner — run", () => {
-  it("labels an unnamed run with the kind and run type, and expands to details", () => {
+  it("opens the modal when the row is clicked (the detail surface lives there)", () => {
+    const onOpen = vi.fn();
+    render(<PlannedBanner planned={makePlanned({ name: "Upper 1" })} onOpen={onOpen} />);
+    fireEvent.click(screen.getByRole("button", { name: /Open planned workout/i }));
+    expect(onOpen).toHaveBeenCalled();
+  });
+
+  it("does not render an inline agenda/expand control (that moved to the modal)", () => {
     render(
       <PlannedBanner
         planned={makePlanned({
           activity_kind: "run",
           run_type: "intervals",
-          run_details: "4x800m @ 5k pace, 90s jog recovery",
+          run_details: "4x800m @ 5k pace",
         })}
-        exerciseMap={EMPTY_MAP}
       />,
     );
-
-    // Unnamed run leads with "Run · <time>".
-    expect(screen.getByText(/Run · /)).toBeInTheDocument();
-    // The stats line surfaces the run type.
-    expect(screen.getByText(/Interval run/)).toBeInTheDocument();
-
-    // Expanding reveals the free-text details.
-    fireEvent.click(screen.getByRole("button", { name: /Expand details/i }));
-    expect(screen.getByText("4x800m @ 5k pace, 90s jog recovery")).toBeInTheDocument();
-  });
-
-  it("is not expandable when a run has no details", () => {
-    render(
-      <PlannedBanner
-        planned={makePlanned({ activity_kind: "run", run_type: "easy", run_details: null })}
-        exerciseMap={EMPTY_MAP}
-      />,
-    );
-    expect(screen.getByText(/Easy run/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Expand details/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("4x800m @ 5k pace")).not.toBeInTheDocument();
   });
 });
 
-describe("PlannedBanner — unlink", () => {
+describe("PlannedBanner — completed (cross-day fallback)", () => {
   const COMPLETED = makePlanned({
     name: "Easy Run",
     activity_kind: "run",
@@ -75,17 +71,24 @@ describe("PlannedBanner — unlink", () => {
     run_type: "easy",
   });
 
-  it("shows Unlink when onUnlink provided and fires it", () => {
+  it("links to the logged session and shows Unlink when wired", () => {
     const onUnlink = vi.fn();
+    const onNavigateSession = vi.fn();
     render(
-      <PlannedBanner planned={COMPLETED} exerciseMap={EMPTY_MAP} defaultOpen onUnlink={onUnlink} />,
+      <PlannedBanner
+        planned={COMPLETED}
+        onUnlink={onUnlink}
+        onNavigateSession={onNavigateSession}
+      />,
     );
+    fireEvent.click(screen.getByRole("button", { name: /View logged run/i }));
+    expect(onNavigateSession).toHaveBeenCalledWith("activity", "act1");
     fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
     expect(onUnlink).toHaveBeenCalled();
   });
 
   it("hides Unlink when onUnlink absent", () => {
-    render(<PlannedBanner planned={COMPLETED} exerciseMap={EMPTY_MAP} defaultOpen />);
+    render(<PlannedBanner planned={COMPLETED} />);
     expect(screen.queryByRole("button", { name: "Unlink" })).not.toBeInTheDocument();
   });
 });
