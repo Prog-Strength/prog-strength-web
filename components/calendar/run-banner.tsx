@@ -7,7 +7,7 @@ import { useDistanceUnit } from "@/lib/distance-unit-context";
 import type { RunningSession } from "@/lib/api";
 
 /**
- * Banner row for a single run, the teal-flavored sibling of WorkoutBanner.
+ * Banner row for a single run, the run-toned (warm clay) sibling of WorkoutBanner.
  * The body button navigates (via `onNavigate`) to the run detail; the
  * chevron toggles an inline {@link RunDigest} dropdown without navigating.
  * The dropdown mounts lazily — only when `open`.
@@ -37,17 +37,17 @@ export function RunBanner({
   return (
     <div
       role="group"
-      className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]"
+      className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]"
     >
       <div className="flex items-stretch">
         <button
           type="button"
           onClick={onNavigate}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5"
+          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--discipline-run-dot)] focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5"
         >
           <span
             aria-hidden="true"
-            className="h-7 w-1 shrink-0 rounded-full bg-teal-500 dark:bg-teal-300 md:h-8 md:w-1.5"
+            className="h-7 w-1 shrink-0 rounded-full bg-[var(--discipline-run-dot)] md:h-8 md:w-1.5"
           />
           <span className="flex min-w-0 flex-col">
             <span className="truncate text-[13px] font-medium text-[var(--foreground)] md:text-sm">
@@ -64,7 +64,7 @@ export function RunBanner({
           aria-controls={dropdownId}
           aria-label={open ? "Collapse details" : "Expand details"}
           onClick={() => setOpen((o) => !o)}
-          className="flex shrink-0 items-center justify-center px-2 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-inset md:px-3"
+          className="flex shrink-0 items-center justify-center px-2 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--discipline-run-dot)] focus-visible:ring-inset md:px-3"
         >
           <svg
             viewBox="0 0 24 24"

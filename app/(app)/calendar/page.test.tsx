@@ -26,6 +26,11 @@ vi.mock("@/lib/active-workout-session", () => ({
   useActiveWorkoutSession: () => ({ start: startMock }),
 }));
 
+// The redesigned header greets the user by display_name via useProfile.
+vi.mock("@/lib/profile-context", () => ({
+  useProfile: () => ({ profile: { display_name: "Sam" } }),
+}));
+
 // Keep the real type exports (Workout, RunningSession, etc.) resolving by
 // spreading the actual module, then overriding only the three data fns.
 vi.mock("@/lib/api", async (orig) => ({
@@ -316,32 +321,36 @@ describe("CalendarPage", () => {
     expect(within(digest).getByText(/Total volume/i)).toBeInTheDocument();
   });
 
-  it("shows weekly tiles whose activity counts sum to the visible fixtures", async () => {
+  it("shows one streak strip per week summarizing trained days", async () => {
     renderPage();
     await findDigest(TODAY);
 
-    const tiles = await screen.findAllByTestId("weekly-tile");
-    expect(tiles.length).toBe(6); // six week rows
-    // Sum the per-week activity counts; every fixture lands in the cursor
-    // month, so the total equals all seeded workouts + runs.
-    const total = tiles.reduce((sum, tile) => {
-      const m = tile.textContent?.match(/(\d+)\s+activit(?:y|ies)/);
-      return sum + (m ? Number(m[1]) : 0);
-    }, 0);
-    expect(total).toBe(WORKOUTS.length + RUNS.length);
-    // And at least one tile carries a concrete count (sanity that the rollup
-    // rendered, not just six empty weeks).
-    expect(tiles.some((t) => /[1-9]\d*\s+activit/.test(t.textContent ?? ""))).toBe(true);
+    const strips = await screen.findAllByTestId("week-streak-strip");
+    expect(strips.length).toBe(6); // six week rows
+    // At least one week reads as a trained week, since every fixture lands in
+    // the cursor month.
+    expect(strips.some((s) => /You trained \d+ of \d+ days/.test(s.textContent ?? ""))).toBe(true);
+    // Exactly the week containing today is emphasized as the current week.
+    expect(strips.filter((s) => s.getAttribute("data-current") === "true")).toHaveLength(1);
   });
 
-  it("rolls weekly steps into the weekly tiles", async () => {
+  it("rolls weekly steps into the streak strip metric labels", async () => {
     renderPage();
     await findDigest(TODAY);
 
-    const tiles = await screen.findAllByTestId("weekly-tile");
-    // The seeded step totals (8,000 + 12,345) land in the cursor month, so
-    // at least one week tile carries a Steps row.
-    expect(tiles.some((t) => /Steps/.test(t.textContent ?? ""))).toBe(true);
+    const strips = await screen.findAllByTestId("week-streak-strip");
+    // The seeded step totals land in the cursor month, so at least one strip
+    // carries a steps metric label (👟 with a separated total).
+    expect(strips.some((s) => /👟/.test(s.textContent ?? ""))).toBe(true);
+  });
+
+  it("greets the user by name with a month-consistency line", async () => {
+    renderPage();
+    await findDigest(TODAY);
+    expect(await screen.findByText(/Sam/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/trained \d+ days? this month|fresh month to build on/),
+    ).toBeInTheDocument();
   });
 
   it("shows the selected day's step count in the digest", async () => {

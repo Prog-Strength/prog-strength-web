@@ -3,6 +3,7 @@
 import { hasMeaningfulName } from "@/components/workout-details";
 import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 import type { CalendarEvent } from "@/components/calendar/types";
+import { disciplineOf, type Discipline } from "@/components/calendar/derivations";
 
 /**
  * One day cell of the month grid, plus the pills it stacks inside. Pulled
@@ -14,6 +15,17 @@ import type { CalendarEvent } from "@/components/calendar/types";
 // run plus two lifts (or vice versa). Anything more rolls into "+N more"
 // to keep cells from growing tall enough to deform the grid.
 const MAX_VISIBLE_PILLS = 3;
+
+// Shared chip skeleton + per-discipline "done" tone, sourced from the design
+// tokens so run vs lift read as distinct warm hues on dark.
+const CHIP_BASE =
+  "flex items-center gap-1 truncate rounded-lg px-1.5 py-0.5 text-left text-[9px] font-medium leading-tight transition md:px-2 md:py-0.5 md:text-[10px] md:leading-normal";
+
+function doneToneClasses(discipline: Discipline): string {
+  return discipline === "run"
+    ? "bg-[var(--discipline-run-bg)] text-[var(--discipline-run-fg)] hover:opacity-90"
+    : "bg-[var(--discipline-lift-bg)] text-[var(--discipline-lift-fg)] hover:opacity-90";
+}
 
 export function DayCell({
   day,
@@ -55,10 +67,10 @@ export function DayCell({
   // calendar before anything else is visible. Desktop sizing (≥md) is
   // unchanged from the original — only the small-screen ceiling moves.
   const baseClasses =
-    "flex min-h-[60px] cursor-pointer flex-col gap-0.5 rounded-md border p-1 transition hover:border-[var(--accent)]/50 md:min-h-[88px] md:gap-1 md:p-1.5";
-  const borderClasses = isToday ? "border-[var(--accent)]" : "border-[var(--border)]";
-  const fillClasses = isSelected ? "bg-[var(--accent)]/10" : "bg-[var(--surface)]";
-  const labelClasses = inMonth ? "text-[var(--foreground)]" : "text-[var(--muted)] opacity-60";
+    "flex min-h-[72px] cursor-pointer flex-col gap-1 rounded-2xl border p-1.5 transition hover:border-[var(--warm-accent)]/50 md:min-h-[104px] md:gap-1.5 md:p-2";
+  const borderClasses = isToday ? "border-[var(--warm-accent)]" : "border-[var(--border)]";
+  const fillClasses = isSelected ? "bg-[var(--warm-accent)]/10" : "bg-[var(--surface)]";
+  const labelClasses = inMonth ? "text-[var(--foreground)]" : "text-[var(--muted)] opacity-50";
 
   return (
     <div
@@ -66,10 +78,16 @@ export function DayCell({
       aria-label={ariaLabelFor(day, events)}
       onClick={onSelectDay}
     >
-      <div
-        className={`px-0.5 text-[11px] font-medium leading-none md:px-1 md:text-xs ${labelClasses}`}
-      >
-        {day.getDate()}
+      <div className="px-0.5 leading-none md:px-1">
+        {isToday ? (
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--warm-accent)] text-[11px] font-semibold text-[var(--warm-accent-fg)] md:h-6 md:w-6 md:text-xs">
+            {day.getDate()}
+          </span>
+        ) : (
+          <span className={`text-[11px] font-medium md:text-xs ${labelClasses}`}>
+            {day.getDate()}
+          </span>
+        )}
       </div>
       <div className="flex flex-col gap-0.5 md:gap-1">
         {visible.map((ev) =>
@@ -100,6 +118,7 @@ export function DayCell({
             <PlannedPill
               key={`p-${ev.planned.id}`}
               planned={ev.planned}
+              discipline={disciplineOf(ev)}
               onClick={() => onSelectPlanned(ev.planned.id)}
             />
           ),
@@ -164,25 +183,24 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
   return (
     <button
       type="button"
-      // stopPropagation so selecting this lift's digest banner doesn't also
-      // fire the cell's whitespace-click (which would clear the auto-expand).
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
       title={named ? `${time} · ${workout.name}` : time}
-      className="truncate rounded bg-[var(--accent)] px-1 py-px text-left text-[9px] font-medium leading-tight text-[var(--accent-fg)] transition hover:opacity-90 md:px-1.5 md:py-0.5 md:text-[10px] md:leading-normal"
+      className={`${CHIP_BASE} ${doneToneClasses("lift")}`}
     >
-      {label}
+      <CheckGlyph />
+      <span className="truncate">{label}</span>
     </button>
   );
 }
 
 /**
- * Distinct from `WorkoutPill` by color (teal vs accent) so a stacked
- * run + lift reads as two different things at a glance, not just two
- * sessions of the same kind. Clicking selects the day and auto-expands
- * this run's banner in the digest below the grid.
+ * Distinct from `WorkoutPill` by discipline tone (warm clay run hue vs the
+ * warm amber lift hue) so a stacked run + lift reads as two different things
+ * at a glance, not just two sessions of the same kind. Clicking selects the
+ * day and auto-expands this run's banner in the digest below the grid.
  */
 function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
   const time = new Date(run.start_time).toLocaleTimeString("en-US", {
@@ -193,16 +211,15 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
   return (
     <button
       type="button"
-      // stopPropagation so selecting this run's digest banner doesn't also
-      // fire the cell's whitespace-click (which would clear the auto-expand).
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
       title={`${time} · Run${run.name ? ` · ${run.name}` : ""}`}
-      className="truncate rounded bg-teal-500/20 px-1 py-px text-left text-[9px] font-medium leading-tight text-teal-300 transition hover:bg-teal-500/30 md:px-1.5 md:py-0.5 md:text-[10px] md:leading-normal"
+      className={`${CHIP_BASE} ${doneToneClasses("run")}`}
     >
-      {label}
+      <CheckGlyph />
+      <span className="truncate">{label}</span>
     </button>
   );
 }
@@ -215,7 +232,15 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
  * Google event shows a small sync glyph. Clicking selects the day and
  * scrolls the digest in, same as the logged pills.
  */
-function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: () => void }) {
+function PlannedPill({
+  planned,
+  discipline,
+  onClick,
+}: {
+  planned: PlannedWorkout;
+  discipline: Discipline;
+  onClick: () => void;
+}) {
   const time = new Date(planned.scheduled_start).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -225,13 +250,18 @@ function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: (
   const skipped = planned.status === "skipped";
   const synced = planned.google_sync_status === "synced";
 
-  // Status drives the dashed-outline tint. Planned: accent. Completed:
-  // solid-ish success. Skipped: muted + strikethrough.
+  // Status drives the dashed-outline tint. Planned: the activity's discipline
+  // tone (via disciplineOf). Completed: solid-ish success. Skipped: muted +
+  // strikethrough.
+  const plannedTone =
+    discipline === "run"
+      ? "border-[var(--discipline-run-dot)]/60 text-[var(--discipline-run-fg)]"
+      : "border-[var(--discipline-lift-dot)]/60 text-[var(--discipline-lift-fg)]";
   const tone = completed
     ? "border-emerald-500/60 text-emerald-300"
     : skipped
       ? "border-[var(--border)] text-[var(--muted)] line-through"
-      : "border-[var(--accent)]/60 text-[var(--accent)]";
+      : plannedTone;
 
   return (
     <button
@@ -244,7 +274,7 @@ function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: (
       title={`${time} · Planned${planned.name ? ` · ${planned.name}` : ""}${
         completed ? " (completed)" : skipped ? " (skipped)" : ""
       }`}
-      className={`flex items-center gap-1 truncate rounded border border-dashed bg-transparent px-1 py-px text-left text-[9px] font-medium leading-tight transition hover:bg-[var(--surface-2)] md:px-1.5 md:py-0.5 md:text-[10px] md:leading-normal ${tone}`}
+      className={`${CHIP_BASE} border border-dashed bg-transparent hover:bg-[var(--surface-2)] ${tone}`}
     >
       {completed ? <CheckGlyph /> : skipped ? null : <ClockGlyph />}
       <span className="truncate">{label}</span>
@@ -256,8 +286,8 @@ function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: (
 /**
  * A planned session that's been completed and linked to the logged session
  * that fulfilled it. Unlike PlannedPill (dashed, forward-looking), this
- * reads as done: a SOLID fill in the logged activity's color (accent for a
- * lift, teal for a run) with a leading check. The single pill replaces what
+ * reads as done: a SOLID fill in the logged activity's discipline tone (the
+ * amber lift hue, or the clay run hue) with a leading check. The single pill replaces what
  * used to be a dashed planned pill stacked on its identical logged pill.
  */
 function CompletedPlannedPill({
@@ -280,10 +310,9 @@ function CompletedPlannedPill({
     event.logged.kind === "run" ? event.logged.run.name : event.logged.workout.name;
   const label = event.planned.name?.trim() || loggedName?.trim() || time;
   // Match the logged-pill palettes so a completed plan is visually a logged
-  // session, just carrying a check to mark that it closed out a plan.
-  const tone = isRun
-    ? "bg-teal-500/20 text-teal-300 hover:bg-teal-500/30"
-    : "bg-[var(--accent)] text-[var(--accent-fg)] hover:opacity-90";
+  // session, just carrying a check to mark that it closed out a plan. The
+  // discipline comes from the centralized disciplineOf so chips agree.
+  const tone = doneToneClasses(disciplineOf(event));
   return (
     <button
       type="button"
@@ -295,7 +324,7 @@ function CompletedPlannedPill({
         onClick();
       }}
       title={`${time} · ${label} (completed planned ${isRun ? "run" : "workout"})`}
-      className={`flex items-center gap-1 truncate rounded px-1 py-px text-left text-[9px] font-medium leading-tight transition md:px-1.5 md:py-0.5 md:text-[10px] md:leading-normal ${tone}`}
+      className={`${CHIP_BASE} ${tone}`}
     >
       <CheckGlyph />
       <span className="truncate">{label}</span>

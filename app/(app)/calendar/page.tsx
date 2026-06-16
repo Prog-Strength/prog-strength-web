@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
@@ -23,7 +23,9 @@ import { plannedToDraftExercises } from "@/lib/workout-draft";
 import { DayDigest } from "@/components/calendar/day-digest";
 import { DayCell } from "@/components/calendar/day-cell";
 import { buildEventsByDate, localDateKey } from "@/components/calendar/merge-events";
-import { WeeklyChip, WeeklyTile, type WeeklyStat } from "@/components/calendar/weekly-overview";
+import { WeekStreakStrip, type WeeklyStat } from "@/components/calendar/weekly-overview";
+import { isTrainedDay, monthConsistencyCopy } from "@/components/calendar/derivations";
+import { useProfile } from "@/lib/profile-context";
 import { PlannedWorkoutModal } from "@/components/planned-workout-modal";
 
 /**
@@ -44,6 +46,7 @@ export default function CalendarPage() {
   const router = useRouter();
   const { formatDistance, formatPace, unitLabel } = useDistanceUnit();
   const { start } = useActiveWorkoutSession();
+  const { profile } = useProfile();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [runs, setRuns] = useState<RunningSession[] | null>(null);
   const [steps, setSteps] = useState<StepsEntry[] | null>(null);
@@ -321,10 +324,30 @@ export default function CalendarPage() {
       for (const s of steps ?? []) {
         if (isoKeys.has(s.date)) weekSteps += s.steps;
       }
-      weeks.push({ weekStart: weekDays[0], activities, liftMinutes, runMeters, steps: weekSteps });
+      const dayMarks = weekDays.map((d) => ({
+        inMonth: d.getMonth() === cursor.month,
+        trained: isTrainedDay(eventsByDate.get(localDateKey(d)) ?? []),
+      }));
+      weeks.push({
+        weekStart: weekDays[0],
+        activities,
+        liftMinutes,
+        runMeters,
+        steps: weekSteps,
+        days: dayMarks,
+      });
     }
     return weeks;
-  }, [days, workouts, runs, steps]);
+  }, [days, workouts, runs, steps, eventsByDate, cursor.month]);
+
+  // Distinct in-month days carrying a done event — the header's consistency
+  // line. Weeks partition the 42-day grid, so summing per-week trained
+  // in-month days counts each day once.
+  const monthTrainedDays = useMemo(
+    () =>
+      weeklyStats.reduce((sum, w) => sum + w.days.filter((d) => d.inMonth && d.trained).length, 0),
+    [weeklyStats],
+  );
 
   // Running-quality stats for the cursor month: average pace and longest
   // run. Filtered to runs whose LOCAL date is in the cursor month (same
@@ -383,11 +406,16 @@ export default function CalendarPage() {
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">{monthLabel}</h1>
+          <div className="flex flex-col">
+            <h1 className="text-lg font-semibold tracking-tight">{monthLabel}</h1>
+            <p className="text-xs text-[var(--muted)]">
+              {monthConsistencyCopy(profile?.display_name ?? null, monthTrainedDays)}
+            </p>
+          </div>
           <button
             type="button"
             onClick={goToday}
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--muted)] transition hover:border-[var(--warm-accent)] hover:text-[var(--foreground)]"
           >
             Today
           </button>
@@ -396,7 +424,7 @@ export default function CalendarPage() {
           <button
             type="button"
             onClick={openNewPlan}
-            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-90"
+            className="rounded-full bg-[var(--warm-accent)] px-3.5 py-1.5 text-xs font-medium text-[var(--warm-accent-fg)] transition hover:opacity-90"
           >
             Plan a workout
           </button>
@@ -456,74 +484,51 @@ export default function CalendarPage() {
             />
           </div>
 
-          {/* Calendar grid. Day cells and the per-week stat tile share ONE
-              CSS grid so the tile lives in the same row as its seven days
-              — the grid stretches every cell in a row to the tallest, so
-              the tile can't drift out of horizontal alignment regardless
-              of how many pills a day cell carries.
-
-              Columns: 7 day columns plus a min-140/max-180px tile column
-              at md+; collapses to a plain 7-col grid on small screens
-              where the tile is replaced by a single-line chip rendered
-              above each week. */}
-          <div className="mb-2 grid grid-cols-7 gap-1 md:grid-cols-[repeat(7,minmax(0,1fr))_minmax(140px,180px)]">
-            {WEEKDAYS.map((d) => (
-              <div
-                key={d}
-                className="px-2 py-1 text-center text-xs font-medium text-[var(--muted)]"
-              >
-                {d}
-              </div>
-            ))}
-            <div className="hidden px-2 py-1 text-center text-xs font-medium text-[var(--muted)] md:block">
-              Week
+          {/* Per-week rounded panels: a seven-column day row on top, a
+              WeekStreakStrip footer beneath carrying that week's consistency.
+              Replaces the old "7 days + Week column" grid — the strip is the
+              single responsive home for weekly data at every breakpoint. */}
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-7 gap-1 px-1">
+              {WEEKDAYS.map((d) => (
+                <div key={d} className="px-2 text-center text-xs font-medium text-[var(--muted)]">
+                  {d}
+                </div>
+              ))}
             </div>
-          </div>
-          <div className="grid grid-cols-7 gap-1 md:grid-cols-[repeat(7,minmax(0,1fr))_minmax(140px,180px)]">
             {Array.from({ length: 6 }).map((_, w) => (
-              <Fragment key={`week-${w}`}>
-                {/* Mobile-only week chip: spans the full row above the
-                    day cells. `md:hidden` removes it from grid layout at
-                    md+ entirely so it never claims a desktop cell. */}
-                <div className="col-span-7 md:hidden">
-                  <WeeklyChip
-                    week={weeklyStats[w]}
-                    isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
-                  />
+              <div
+                key={`week-${w}`}
+                className="flex flex-col gap-2 rounded-3xl border border-[var(--border)] bg-[var(--surface)]/40 p-2 md:p-3"
+              >
+                <div className="grid grid-cols-7 gap-1 md:gap-1.5">
+                  {days.slice(w * 7, w * 7 + 7).map((day) => {
+                    const inMonth = day.getMonth() === cursor.month;
+                    const key = localDateKey(day);
+                    const dayEvents = eventsByDate.get(key) ?? [];
+                    const isToday = key === todayKey;
+                    const isSelected = key === selected;
+                    return (
+                      <DayCell
+                        key={key}
+                        day={day}
+                        inMonth={inMonth}
+                        isToday={isToday}
+                        isSelected={isSelected}
+                        events={dayEvents}
+                        onSelectDay={() => selectDay(key)}
+                        onSelectWorkout={(id) => selectDayAndExpand(key, id)}
+                        onSelectRun={(id) => selectDayAndExpand(key, id)}
+                        onSelectPlanned={(id) => selectDayAndExpand(key, id)}
+                      />
+                    );
+                  })}
                 </div>
-                {days.slice(w * 7, w * 7 + 7).map((day) => {
-                  const inMonth = day.getMonth() === cursor.month;
-                  const key = localDateKey(day);
-                  const dayEvents = eventsByDate.get(key) ?? [];
-                  const isToday = key === todayKey;
-                  const isSelected = key === selected;
-                  return (
-                    <DayCell
-                      key={key}
-                      day={day}
-                      inMonth={inMonth}
-                      isToday={isToday}
-                      isSelected={isSelected}
-                      events={dayEvents}
-                      onSelectDay={() => selectDay(key)}
-                      onSelectWorkout={(id) => selectDayAndExpand(key, id)}
-                      onSelectRun={(id) => selectDayAndExpand(key, id)}
-                      onSelectPlanned={(id) => selectDayAndExpand(key, id)}
-                    />
-                  );
-                })}
-                {/* Desktop-only week tile: `display: contents` at md+ makes
-                    the wrapper transparent to layout, so the tile itself
-                    is the grid child and stretches to the row's height
-                    (locked alignment with the seven day cells). `hidden`
-                    at <md removes it from layout entirely. */}
-                <div className="hidden md:contents">
-                  <WeeklyTile
-                    week={weeklyStats[w]}
-                    isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
-                  />
-                </div>
-              </Fragment>
+                <WeekStreakStrip
+                  week={weeklyStats[w]}
+                  isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
+                />
+              </div>
             ))}
           </div>
 
@@ -586,7 +591,7 @@ function NavButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--muted)] transition hover:text-[var(--foreground)]"
+      className="rounded-full border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--muted)] transition hover:border-[var(--warm-accent)] hover:text-[var(--foreground)]"
     >
       <svg
         viewBox="0 0 24 24"
@@ -613,7 +618,7 @@ function NavButton({
  */
 function StatTile({ value, label }: { value: string; label: string }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5">
       <p className="text-2xl font-semibold tracking-tight">{value}</p>
       <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
         {label}
@@ -683,10 +688,9 @@ function isoDateKey(d: Date): string {
 
 /**
  * True when `todayKey` matches any of the seven local-date keys starting
- * at the week's first day. Mirrors WeeklyOverviewColumn's current-week
- * detection so the inline chips light up the same week the side column
- * does. Defends against an undefined `week` (the grid is always six full
- * weeks, but a guard keeps this honest if that ever changes).
+ * at the week's first day. Drives the warm-accent border on the current
+ * week's streak strip. Defends against an undefined `week` (the grid is
+ * always six full weeks, but a guard keeps this honest if that ever changes).
  */
 function weekContainsToday(week: WeeklyStat | undefined, todayKey: string): boolean {
   if (!week) return false;
