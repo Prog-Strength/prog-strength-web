@@ -2166,11 +2166,26 @@ export type ReactionSummary = {
 };
 
 /**
+ * The post/comment author, embedded by the API on every feed post and
+ * comment so the UI can render an avatar + display name without a per-row
+ * profile fetch. `username` is nullable (a handle-less user still resolves
+ * by `user_id`); the name links to `/u/{username}` only when present. This
+ * is a thinner shape than ProfileSummary — it carries no `relationship`.
+ */
+export type TimelineAuthor = {
+  user_id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+};
+
+/**
  * One feed entry. `content` is the API's denormalized render block so the
  * card needs no per-source fetch; `href` deep-links to the source detail
  * page (e.g. /workouts/{id}, /running/{id}). `occurred_at` is the source
  * event's timestamp (RFC3339), which is what the feed orders and paginates
- * on — NOT the row's created_at.
+ * on — NOT the row's created_at. `author` is embedded so the card can render
+ * the poster's identity without a per-post profile fetch.
  */
 export type TimelinePost = {
   id: string;
@@ -2178,6 +2193,7 @@ export type TimelinePost = {
   source_id: string;
   occurred_at: string; // RFC3339
   visibility: string;
+  author: TimelineAuthor;
   content: {
     title: string;
     subtitle: string;
@@ -2189,11 +2205,13 @@ export type TimelinePost = {
 };
 
 /** One comment on a post. `user_id` identifies the author so the UI can
- * show a delete affordance only on the viewer's own comments. */
+ * show a delete affordance only on the viewer's own comments; `author`
+ * carries the embedded identity (avatar + display name) for the row. */
 export type TimelineComment = {
   id: string;
   post_id: string;
   user_id: string;
+  author: TimelineAuthor;
   body: string;
   created_at: string; // RFC3339
 };
