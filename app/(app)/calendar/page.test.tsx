@@ -330,6 +330,8 @@ describe("CalendarPage", () => {
     // At least one week reads as a trained week, since every fixture lands in
     // the cursor month.
     expect(strips.some((s) => /You trained \d+ of \d+ days/.test(s.textContent ?? ""))).toBe(true);
+    // Exactly the week containing today is emphasized as the current week.
+    expect(strips.filter((s) => s.getAttribute("data-current") === "true")).toHaveLength(1);
   });
 
   it("rolls weekly steps into the streak strip metric labels", async () => {

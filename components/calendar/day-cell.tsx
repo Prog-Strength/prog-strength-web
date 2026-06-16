@@ -3,7 +3,7 @@
 import { hasMeaningfulName } from "@/components/workout-details";
 import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 import type { CalendarEvent } from "@/components/calendar/types";
-import { type Discipline } from "@/components/calendar/derivations";
+import { disciplineOf, type Discipline } from "@/components/calendar/derivations";
 
 /**
  * One day cell of the month grid, plus the pills it stacks inside. Pulled
@@ -118,6 +118,7 @@ export function DayCell({
             <PlannedPill
               key={`p-${ev.planned.id}`}
               planned={ev.planned}
+              discipline={disciplineOf(ev)}
               onClick={() => onSelectPlanned(ev.planned.id)}
             />
           ),
@@ -231,7 +232,15 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
  * Google event shows a small sync glyph. Clicking selects the day and
  * scrolls the digest in, same as the logged pills.
  */
-function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: () => void }) {
+function PlannedPill({
+  planned,
+  discipline,
+  onClick,
+}: {
+  planned: PlannedWorkout;
+  discipline: Discipline;
+  onClick: () => void;
+}) {
   const time = new Date(planned.scheduled_start).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -241,9 +250,9 @@ function PlannedPill({ planned, onClick }: { planned: PlannedWorkout; onClick: (
   const skipped = planned.status === "skipped";
   const synced = planned.google_sync_status === "synced";
 
-  // Status drives the dashed-outline tint. Planned: accent. Completed:
-  // solid-ish success. Skipped: muted + strikethrough.
-  const discipline = planned.activity_kind === "run" ? "run" : "lift";
+  // Status drives the dashed-outline tint. Planned: the activity's discipline
+  // tone (via disciplineOf). Completed: solid-ish success. Skipped: muted +
+  // strikethrough.
   const plannedTone =
     discipline === "run"
       ? "border-[var(--discipline-run-dot)]/60 text-[var(--discipline-run-fg)]"
@@ -301,8 +310,9 @@ function CompletedPlannedPill({
     event.logged.kind === "run" ? event.logged.run.name : event.logged.workout.name;
   const label = event.planned.name?.trim() || loggedName?.trim() || time;
   // Match the logged-pill palettes so a completed plan is visually a logged
-  // session, just carrying a check to mark that it closed out a plan.
-  const tone = doneToneClasses(isRun ? "run" : "lift");
+  // session, just carrying a check to mark that it closed out a plan. The
+  // discipline comes from the centralized disciplineOf so chips agree.
+  const tone = doneToneClasses(disciplineOf(event));
   return (
     <button
       type="button"
