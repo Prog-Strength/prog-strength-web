@@ -10,22 +10,28 @@ import {
   type Exercise,
   type PlannedWorkout,
   type PlannedWorkoutPayload,
+  type PlannedWorkoutStatus,
   type RunType,
 } from "@/lib/api";
 import { localInputToRFC3339, rfc3339ToLocalInput } from "@/lib/datetime";
+import { PlannedAgendaDetails } from "@/components/calendar/planned-agenda-details";
 
 /**
- * Create / edit modal for a planned workout. Mirrors WorkoutModal's
- * raw-state form pattern: one mutable draft, immutable updates, Tailwind
- * inputs, submit via the api fns. The parent owns "which plan is being
- * edited" (`plan` null → create) and gets the saved plan back via
- * `onSaved` so it can refresh the calendar window.
+ * The planned-workout detail surface, opened from the calendar. Two modes
+ * in one modal:
  *
- * Agenda is optional — a plan can be a bare time block. The
- * `calendar_detail` select maps Default → null so the API falls back to
- * the user's `calendar_default_detail`. The "Sync to Google Calendar"
- * checkbox only shows when the calendar is connected, and (on create)
- * sends `calendar_sync: true` to trigger the best-effort push.
+ *  - **view** (read-only): how an existing plan opens. Shows the name,
+ *    type, schedule, notes, Google-sync state, and — for a lift — its
+ *    agenda formatted like a logged workout (PlannedAgendaDetails). A
+ *    pencil switches to edit; "Start workout" (lift plans) hands the plan
+ *    to the parent to begin a prefilled live session.
+ *  - **edit**: the create/edit form. How "Plan a workout" (no plan) opens,
+ *    and where the pencil leads. Reps are required per set; weight is
+ *    optional (fill it in ahead, or while lifting). Google Calendar sync
+ *    defaults on when connected.
+ *
+ * Saving keeps the modal open and returns to the read-only view (the
+ * parent refreshes the calendar via `onSaved`); it no longer closes.
  */
 
 type PlannedSetDraft = {
@@ -64,6 +70,7 @@ export function PlannedWorkoutModal({
   defaultDate,
   onClose,
   onSaved,
+  onStartWorkout,
 }: {
   plan: PlannedWorkout | null;
   catalog: Exercise[];
@@ -73,12 +80,23 @@ export function PlannedWorkoutModal({
   defaultDate?: Date;
   onClose: () => void;
   onSaved: (saved: PlannedWorkout) => void;
+  // Begin a live workout prefilled from this plan (lift plans only). The
+  // parent owns the session + navigation; omitted ⇒ no Start button.
+  onStartWorkout?: (plan: PlannedWorkout) => void;
 }) {
+  // The plan currently being shown. Held in state so that after an edit
+  // saves we can flip straight back to the read-only view of the updated
+  // plan without the parent remounting us.
+  const [currentPlan, setCurrentPlan] = useState<PlannedWorkout | null>(plan);
+  // Existing plan opens read-only; "Plan a workout" (no plan) opens in edit.
+  const [mode, setMode] = useState<"view" | "edit">(plan ? "view" : "edit");
   const [draft, setDraft] = useState<PlannedDraft>(() =>
-    plan ? planToDraft(plan) : freshDraft(defaultDate),
+    plan ? planToDraft(plan, calendarConnected) : freshDraft(defaultDate, calendarConnected),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const exerciseMap = useMemo(() => new Map(catalog.map((e) => [e.id, e])), [catalog]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -98,6 +116,29 @@ export function PlannedWorkoutModal({
 
   const canSave = useMemo(() => isDraftValid(draft), [draft]);
 
+  // Enter edit from the read-only view: re-seed the draft from the plan as
+  // it stands so unsaved edits never leak across open/close cycles.
+  const enterEdit = useCallback(() => {
+    setDraft(
+      currentPlan
+        ? planToDraft(currentPlan, calendarConnected)
+        : freshDraft(defaultDate, calendarConnected),
+    );
+    setError(null);
+    setMode("edit");
+  }, [currentPlan, calendarConnected, defaultDate]);
+
+  // Cancel an edit: back to the view for an existing plan, or close when
+  // we were creating a brand-new one (nothing to return to).
+  const cancelEdit = useCallback(() => {
+    if (currentPlan) {
+      setError(null);
+      setMode("view");
+    } else {
+      onClose();
+    }
+  }, [currentPlan, onClose]);
+
   const save = useCallback(async () => {
     const token = getToken();
     if (!token) {
@@ -108,16 +149,19 @@ export function PlannedWorkoutModal({
     setError(null);
     try {
       const payload = draftToPayload(draft);
-      const saved = plan
-        ? await updatePlannedWorkout(token, plan.id, payload)
+      const saved = currentPlan
+        ? await updatePlannedWorkout(token, currentPlan.id, payload)
         : await createPlannedWorkout(token, payload);
+      setCurrentPlan(saved);
       onSaved(saved);
+      // Land back on the read-only view of what we just saved.
+      setMode("view");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
     }
-  }, [draft, plan, onSaved]);
+  }, [draft, currentPlan, onSaved]);
 
   const updateField = <K extends keyof PlannedDraft>(key: K, value: PlannedDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -164,160 +208,180 @@ export function PlannedWorkoutModal({
     >
       <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
       <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
-        <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
-          <h2 id="planned-workout-modal-title" className="text-base font-semibold">
-            {plan ? "Edit planned workout" : "Plan a workout"}
+        <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-5 py-3">
+          <h2 id="planned-workout-modal-title" className="min-w-0 truncate text-base font-semibold">
+            {mode === "view" && currentPlan
+              ? viewTitle(currentPlan)
+              : currentPlan
+                ? "Edit planned workout"
+                : "Plan a workout"}
           </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-          >
-            <CloseIcon />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {mode === "view" && currentPlan?.status === "planned" && (
+              <button
+                type="button"
+                onClick={enterEdit}
+                aria-label="Edit planned workout"
+                className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+              >
+                <PencilIcon />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+            >
+              <CloseIcon />
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className="flex flex-col gap-4">
-            <Field label="Activity">
-              <Segmented
-                value={draft.activity_kind}
-                options={[
-                  { value: "lift", label: "Lift" },
-                  { value: "run", label: "Run" },
-                ]}
-                onChange={(v) => updateField("activity_kind", v)}
-                ariaLabel="Activity type"
-              />
-            </Field>
+          {mode === "view" && currentPlan ? (
+            <PlannedViewBody plan={currentPlan} exerciseMap={exerciseMap} />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <Field label="Activity">
+                <Segmented
+                  value={draft.activity_kind}
+                  options={[
+                    { value: "lift", label: "Lift" },
+                    { value: "run", label: "Run" },
+                  ]}
+                  onChange={(v) => updateField("activity_kind", v)}
+                  ariaLabel="Activity type"
+                />
+              </Field>
 
-            <Field label="Name">
-              <input
-                type="text"
-                value={draft.name}
-                onChange={(e) => updateField("name", e.target.value)}
-                placeholder={draft.activity_kind === "run" ? "e.g. Tempo run" : "e.g. Upper 1"}
-                className={inputClasses}
-              />
-            </Field>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Starts at" required>
+              <Field label="Name">
                 <input
-                  type="datetime-local"
-                  aria-label="Starts at"
-                  value={draft.scheduled_start}
-                  onChange={(e) => updateField("scheduled_start", e.target.value)}
+                  type="text"
+                  value={draft.name}
+                  onChange={(e) => updateField("name", e.target.value)}
+                  placeholder={draft.activity_kind === "run" ? "e.g. Tempo run" : "e.g. Upper 1"}
                   className={inputClasses}
                 />
               </Field>
-              <Field label="Ends at" required>
-                <input
-                  type="datetime-local"
-                  aria-label="Ends at"
-                  value={draft.scheduled_end}
-                  onChange={(e) => updateField("scheduled_end", e.target.value)}
-                  className={inputClasses}
-                />
-              </Field>
-            </div>
 
-            <Field label="Notes">
-              <textarea
-                value={draft.notes}
-                onChange={(e) => updateField("notes", e.target.value)}
-                rows={2}
-                placeholder="Anything worth noting about this session"
-                className={`${inputClasses} resize-y`}
-              />
-            </Field>
-
-            <Field label="Calendar detail">
-              <select
-                aria-label="Calendar detail"
-                value={draft.calendar_detail}
-                onChange={(e) =>
-                  updateField("calendar_detail", e.target.value as "" | CalendarDetail)
-                }
-                className={inputClasses}
-              >
-                <option value="">Default</option>
-                <option value="time_block">Time block</option>
-                <option value="full_agenda">Full agenda</option>
-              </select>
-            </Field>
-
-            {calendarConnected && (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={draft.calendar_sync}
-                  onChange={(e) => updateField("calendar_sync", e.target.checked)}
-                  className="h-4 w-4 rounded border-[var(--border)]"
-                />
-                <span>Sync to Google Calendar</span>
-              </label>
-            )}
-
-            {draft.activity_kind === "run" ? (
-              <div className="flex flex-col gap-4">
-                <Field label="Run type">
-                  <Segmented
-                    value={draft.run_type}
-                    options={[
-                      { value: "easy", label: "Easy" },
-                      { value: "threshold", label: "Threshold" },
-                      { value: "intervals", label: "Intervals" },
-                    ]}
-                    onChange={(v) => updateField("run_type", v)}
-                    ariaLabel="Run type"
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Starts at" required>
+                  <input
+                    type="datetime-local"
+                    aria-label="Starts at"
+                    value={draft.scheduled_start}
+                    onChange={(e) => updateField("scheduled_start", e.target.value)}
+                    className={inputClasses}
                   />
                 </Field>
-                <Field label="Details (optional)">
-                  <textarea
-                    value={draft.run_details}
-                    onChange={(e) => updateField("run_details", e.target.value)}
-                    rows={2}
-                    placeholder="e.g. 4x800m @ 5k pace, 90s jog recovery"
-                    className={`${inputClasses} resize-y`}
+                <Field label="Ends at" required>
+                  <input
+                    type="datetime-local"
+                    aria-label="Ends at"
+                    value={draft.scheduled_end}
+                    onChange={(e) => updateField("scheduled_end", e.target.value)}
+                    className={inputClasses}
                   />
                 </Field>
               </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Agenda (optional)</h3>
-                  <button
-                    type="button"
-                    onClick={addExercise}
-                    className="text-xs text-[var(--accent)] hover:underline"
-                  >
-                    + Add exercise
-                  </button>
+
+              <Field label="Notes">
+                <textarea
+                  value={draft.notes}
+                  onChange={(e) => updateField("notes", e.target.value)}
+                  rows={2}
+                  placeholder="Anything worth noting about this session"
+                  className={`${inputClasses} resize-y`}
+                />
+              </Field>
+
+              <Field label="Calendar detail">
+                <select
+                  aria-label="Calendar detail"
+                  value={draft.calendar_detail}
+                  onChange={(e) =>
+                    updateField("calendar_detail", e.target.value as "" | CalendarDetail)
+                  }
+                  className={inputClasses}
+                >
+                  <option value="">Default</option>
+                  <option value="time_block">Time block</option>
+                  <option value="full_agenda">Full agenda</option>
+                </select>
+              </Field>
+
+              {calendarConnected && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={draft.calendar_sync}
+                    onChange={(e) => updateField("calendar_sync", e.target.checked)}
+                    className="h-4 w-4 rounded border-[var(--border)]"
+                  />
+                  <span>Sync to Google Calendar</span>
+                </label>
+              )}
+
+              {draft.activity_kind === "run" ? (
+                <div className="flex flex-col gap-4">
+                  <Field label="Run type">
+                    <Segmented
+                      value={draft.run_type}
+                      options={[
+                        { value: "easy", label: "Easy" },
+                        { value: "threshold", label: "Threshold" },
+                        { value: "intervals", label: "Intervals" },
+                      ]}
+                      onChange={(v) => updateField("run_type", v)}
+                      ariaLabel="Run type"
+                    />
+                  </Field>
+                  <Field label="Details (optional)">
+                    <textarea
+                      value={draft.run_details}
+                      onChange={(e) => updateField("run_details", e.target.value)}
+                      rows={2}
+                      placeholder="e.g. 4x800m @ 5k pace, 90s jog recovery"
+                      className={`${inputClasses} resize-y`}
+                    />
+                  </Field>
                 </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium">Agenda (optional)</h3>
+                    <button
+                      type="button"
+                      onClick={addExercise}
+                      className="text-xs text-[var(--accent)] hover:underline"
+                    >
+                      + Add exercise
+                    </button>
+                  </div>
 
-                {draft.exercises.length === 0 && (
-                  <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-                    No agenda — this will be a bare time block.
-                  </p>
-                )}
+                  {draft.exercises.length === 0 && (
+                    <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
+                      No agenda — this will be a bare time block.
+                    </p>
+                  )}
 
-                {draft.exercises.map((ex, exIdx) => (
-                  <ExerciseCard
-                    key={exIdx}
-                    exercise={ex}
-                    catalog={catalog}
-                    onChange={(fn) => updateExercise(exIdx, fn)}
-                    onRemove={() => removeExercise(exIdx)}
-                    onAddSet={() => addSet(exIdx)}
-                    onRemoveSet={(setIdx) => removeSet(exIdx, setIdx)}
-                    onSetChange={(setIdx, fn) => updateSet(exIdx, setIdx, fn)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+                  {draft.exercises.map((ex, exIdx) => (
+                    <ExerciseCard
+                      key={exIdx}
+                      exercise={ex}
+                      catalog={catalog}
+                      onChange={(fn) => updateExercise(exIdx, fn)}
+                      onRemove={() => removeExercise(exIdx)}
+                      onAddSet={() => addSet(exIdx)}
+                      onRemoveSet={(setIdx) => removeSet(exIdx, setIdx)}
+                      onSetChange={(setIdx, fn) => updateSet(exIdx, setIdx, fn)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <footer className="flex flex-col gap-2 border-t border-[var(--border)] px-5 py-3">
@@ -326,27 +390,187 @@ export function PlannedWorkoutModal({
               {error}
             </p>
           )}
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={!canSave || saving}
-              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
-            >
-              {saving ? "Saving…" : plan ? "Save changes" : "Plan workout"}
-            </button>
-          </div>
+          {mode === "view" ? (
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+              >
+                Close
+              </button>
+              {onStartWorkout &&
+                currentPlan?.activity_kind === "lift" &&
+                currentPlan.status === "planned" && (
+                  <button
+                    type="button"
+                    onClick={() => onStartWorkout(currentPlan)}
+                    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90"
+                  >
+                    Start workout
+                  </button>
+                )}
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={!canSave || saving}
+                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
+              >
+                {saving ? "Saving…" : currentPlan ? "Save changes" : "Plan workout"}
+              </button>
+            </div>
+          )}
         </footer>
       </div>
     </div>
   );
+}
+
+/**
+ * Read-only body of the modal: the plan's type, schedule, notes, Google-
+ * sync state, and (for a lift) its agenda formatted like a logged workout.
+ */
+function PlannedViewBody({
+  plan,
+  exerciseMap,
+}: {
+  plan: PlannedWorkout;
+  exerciseMap: Map<string, Exercise>;
+}) {
+  const isRun = plan.activity_kind === "run";
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <TypeBadge kind={plan.activity_kind} />
+        <PlannedStatusBadge status={plan.status} />
+        <SyncStatus plan={plan} />
+      </div>
+
+      <ViewRow label="When">{formatSchedule(plan.scheduled_start, plan.scheduled_end)}</ViewRow>
+
+      {plan.notes && (
+        <ViewRow label="Notes">
+          <span className="whitespace-pre-wrap">{plan.notes}</span>
+        </ViewRow>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+          {isRun ? "Run" : "Agenda"}
+        </h3>
+        {isRun ? (
+          <RunSummary runType={plan.run_type} details={plan.run_details} />
+        ) : plan.exercises.length > 0 ? (
+          <PlannedAgendaDetails exercises={plan.exercises} exerciseMap={exerciseMap} />
+        ) : (
+          <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
+            No agenda yet — edit to add exercises, or start the workout and log as you go.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ViewRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        {label}
+      </span>
+      <span className="text-sm text-[var(--foreground)]">{children}</span>
+    </div>
+  );
+}
+
+function TypeBadge({ kind }: { kind: ActivityKind }) {
+  return (
+    <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--foreground)]">
+      {kind === "run" ? "Run" : "Lift"}
+    </span>
+  );
+}
+
+function PlannedStatusBadge({ status }: { status: PlannedWorkoutStatus }) {
+  const map = {
+    planned: { label: "Planned", cls: "border-[var(--accent)]/50 text-[var(--accent)]" },
+    completed: { label: "Completed", cls: "border-emerald-500/50 text-emerald-400" },
+    skipped: { label: "Skipped", cls: "border-[var(--border)] text-[var(--muted)]" },
+  } as const;
+  const { label, cls } = map[status];
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${cls}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function SyncStatus({ plan }: { plan: PlannedWorkout }) {
+  if (plan.google_sync_status === "synced") {
+    return <span className="text-[11px] text-[var(--muted)]">· Synced to Google Calendar</span>;
+  }
+  if (plan.google_sync_status === "pending") {
+    return <span className="text-[11px] text-[var(--muted)]">· Syncing…</span>;
+  }
+  if (plan.google_sync_status === "failed") {
+    return <span className="text-[11px] text-[var(--danger)]">· Google sync failed</span>;
+  }
+  return null;
+}
+
+function RunSummary({ runType, details }: { runType: RunType | null; details: string | null }) {
+  const text = details?.trim() ?? "";
+  if (!runType && !text) {
+    return <p className="text-sm text-[var(--muted)]">Easy time block — no details.</p>;
+  }
+  return (
+    <div className="text-sm">
+      {runType && <p className="font-medium text-[var(--foreground)]">{runTypeLabel(runType)}</p>}
+      {text && <p className="whitespace-pre-wrap text-[var(--muted)]">{text}</p>}
+    </div>
+  );
+}
+
+function runTypeLabel(rt: RunType): string {
+  switch (rt) {
+    case "easy":
+      return "Easy run";
+    case "threshold":
+      return "Threshold run";
+    case "intervals":
+      return "Interval run";
+  }
+}
+
+/** "Sat, Jun 20 · 6:00 – 7:00 PM" from the plan's RFC3339 bounds. */
+function formatSchedule(startISO: string, endISO: string): string {
+  const s = new Date(startISO);
+  const e = new Date(endISO);
+  const day = s.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const t = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${day} · ${t(s)} – ${t(e)}`;
+}
+
+/** View-mode title: the plan's name, or a "Lift · 6:00 PM" fallback. */
+function viewTitle(plan: PlannedWorkout): string {
+  if (plan.name?.trim()) return plan.name.trim();
+  const time = new Date(plan.scheduled_start).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${plan.activity_kind === "run" ? "Run" : "Lift"} · ${time}`;
 }
 
 // --- nested components -----------------------------------------------------
@@ -546,6 +770,25 @@ const inputClasses =
 
 // --- icons -----------------------------------------------------------------
 
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg
@@ -592,8 +835,13 @@ function defaultSet(): PlannedSetDraft {
   return { target_reps: "5", target_weight: "", unit: "lb", target_rpe: "" };
 }
 
-/** A fresh draft seeded to 18:00 on `day` (or today), one hour long. */
-function freshDraft(day?: Date): PlannedDraft {
+/**
+ * A fresh draft seeded to 18:00 on `day` (or today), one hour long.
+ * `syncDefault` (the calendar-connected flag) makes Google Calendar sync
+ * the default — syncing is the intended behavior whenever a calendar is
+ * connected.
+ */
+function freshDraft(day: Date | undefined, syncDefault: boolean): PlannedDraft {
   const base = day ? new Date(day) : new Date();
   const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 18, 0);
   const end = new Date(start.getTime() + 60 * 60 * 1000);
@@ -605,14 +853,14 @@ function freshDraft(day?: Date): PlannedDraft {
     scheduled_end: toInput(end),
     notes: "",
     calendar_detail: "",
-    calendar_sync: false,
+    calendar_sync: syncDefault,
     run_type: "easy",
     run_details: "",
     exercises: [],
   };
 }
 
-function planToDraft(p: PlannedWorkout): PlannedDraft {
+function planToDraft(p: PlannedWorkout, syncDefault: boolean): PlannedDraft {
   return {
     name: p.name ?? "",
     activity_kind: p.activity_kind,
@@ -620,8 +868,9 @@ function planToDraft(p: PlannedWorkout): PlannedDraft {
     scheduled_end: rfc3339ToLocalInput(p.scheduled_end),
     notes: p.notes ?? "",
     calendar_detail: p.calendar_detail ?? "",
-    // We don't re-trigger a sync on edit unless the user opts in again.
-    calendar_sync: false,
+    // Syncing is the default behavior — default the checkbox on (when a
+    // calendar is connected) so edits propagate to Google Calendar.
+    calendar_sync: syncDefault,
     run_type: p.run_type ?? "easy",
     run_details: p.run_details ?? "",
     exercises: p.exercises
@@ -694,12 +943,18 @@ function isDraftValid(d: PlannedDraft): boolean {
   if (!d.scheduled_start || !d.scheduled_end) return false;
   // End must be after start.
   if (new Date(d.scheduled_end).getTime() <= new Date(d.scheduled_start).getTime()) return false;
-  // A run is valid with just a window — its details are optional. Lift agenda
-  // rows, when present, must name an exercise and carry at least one set.
+  // A run is valid with just a window — its details are optional. A lift's
+  // agenda is optional too (a bare time block is fine), but any exercise the
+  // user adds must name an exercise and carry at least one set, and every
+  // set must specify reps. Weight stays optional — the user may fill it in
+  // ahead of time or while lifting.
   if (d.activity_kind === "lift") {
     for (const ex of d.exercises) {
       if (!ex.exercise_id) return false;
       if (ex.sets.length === 0) return false;
+      for (const s of ex.sets) {
+        if (s.target_reps.trim() === "" || Number(s.target_reps) <= 0) return false;
+      }
     }
   }
   return true;

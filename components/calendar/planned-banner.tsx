@@ -1,37 +1,30 @@
 "use client";
 
-import { useId, useState } from "react";
 import type { CompletedSessionKind, Exercise, PlannedWorkout, RunType } from "@/lib/api";
 
 /**
  * Banner row for a single planned (scheduled) workout in the day digest.
- * The forward-looking sibling of WorkoutBanner/RunBanner: a dashed border
- * (rather than a solid accent bar) marks it as intended rather than
- * logged. It surfaces status (planned / completed / skipped), a Google
- * sync indicator with a Resync affordance when the push failed, an Edit
- * affordance, and — when completed — a link to the logged session that
- * fulfilled it. The agenda (target exercises + sets) expands inline.
+ * A compact, clickable row: clicking it opens the planned-workout modal —
+ * the single detail / edit / start surface. The dashed border marks it as
+ * forward-looking rather than logged. It surfaces status (planned /
+ * completed / skipped) and a Google sync indicator with a Resync
+ * affordance when the push failed; for a cross-day completed plan that
+ * didn't collapse into its logged session, it links to that session.
  */
 export function PlannedBanner({
   planned,
-  exerciseMap,
-  defaultOpen = false,
-  onEdit,
+  onOpen,
   onResync,
   onNavigateSession,
   onUnlink,
 }: {
   planned: PlannedWorkout;
-  exerciseMap: Map<string, Exercise>;
-  defaultOpen?: boolean;
-  onEdit?: () => void;
+  // Open the planned-workout modal (read-only view) for this plan.
+  onOpen?: () => void;
   onResync?: () => void;
   onNavigateSession?: (kind: CompletedSessionKind, id: string) => void;
   onUnlink?: () => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const dropdownId = useId();
-
   const time = new Date(planned.scheduled_start).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -62,10 +55,6 @@ export function PlannedBanner({
   // skipped.
   const rail = completed ? "bg-emerald-500" : skipped ? "bg-[var(--muted)]" : "bg-[var(--accent)]";
 
-  // Expandable when there's more to show than the stats line: a lift with
-  // exercises, or a run with free-text details.
-  const hasAgenda = hasPlannedAgenda(planned);
-
   return (
     <div
       role="group"
@@ -77,9 +66,8 @@ export function PlannedBanner({
       <div className="flex items-stretch">
         <button
           type="button"
-          onClick={() => (hasAgenda ? setOpen((o) => !o) : undefined)}
-          aria-expanded={hasAgenda ? open : undefined}
-          aria-controls={hasAgenda ? dropdownId : undefined}
+          onClick={onOpen}
+          aria-label={`Open planned workout: ${title}`}
           className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5"
         >
           <span
@@ -105,41 +93,6 @@ export function PlannedBanner({
 
         <div className="flex shrink-0 items-center gap-1 pr-1.5">
           <SyncIndicator planned={planned} onResync={onResync} />
-          {onEdit && planned.status === "planned" && (
-            <button
-              type="button"
-              onClick={onEdit}
-              aria-label="Edit planned workout"
-              className="rounded p-1.5 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-            >
-              <PencilIcon />
-            </button>
-          )}
-          {hasAgenda && (
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-controls={dropdownId}
-              aria-label={open ? "Collapse details" : "Expand details"}
-              onClick={() => setOpen((o) => !o)}
-              className="flex items-center justify-center px-1.5 text-[var(--muted)] transition hover:text-[var(--foreground)]"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width={16}
-                height={16}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                className={`transition-transform ${open ? "rotate-180" : ""}`}
-              >
-                <path d="M6 9l6 6 6-6" />
-              </svg>
-            </button>
-          )}
         </div>
       </div>
 
@@ -169,12 +122,6 @@ export function PlannedBanner({
               Unlink
             </button>
           )}
-        </div>
-      )}
-
-      {open && hasAgenda && (
-        <div id={dropdownId} className="border-t border-[var(--border)] px-3 py-2.5">
-          <PlannedAgenda planned={planned} exerciseMap={exerciseMap} />
         </div>
       )}
     </div>
@@ -331,25 +278,6 @@ function SyncGlyph() {
       <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
       <path d="M21 3v5h-5" />
       <path d="M3 21v-5h5" />
-    </svg>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={14}
-      height={14}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   );
 }

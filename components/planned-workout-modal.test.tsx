@@ -51,6 +51,29 @@ function plannedFixture(): PlannedWorkout {
   };
 }
 
+function plannedWithAgenda(): PlannedWorkout {
+  return {
+    ...plannedFixture(),
+    name: "Leg Day",
+    exercises: [
+      {
+        id: "pe-1",
+        exercise_id: "back-squat",
+        order_index: 0,
+        notes: null,
+        sets: [0, 1, 2].map((i) => ({
+          id: `s${i}`,
+          order_index: i,
+          target_reps: 5,
+          target_weight: 225,
+          unit: "lb" as const,
+          target_rpe: null,
+        })),
+      },
+    ],
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   createMock.mockResolvedValue(plannedFixture());
@@ -81,8 +104,9 @@ describe("PlannedWorkoutModal", () => {
       target: { value: "2026-06-20T19:30" },
     });
 
-    // Tick the Google sync checkbox (visible because calendarConnected).
-    fireEvent.click(screen.getByLabelText("Sync to Google Calendar"));
+    // Google sync is on by default when a calendar is connected — syncing is
+    // the intended behavior, so the checkbox starts checked (no click).
+    expect(screen.getByLabelText("Sync to Google Calendar")).toBeChecked();
 
     // Add an exercise with a target set.
     fireEvent.click(screen.getByRole("button", { name: "+ Add exercise" }));
@@ -175,7 +199,44 @@ describe("PlannedWorkoutModal", () => {
     expect(screen.queryByLabelText("Sync to Google Calendar")).not.toBeInTheDocument();
   });
 
-  it("edits an existing plan via updatePlannedWorkout", async () => {
+  it("opens an existing plan read-only and formats the lift agenda", () => {
+    render(
+      <PlannedWorkoutModal
+        plan={plannedWithAgenda()}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    // Read-only: no form inputs, the plan name is the title, the type and
+    // schedule show, and the agenda reads like a logged workout.
+    expect(screen.getByRole("heading", { name: "Leg Day" })).toBeInTheDocument();
+    expect(screen.getByText("Lift")).toBeInTheDocument();
+    // Numbered like the timeline ("1. Back Squat").
+    expect(screen.getByText(/Back Squat/)).toBeInTheDocument();
+    expect(screen.getByText("5 reps × 3 sets @ 225 lbs")).toBeInTheDocument();
+    // The edit form's name input is not present until the pencil is clicked.
+    expect(screen.queryByPlaceholderText("e.g. Upper 1")).not.toBeInTheDocument();
+  });
+
+  it("offers Start workout on a lift plan and hands the plan to the parent", () => {
+    const onStartWorkout = vi.fn();
+    render(
+      <PlannedWorkoutModal
+        plan={plannedWithAgenda()}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+        onStartWorkout={onStartWorkout}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start workout" }));
+    expect(onStartWorkout).toHaveBeenCalledWith(expect.objectContaining({ id: "p-1" }));
+  });
+
+  it("edits an existing plan via the pencil, then updatePlannedWorkout", async () => {
     const onSaved = vi.fn();
     render(
       <PlannedWorkoutModal
@@ -186,7 +247,8 @@ describe("PlannedWorkoutModal", () => {
         onSaved={onSaved}
       />,
     );
-    // The name field is seeded from the plan.
+    // Read-only first; the pencil switches to the edit form.
+    fireEvent.click(screen.getByRole("button", { name: "Edit planned workout" }));
     expect(screen.getByPlaceholderText("e.g. Upper 1")).toHaveValue("Created Plan");
     fireEvent.change(screen.getByPlaceholderText("e.g. Upper 1"), {
       target: { value: "Renamed Plan" },
@@ -198,5 +260,25 @@ describe("PlannedWorkoutModal", () => {
     expect(id).toBe("p-1");
     expect(body.name).toBe("Renamed Plan");
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("requires reps on every set (weight stays optional)", () => {
+    render(
+      <PlannedWorkoutModal
+        plan={null}
+        catalog={CATALOG}
+        calendarConnected={false}
+        defaultDate={new Date(2026, 5, 20)}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "+ Add exercise" }));
+    // The seeded set has reps "5" → saveable. Clearing reps disables save;
+    // an empty weight does not.
+    const save = screen.getByRole("button", { name: "Plan workout" });
+    expect(save).not.toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Target reps"), { target: { value: "" } });
+    expect(save).toBeDisabled();
   });
 });

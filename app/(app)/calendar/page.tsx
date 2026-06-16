@@ -18,6 +18,8 @@ import {
   type Workout,
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
+import { useActiveWorkoutSession } from "@/lib/active-workout-session";
+import { plannedToDraftExercises } from "@/lib/workout-draft";
 import { DayDigest } from "@/components/calendar/day-digest";
 import { DayCell } from "@/components/calendar/day-cell";
 import { buildEventsByDate, localDateKey } from "@/components/calendar/merge-events";
@@ -41,6 +43,7 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export default function CalendarPage() {
   const router = useRouter();
   const { formatDistance, formatPace, unitLabel } = useDistanceUnit();
+  const { start } = useActiveWorkoutSession();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [runs, setRuns] = useState<RunningSession[] | null>(null);
   const [steps, setSteps] = useState<StepsEntry[] | null>(null);
@@ -191,19 +194,33 @@ export default function CalendarPage() {
     [router, loadWindow],
   );
 
-  // Open the planning modal for a brand-new plan (optionally seeded to a
-  // day) or to edit an existing one.
+  // Open the planning modal for a brand-new plan (seeded to the selected
+  // day, opens in edit mode) or on an existing plan (opens read-only; the
+  // modal's own pencil leads to edit).
   const openNewPlan = () => {
     setEditingPlan(null);
     setPlanningOpen(true);
   };
-  const openEditPlan = (plan: PlannedWorkout) => {
+  const openViewPlan = (plan: PlannedWorkout) => {
     setEditingPlan(plan);
     setPlanningOpen(true);
   };
   const closePlanning = () => {
     setPlanningOpen(false);
     setEditingPlan(null);
+  };
+
+  // Begin a live workout prefilled from a planned lift, carrying the plan id
+  // so the saved workout links back to the plan. Closes the modal and hands
+  // off to the live page.
+  const startPlannedWorkout = (plan: PlannedWorkout) => {
+    start({
+      name: plan.name ?? undefined,
+      exercises: plannedToDraftExercises(plan),
+      plannedWorkoutId: plan.id,
+    });
+    closePlanning();
+    router.push("/workout/live");
   };
 
   // Lookup map for the shared WorkoutDetails component — resolves
@@ -523,7 +540,7 @@ export default function CalendarPage() {
               onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
               onNavigateRun={(id) => router.push(`/running/${id}`)}
               onPlanWorkout={openNewPlan}
-              onEditPlanned={openEditPlan}
+              onOpenPlanned={openViewPlan}
               onResyncPlanned={resyncPlan}
               onNavigateSession={(kind, id) =>
                 router.push(kind === "activity" ? `/running/${id}` : `/workouts/${id}`)
@@ -535,6 +552,9 @@ export default function CalendarPage() {
 
       {planningOpen && (
         <PlannedWorkoutModal
+          // Remount when the targeted plan changes so the modal re-seeds its
+          // view/edit state (a stale draft must never carry across plans).
+          key={editingPlan?.id ?? "new"}
           plan={editingPlan}
           catalog={exercises}
           calendarConnected={calendarConnected}
@@ -542,10 +562,10 @@ export default function CalendarPage() {
           // "Plan a workout" from a selected day lands on that day.
           defaultDate={editingPlan ? undefined : selectedDate}
           onClose={closePlanning}
-          onSaved={() => {
-            closePlanning();
-            loadWindow();
-          }}
+          // Refresh the calendar window but keep the modal open — it returns
+          // to its read-only view of the saved plan.
+          onSaved={() => loadWindow()}
+          onStartWorkout={startPlannedWorkout}
         />
       )}
     </main>
