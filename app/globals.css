@@ -16,6 +16,28 @@
   --warning: #f59e0b; /* amber-500 — at-threshold usage */
   --danger: #ef4444; /* red-500 */
   --success: #22c55e; /* green-500 — positive confirmation (e.g. handle available) */
+  /* Warm-organic coaching tokens (calendar redesign), re-toned for the
+     dark surface. The DX variant's light triples are the hue reference;
+     these dark-surface equivalents hold WCAG-AA contrast for chip text. */
+  --warm-accent: #e08a5e; /* clay, lightened from #cd6f3e for AA on dark */
+  --warm-accent-fg: #1b1206; /* near-black warm text on a filled warm-accent */
+
+  --discipline-run-bg: #3a241a;
+  --discipline-run-fg: #f0b48f;
+  --discipline-run-dot: #e08a5e;
+
+  --discipline-lift-bg: #332a16;
+  --discipline-lift-fg: #e8c878;
+  --discipline-lift-dot: #d6ab54;
+
+  /* Reserved discipline slots — not produced from data today (only run and
+     lift are inferred); kept so a future mobility/core surface composes. */
+  --discipline-mobility-bg: #1f3330;
+  --discipline-mobility-fg: #8fd6c4;
+  --discipline-mobility-dot: #4fbfa3;
+  --discipline-core-bg: #2c2440;
+  --discipline-core-fg: #c2adf0;
+  --discipline-core-dot: #9a7fe0;
 }
 
 @theme inline {
@@ -30,6 +52,20 @@
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-success: var(--success);
+  --color-warm-accent: var(--warm-accent);
+  --color-warm-accent-fg: var(--warm-accent-fg);
+  --color-discipline-run-bg: var(--discipline-run-bg);
+  --color-discipline-run-fg: var(--discipline-run-fg);
+  --color-discipline-run-dot: var(--discipline-run-dot);
+  --color-discipline-lift-bg: var(--discipline-lift-bg);
+  --color-discipline-lift-fg: var(--discipline-lift-fg);
+  --color-discipline-lift-dot: var(--discipline-lift-dot);
+  --color-discipline-mobility-bg: var(--discipline-mobility-bg);
+  --color-discipline-mobility-fg: var(--discipline-mobility-fg);
+  --color-discipline-mobility-dot: var(--discipline-mobility-dot);
+  --color-discipline-core-bg: var(--discipline-core-bg);
+  --color-discipline-core-fg: var(--discipline-core-fg);
+  --color-discipline-core-dot: var(--discipline-core-dot);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
