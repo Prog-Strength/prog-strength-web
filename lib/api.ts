@@ -2432,6 +2432,9 @@ export type PlannedExercise = {
   exercise_id: string;
   order_index: number;
   notes: string | null;
+  // Non-null groups exercises performed as a superset (alternating sets);
+  // exercises sharing a value belong to the same superset, null = standalone.
+  superset_group: number | null;
   sets: PlannedSet[];
 };
 
@@ -2482,6 +2485,7 @@ export type PlannedWorkoutPayload = {
   exercises?: {
     exercise_id: string;
     notes?: string;
+    superset_group?: number;
     sets: {
       target_reps?: number;
       target_weight?: number;

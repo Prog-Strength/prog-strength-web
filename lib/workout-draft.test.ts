@@ -407,6 +407,7 @@ describe("plannedToDraftExercises", () => {
             exercise_id: "back-squat",
             order_index: 1,
             notes: "belt on",
+            superset_group: null,
             sets: [
               {
                 id: "s2",
@@ -431,6 +432,7 @@ describe("plannedToDraftExercises", () => {
             exercise_id: "bench-press",
             order_index: 0,
             notes: null,
+            superset_group: null,
             sets: [
               {
                 id: "s0",
