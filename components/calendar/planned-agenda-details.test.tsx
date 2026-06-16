@@ -10,6 +10,7 @@ function set(overrides: Partial<PlannedSet> = {}): PlannedSet {
     target_weight: null,
     unit: null,
     target_rpe: null,
+    amrap: false,
     ...overrides,
   };
 }
@@ -26,6 +27,12 @@ describe("formatPlannedSets", () => {
     expect(formatPlannedSets([set({ target_reps: 8, target_weight: null })])).toEqual([
       "8 reps × 1 set",
     ]);
+  });
+
+  it("renders AMRAP instead of a rep count", () => {
+    expect(
+      formatPlannedSets([set({ amrap: true, target_reps: 8, target_weight: 135, unit: "lb" })]),
+    ).toEqual(["AMRAP × 1 set @ 135 lbs"]);
   });
 
   it("appends an RPE target when present", () => {

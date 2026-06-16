@@ -69,6 +69,7 @@ function plannedWithAgenda(): PlannedWorkout {
           target_weight: 225,
           unit: "lb" as const,
           target_rpe: null,
+          amrap: false,
         })),
       },
     ],
@@ -260,6 +261,30 @@ describe("PlannedWorkoutModal", () => {
     expect(id).toBe("p-1");
     expect(body.name).toBe("Renamed Plan");
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("marks a set AMRAP — sends amrap with no reps, and stays saveable", async () => {
+    render(
+      <PlannedWorkoutModal
+        plan={null}
+        catalog={CATALOG}
+        calendarConnected={false}
+        defaultDate={new Date(2026, 5, 20)}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Add exercise/i }));
+    // Toggle the set to AMRAP — reps are no longer required.
+    fireEvent.click(screen.getByRole("button", { name: "Toggle AMRAP" }));
+    const save = screen.getByRole("button", { name: "Plan workout" });
+    expect(save).not.toBeDisabled();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    const [, body] = createMock.mock.calls[0];
+    expect(body.exercises[0].sets[0].amrap).toBe(true);
+    expect(body.exercises[0].sets[0].target_reps).toBeUndefined();
   });
 
   it("requires reps on every set (weight stays optional)", () => {

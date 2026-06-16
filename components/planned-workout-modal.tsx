@@ -647,6 +647,7 @@ function planToDraft(p: PlannedWorkout, syncDefault: boolean): PlannedDraft {
             target_weight: s.target_weight != null ? String(s.target_weight) : "",
             unit: s.unit ?? "lb",
             target_rpe: s.target_rpe != null ? String(s.target_rpe) : "",
+            amrap: s.amrap,
           })),
       })),
   };
@@ -682,7 +683,9 @@ function draftToPayload(d: PlannedDraft): PlannedWorkoutPayload {
         exercise_id: ex.exercise_id,
         sets: ex.sets.map((s) => {
           const set: NonNullable<PlannedWorkoutPayload["exercises"]>[number]["sets"][number] = {};
-          if (s.target_reps.trim() !== "") set.target_reps = Number(s.target_reps);
+          // An AMRAP set carries no fixed rep target; otherwise send reps.
+          if (s.amrap) set.amrap = true;
+          else if (s.target_reps.trim() !== "") set.target_reps = Number(s.target_reps);
           if (s.target_weight.trim() !== "") {
             set.target_weight = Number(s.target_weight);
             set.unit = s.unit;
@@ -714,7 +717,8 @@ function isDraftValid(d: PlannedDraft): boolean {
       if (!ex.exercise_id) return false;
       if (ex.sets.length === 0) return false;
       for (const s of ex.sets) {
-        if (s.target_reps.trim() === "" || Number(s.target_reps) <= 0) return false;
+        // AMRAP sets need no rep target; others require a positive reps value.
+        if (!s.amrap && (s.target_reps.trim() === "" || Number(s.target_reps) <= 0)) return false;
       }
     }
   }

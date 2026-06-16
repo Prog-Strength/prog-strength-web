@@ -416,6 +416,7 @@ describe("plannedToDraftExercises", () => {
                 target_weight: null,
                 unit: null,
                 target_rpe: 8,
+                amrap: false,
               },
               {
                 id: "s1",
@@ -424,6 +425,7 @@ describe("plannedToDraftExercises", () => {
                 target_weight: 225,
                 unit: "lb",
                 target_rpe: null,
+                amrap: false,
               },
             ],
           },
@@ -441,6 +443,7 @@ describe("plannedToDraftExercises", () => {
                 target_weight: 135,
                 unit: "lb",
                 target_rpe: null,
+                amrap: false,
               },
             ],
           },
