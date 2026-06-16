@@ -138,6 +138,11 @@ function ProfilePageInner() {
                   {profile.username && (
                     <p className="truncate text-sm text-[var(--muted)]">@{profile.username}</p>
                   )}
+                  {profile.bio && (
+                    <p className="whitespace-pre-wrap text-sm text-[var(--foreground)]">
+                      {profile.bio}
+                    </p>
+                  )}
                 </div>
               </div>
 

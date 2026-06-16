@@ -315,6 +315,9 @@ export type ResolvedProfile = {
   // The user's chosen handle (the `/u/{username}` profile slug), or null when
   // they haven't set one yet. Editable via PATCH /me; see `updateMe`.
   username: string | null;
+  // The user's free-text bio shown on their public profile, or null when
+  // unset. Max 160 runes; editable via PATCH /me (empty string clears it).
+  bio: string | null;
 };
 
 /**
@@ -377,6 +380,9 @@ export async function updateMe(
     // rejects with 400 (invalid/reserved) or 409 (already taken); those
     // surface as the unwrap'd `error` message for the caller to render.
     username?: string;
+    // Free-text profile bio (max 160 runes; the server is authoritative).
+    // Pass "" to clear a previously-set bio.
+    bio?: string;
   },
 ): Promise<ResolvedProfile> {
   const resp = await fetch(`${config.apiUrl}/me`, {
@@ -2714,6 +2720,9 @@ export type ProfileSummary = {
 export type PublicProfile = ProfileSummary & {
   follower_count: number;
   following_count: number;
+  // The user's free-text bio, or null when unset. Rendered under the @handle
+  // in the profile header (max 160 runes server-side).
+  bio: string | null;
 };
 
 /**
