@@ -20,7 +20,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { createWorkout, listWorkouts, type Workout } from "@/lib/api";
+import { completePlannedWorkout, createWorkout, listWorkouts, type Workout } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { useProfile } from "@/lib/profile-context";
 import {
@@ -41,6 +41,7 @@ import {
   ungroupSuperset as ungroupSupersetMut,
   updateSet as updateSetMut,
   type ActiveSession,
+  type DraftExercise,
   type DraftSet,
 } from "@/lib/workout-draft";
 
@@ -50,7 +51,17 @@ type ActiveWorkoutSessionContextValue = {
   session: ActiveSession | null;
   /** exercise_id → most-recent logged set, from the last page of workouts. */
   prefill: Map<string, DraftSet>;
-  start: () => void;
+  /**
+   * Begin a session. With no argument it's an empty session (the Activities
+   * "Start workout" button). `init` seeds it from a planned workout — the
+   * plan's name + prefilled exercises, plus `plannedWorkoutId` so `save`
+   * links the logged workout back to the plan.
+   */
+  start: (init?: {
+    name?: string;
+    exercises?: DraftExercise[];
+    plannedWorkoutId?: string | null;
+  }) => void;
   setName: (name: string) => void;
   addExercise: (exercise_id: string) => void;
   removeExercise: (idx: number) => void;
@@ -128,18 +139,23 @@ export function ActiveWorkoutSessionProvider({ children }: { children: React.Rea
     sessionRef.current = session;
   }, [session]);
 
-  const start = useCallback(() => {
-    setSession(createSession(new Date()));
-    // Kick off last-time prefill. Degrade silently on any failure — prefill
-    // is a convenience, never a blocker for starting a session.
-    const token = getToken();
-    if (!token) return;
-    void listWorkouts(token, { limit: 50 })
-      .then((page) => setPrefill(buildPrefillMap(page.items)))
-      .catch(() => {
-        /* prefill is best-effort */
-      });
-  }, []);
+  const start = useCallback(
+    (init?: { name?: string; exercises?: DraftExercise[]; plannedWorkoutId?: string | null }) => {
+      setSession(createSession(new Date(), init));
+      // Kick off last-time prefill. Degrade silently on any failure — prefill
+      // is a convenience, never a blocker for starting a session. (It seeds
+      // sets for exercises the user adds later; plan-prefilled exercises
+      // already carry their target sets.)
+      const token = getToken();
+      if (!token) return;
+      void listWorkouts(token, { limit: 50 })
+        .then((page) => setPrefill(buildPrefillMap(page.items)))
+        .catch(() => {
+          /* prefill is best-effort */
+        });
+    },
+    [],
+  );
 
   // Generic guarded mutator: applies a pure mutator to the current session.
   // No-op when there is no session (actions are only reachable from the
@@ -257,6 +273,20 @@ export function ActiveWorkoutSessionProvider({ children }: { children: React.Rea
     // On success clear the draft; on failure rethrow so the caller can show
     // the error and the draft is preserved (no state change here).
     const created = await createWorkout(token, payload);
+    // If this session was started from a planned workout, link the logged
+    // workout back to the plan so it reads as completed. Best-effort: the
+    // workout itself is already saved, and the server's auto-reconcile is a
+    // backstop, so a link failure must never surface as a save failure.
+    if (current.plannedWorkoutId) {
+      try {
+        await completePlannedWorkout(token, current.plannedWorkoutId, {
+          session_id: created.id,
+          session_kind: "workout",
+        });
+      } catch (err) {
+        console.error("failed to link workout to planned session", err);
+      }
+    }
     setSession(null);
     return created;
   }, []);

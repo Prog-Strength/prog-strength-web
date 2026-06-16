@@ -1,11 +1,12 @@
 /// <reference types="vitest/globals" />
 
-import type { Workout } from "@/lib/api";
+import type { PlannedWorkout, Workout } from "@/lib/api";
 import {
   addExercise,
   addSet,
   buildPrefillMap,
   createSession,
+  plannedToDraftExercises,
   createSuperset,
   defaultSessionName,
   defaultSet,
@@ -347,5 +348,115 @@ describe("buildPrefillMap", () => {
 
   it("returns an empty map for no workouts", () => {
     expect(buildPrefillMap([]).size).toBe(0);
+  });
+});
+
+describe("createSession with init", () => {
+  it("seeds name, exercises, and plannedWorkoutId from a plan", () => {
+    const exercises = [{ exercise_id: "squat", superset_group: null, sets: [] }];
+    const s = createSession(new Date(2026, 5, 20), {
+      name: "Leg Day",
+      exercises,
+      plannedWorkoutId: "p-9",
+    });
+    expect(s.name).toBe("Leg Day");
+    expect(s.exercises).toBe(exercises);
+    expect(s.plannedWorkoutId).toBe("p-9");
+  });
+
+  it("falls back to the default name and a null plan id with no init", () => {
+    const s = createSession(new Date(2026, 5, 20));
+    expect(s.name).toContain("Workout —");
+    expect(s.exercises).toEqual([]);
+    expect(s.plannedWorkoutId).toBeNull();
+  });
+});
+
+describe("plannedToDraftExercises", () => {
+  function plan(overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
+    return {
+      id: "p-1",
+      name: "Leg Day",
+      activity_kind: "lift",
+      scheduled_start: "2026-06-20T18:00:00Z",
+      scheduled_end: "2026-06-20T19:00:00Z",
+      timezone: "America/Denver",
+      status: "planned",
+      notes: null,
+      completed_session_id: null,
+      completed_session_kind: null,
+      calendar_detail: null,
+      google_event_id: null,
+      google_sync_status: null,
+      last_sync_error: null,
+      run_type: null,
+      run_details: null,
+      exercises: [],
+      created_at: "2026-06-19T12:00:00Z",
+      updated_at: "2026-06-19T12:00:00Z",
+      ...overrides,
+    };
+  }
+
+  it("maps target sets into starting sets, ordered, with an unset weight as 0", () => {
+    const draft = plannedToDraftExercises(
+      plan({
+        exercises: [
+          {
+            id: "pe-1",
+            exercise_id: "back-squat",
+            order_index: 1,
+            notes: "belt on",
+            sets: [
+              {
+                id: "s2",
+                order_index: 1,
+                target_reps: 5,
+                target_weight: null,
+                unit: null,
+                target_rpe: 8,
+              },
+              {
+                id: "s1",
+                order_index: 0,
+                target_reps: 5,
+                target_weight: 225,
+                unit: "lb",
+                target_rpe: null,
+              },
+            ],
+          },
+          {
+            id: "pe-0",
+            exercise_id: "bench-press",
+            order_index: 0,
+            notes: null,
+            sets: [
+              {
+                id: "s0",
+                order_index: 0,
+                target_reps: 8,
+                target_weight: 135,
+                unit: "lb",
+                target_rpe: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    // Exercises emerge in order_index order (bench first).
+    expect(draft.map((e) => e.exercise_id)).toEqual(["bench-press", "back-squat"]);
+    // Sets within an exercise are order_index-sorted; unset weight → 0.
+    expect(draft[1].sets).toEqual([
+      { reps: 5, weight: 225, unit: "lb" },
+      { reps: 5, weight: 0, unit: "lb" },
+    ]);
+    // No supersets on a plan; notes carried through.
+    expect(draft[1].superset_group).toBeNull();
+    expect(draft[1].notes).toBe("belt on");
+    // Omitted notes stay undefined.
+    expect(draft[0].notes).toBeUndefined();
   });
 });
