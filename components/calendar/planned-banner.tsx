@@ -43,7 +43,6 @@ export function PlannedBanner({
   const title = planned.name?.trim() || `${kindLabel} · ${time}`;
 
   const exerciseCount = planned.exercises.length;
-  const runDetails = planned.run_details?.trim() ?? "";
   // The agenda summary on the stats line: for a run it's the run type (which
   // also signals "this is a run"); for a lift it's the exercise count.
   const agendaLabel = isRun
@@ -65,7 +64,7 @@ export function PlannedBanner({
 
   // Expandable when there's more to show than the stats line: a lift with
   // exercises, or a run with free-text details.
-  const hasAgenda = isRun ? runDetails !== "" : exerciseCount > 0;
+  const hasAgenda = hasPlannedAgenda(planned);
 
   return (
     <div
@@ -174,34 +173,62 @@ export function PlannedBanner({
       )}
 
       {open && hasAgenda && (
-        <div
-          id={dropdownId}
-          className="flex flex-col gap-2 border-t border-[var(--border)] px-3 py-2.5"
-        >
-          {isRun ? (
-            <div className="text-xs">
-              {planned.run_type && (
-                <p className="font-medium text-[var(--foreground)]">
-                  {runTypeLabel(planned.run_type)}
-                </p>
-              )}
-              <p className="whitespace-pre-wrap text-[var(--muted)]">{runDetails}</p>
-            </div>
-          ) : (
-            planned.exercises
-              .slice()
-              .sort((a, b) => a.order_index - b.order_index)
-              .map((ex) => {
-                const name = exerciseMap.get(ex.exercise_id)?.name ?? ex.exercise_id;
-                return (
-                  <div key={ex.id} className="text-xs">
-                    <p className="font-medium text-[var(--foreground)]">{name}</p>
-                    <p className="text-[var(--muted)]">{setsLabel(ex.sets)}</p>
-                  </div>
-                );
-              })
-          )}
+        <div id={dropdownId} className="border-t border-[var(--border)] px-3 py-2.5">
+          <PlannedAgenda planned={planned} exerciseMap={exerciseMap} />
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * True when a plan has detail worth expanding beyond its one-line summary:
+ * a lift with target exercises, or a run with free-text details. Drives
+ * whether a "View plan" / expand affordance is offered.
+ */
+export function hasPlannedAgenda(planned: PlannedWorkout): boolean {
+  return planned.activity_kind === "run"
+    ? (planned.run_details?.trim() ?? "") !== ""
+    : planned.exercises.length > 0;
+}
+
+/**
+ * The expanded target detail for a plan: the run type + free-text notes for
+ * a run, or the list of target exercises and their sets for a lift. Shared
+ * by PlannedBanner and the completed-planned banner's "View plan"
+ * disclosure so both render the agenda identically.
+ */
+export function PlannedAgenda({
+  planned,
+  exerciseMap,
+}: {
+  planned: PlannedWorkout;
+  exerciseMap: Map<string, Exercise>;
+}) {
+  const isRun = planned.activity_kind === "run";
+  const runDetails = planned.run_details?.trim() ?? "";
+  return (
+    <div className="flex flex-col gap-2">
+      {isRun ? (
+        <div className="text-xs">
+          {planned.run_type && (
+            <p className="font-medium text-[var(--foreground)]">{runTypeLabel(planned.run_type)}</p>
+          )}
+          <p className="whitespace-pre-wrap text-[var(--muted)]">{runDetails}</p>
+        </div>
+      ) : (
+        planned.exercises
+          .slice()
+          .sort((a, b) => a.order_index - b.order_index)
+          .map((ex) => {
+            const name = exerciseMap.get(ex.exercise_id)?.name ?? ex.exercise_id;
+            return (
+              <div key={ex.id} className="text-xs">
+                <p className="font-medium text-[var(--foreground)]">{name}</p>
+                <p className="text-[var(--muted)]">{setsLabel(ex.sets)}</p>
+              </div>
+            );
+          })
       )}
     </div>
   );

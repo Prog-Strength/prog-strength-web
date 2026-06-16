@@ -20,9 +20,9 @@ import {
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { DayDigest } from "@/components/calendar/day-digest";
 import { DayCell } from "@/components/calendar/day-cell";
+import { buildEventsByDate, localDateKey } from "@/components/calendar/merge-events";
 import { WeeklyChip, WeeklyTile, type WeeklyStat } from "@/components/calendar/weekly-overview";
 import { PlannedWorkoutModal } from "@/components/planned-workout-modal";
-import type { CalendarEvent } from "@/components/calendar/types";
 
 /**
  * Month-grid calendar. Renders BOTH workouts (lifting) and running
@@ -211,41 +211,15 @@ export default function CalendarPage() {
   const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
 
   // Bucket every event by local-date key so the cell lookup is O(1) per
-  // day during render. Key is `YYYY-M-D` in *local* time — the user's
-  // perception of "what day was that" is local-tz, even if the RFC3339
-  // timestamps came across in UTC. Within each day, events sort by
-  // start time so morning shows above evening.
-  const eventsByDate = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
-    for (const w of workouts ?? []) {
-      const start = new Date(w.performed_at);
-      const key = localDateKey(start);
-      const ev: CalendarEvent = { kind: "workout", startMs: start.getTime(), workout: w };
-      const list = map.get(key);
-      if (list) list.push(ev);
-      else map.set(key, [ev]);
-    }
-    for (const r of runs ?? []) {
-      const start = new Date(r.start_time);
-      const key = localDateKey(start);
-      const ev: CalendarEvent = { kind: "run", startMs: start.getTime(), run: r };
-      const list = map.get(key);
-      if (list) list.push(ev);
-      else map.set(key, [ev]);
-    }
-    for (const p of planned ?? []) {
-      const start = new Date(p.scheduled_start);
-      const key = localDateKey(start);
-      const ev: CalendarEvent = { kind: "planned", startMs: start.getTime(), planned: p };
-      const list = map.get(key);
-      if (list) list.push(ev);
-      else map.set(key, [ev]);
-    }
-    for (const list of map.values()) {
-      list.sort((a, b) => a.startMs - b.startMs);
-    }
-    return map;
-  }, [workouts, runs, planned]);
+  // day during render (see buildEventsByDate). A completed planned session
+  // and the logged session that fulfilled it collapse into one
+  // `completed-planned` event when they share a local day, so a
+  // planned-ahead workout doesn't read as two near-identical entries once
+  // it's done.
+  const eventsByDate = useMemo(
+    () => buildEventsByDate(workouts ?? [], runs ?? [], planned ?? []),
+    [workouts, runs, planned],
+  );
 
   // Per-day step totals keyed by the API's YYYY-MM-DD date, for the digest.
   const stepsByDate = useMemo(() => {
@@ -673,16 +647,6 @@ function gridFetchBounds(year: number, month: number): { sinceISO: string; until
   // includes any event happening on the last visible day.
   const until = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1);
   return { sinceISO: since.toISOString(), untilISO: until.toISOString() };
-}
-
-/**
- * Local-date key in `YYYY-M-D` form (zero-padding not required since
- * we only compare equality, not lex-sort). Using local time deliberately
- * — the user's mental model of "what day was that workout" is local-tz,
- * even if the API timestamps came across in UTC.
- */
-export function localDateKey(d: Date): string {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
 /**

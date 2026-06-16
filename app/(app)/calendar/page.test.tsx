@@ -386,6 +386,29 @@ describe("CalendarPage", () => {
     expect(plannedPill).not.toBe(loggedPill);
   });
 
+  it("collapses a completed planned session and its same-day logged workout into one pill", async () => {
+    // A plan on the DISTINCT day, completed and linked to that day's logged
+    // workout (w-distinct). The calendar should show a single collapsed pill
+    // — not the dashed planned pill stacked on the solid logged pill.
+    const linkedPlan = makePlanned("p-linked", "W7 D1 - Easy Run", DISTINCT_DAY);
+    linkedPlan.status = "completed";
+    linkedPlan.completed_session_id = "w-distinct";
+    linkedPlan.completed_session_kind = "workout";
+    vi.mocked(listPlannedWorkouts).mockResolvedValue([linkedPlan]);
+
+    renderPage();
+    await findDigest(TODAY);
+
+    const cell = screen.getByLabelText(new RegExp(`^${longDate(DISTINCT_DATE)}`));
+    // One collapsed pill is present; the standalone planned + logged pills are
+    // gone (no dashed planned pill, and the merged pill carries the check).
+    const collapsed = await within(cell).findByTestId("completed-planned-pill");
+    expect(collapsed).toBeInTheDocument();
+    expect(within(cell).queryByTestId("planned-pill")).not.toBeInTheDocument();
+    // The merged pill replaces the duplicate — only one pill bears the name.
+    expect(within(cell).getAllByText(/W7 D1 - Easy Run|Midmonth Lift/)).toHaveLength(1);
+  });
+
   it("hides Avg Pace and Longest Run tiles when the month has no runs", async () => {
     vi.mocked(listRunningSessions).mockResolvedValue({ activities: [], next_before: null });
     renderPage();
