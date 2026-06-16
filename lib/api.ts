@@ -315,6 +315,9 @@ export type ResolvedProfile = {
   // The user's chosen handle (the `/u/{username}` profile slug), or null when
   // they haven't set one yet. Editable via PATCH /me; see `updateMe`.
   username: string | null;
+  // The user's free-text bio shown on their public profile, or null when
+  // unset. Max 160 runes; editable via PATCH /me (empty string clears it).
+  bio: string | null;
 };
 
 /**
@@ -377,6 +380,9 @@ export async function updateMe(
     // rejects with 400 (invalid/reserved) or 409 (already taken); those
     // surface as the unwrap'd `error` message for the caller to render.
     username?: string;
+    // Free-text profile bio (max 160 runes; the server is authoritative).
+    // Pass "" to clear a previously-set bio.
+    bio?: string;
   },
 ): Promise<ResolvedProfile> {
   const resp = await fetch(`${config.apiUrl}/me`, {
@@ -2160,11 +2166,26 @@ export type ReactionSummary = {
 };
 
 /**
+ * The post/comment author, embedded by the API on every feed post and
+ * comment so the UI can render an avatar + display name without a per-row
+ * profile fetch. `username` is nullable (a handle-less user still resolves
+ * by `user_id`); the name links to `/u/{username}` only when present. This
+ * is a thinner shape than ProfileSummary — it carries no `relationship`.
+ */
+export type TimelineAuthor = {
+  user_id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+};
+
+/**
  * One feed entry. `content` is the API's denormalized render block so the
  * card needs no per-source fetch; `href` deep-links to the source detail
  * page (e.g. /workouts/{id}, /running/{id}). `occurred_at` is the source
  * event's timestamp (RFC3339), which is what the feed orders and paginates
- * on — NOT the row's created_at.
+ * on — NOT the row's created_at. `author` is embedded so the card can render
+ * the poster's identity without a per-post profile fetch.
  */
 export type TimelinePost = {
   id: string;
@@ -2172,6 +2193,7 @@ export type TimelinePost = {
   source_id: string;
   occurred_at: string; // RFC3339
   visibility: string;
+  author: TimelineAuthor;
   content: {
     title: string;
     subtitle: string;
@@ -2183,11 +2205,13 @@ export type TimelinePost = {
 };
 
 /** One comment on a post. `user_id` identifies the author so the UI can
- * show a delete affordance only on the viewer's own comments. */
+ * show a delete affordance only on the viewer's own comments; `author`
+ * carries the embedded identity (avatar + display name) for the row. */
 export type TimelineComment = {
   id: string;
   post_id: string;
   user_id: string;
+  author: TimelineAuthor;
   body: string;
   created_at: string; // RFC3339
 };
@@ -2714,6 +2738,9 @@ export type ProfileSummary = {
 export type PublicProfile = ProfileSummary & {
   follower_count: number;
   following_count: number;
+  // The user's free-text bio, or null when unset. Rendered under the @handle
+  // in the profile header (max 160 runes server-side).
+  bio: string | null;
 };
 
 /**
@@ -2957,6 +2984,43 @@ export async function listUserTimeline(
   return unwrap<TimelineFeedPage & { locked?: boolean }>(resp, {
     posts: [],
     next_before: null,
+    locked: false,
+  });
+}
+
+/**
+ * A single weekly point in a profile-stats series: the Monday-anchored
+ * `week_start` (ISO string) and the week's aggregated `value`. The unit of
+ * `value` depends on the series (minutes for lifts, meters for running).
+ */
+export type StatsPoint = { week_start: string; value: number };
+
+/**
+ * The public-profile weekly graphs payload from GET /users/{username}/stats.
+ * Each series is a dense 12-element, zero-filled array. `locked: true` (with
+ * both series empty) when the viewer is neither the user nor an accepted
+ * follower; `locked` is absent / false on an accessible profile.
+ */
+export type ProfileStats = {
+  lift_session_minutes: StatsPoint[];
+  running_distance_meters: StatsPoint[];
+  locked?: boolean;
+};
+
+/**
+ * GET /users/{username}/stats — the weekly lift-minutes and running-distance
+ * series powering the profile graphs. Mirrors `listUserTimeline`: a locked
+ * profile is a normal response (`locked: true`, empty series) rather than an
+ * error, so this returns the parsed body as-is without throwing on locked.
+ * Non-2xx responses still throw (so callers can clear the token on a 401).
+ */
+export async function getProfileStats(token: string, username: string): Promise<ProfileStats> {
+  const resp = await fetch(`${config.apiUrl}/users/${encodeURIComponent(username)}/stats`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<ProfileStats>(resp, {
+    lift_session_minutes: [],
+    running_distance_meters: [],
     locked: false,
   });
 }

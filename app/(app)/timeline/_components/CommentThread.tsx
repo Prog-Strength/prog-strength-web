@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { getToken } from "@/lib/auth";
 import {
   addTimelineComment,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/api";
 import { useProfile } from "@/lib/profile-context";
 import { useToast } from "@/components/toast";
+import { Avatar } from "@/components/social/Avatar";
 import { formatOccurredAt } from "./reactions";
 
 const MAX_COMMENT_LEN = 2000;
@@ -117,32 +119,50 @@ export function CommentThread({
 
       {comments !== null && comments.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {comments.map((c) => (
-            <li
-              key={c.id}
-              className="flex items-start justify-between gap-3 rounded-md bg-[var(--surface-2)] px-3 py-2"
-            >
-              <div className="min-w-0">
-                <p className="whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">
-                  {c.body}
-                </p>
-                <p className="mt-0.5 text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                  {formatOccurredAt(c.created_at)}
-                </p>
-              </div>
-              {currentUserId && c.user_id === currentUserId && (
-                <button
-                  type="button"
-                  onClick={() => remove(c.id)}
-                  aria-label="Delete comment"
-                  title="Delete comment"
-                  className="shrink-0 rounded p-1 text-[var(--muted)] transition hover:text-[var(--danger)]"
-                >
-                  <TrashIcon />
-                </button>
-              )}
-            </li>
-          ))}
+          {comments.map((c) => {
+            const authorHref = c.author.username ? `/u/${c.author.username}` : null;
+            return (
+              <li
+                key={c.id}
+                className="flex items-start justify-between gap-3 rounded-md bg-[var(--surface-2)] px-3 py-2"
+              >
+                <Avatar url={c.author.avatar_url} name={c.author.display_name} size={24} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    {authorHref ? (
+                      <Link
+                        href={authorHref}
+                        className="truncate text-xs font-semibold text-[var(--foreground)] hover:underline"
+                      >
+                        {c.author.display_name}
+                      </Link>
+                    ) : (
+                      <span className="truncate text-xs font-semibold text-[var(--foreground)]">
+                        {c.author.display_name}
+                      </span>
+                    )}
+                    <span className="shrink-0 text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                      {formatOccurredAt(c.created_at)}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">
+                    {c.body}
+                  </p>
+                </div>
+                {currentUserId && c.user_id === currentUserId && (
+                  <button
+                    type="button"
+                    onClick={() => remove(c.id)}
+                    aria-label="Delete comment"
+                    title="Delete comment"
+                    className="shrink-0 rounded p-1 text-[var(--muted)] transition hover:text-[var(--danger)]"
+                  >
+                    <TrashIcon />
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 

@@ -31,6 +31,7 @@ type ProfilePatch = {
   timezone?: string;
   calendar_default_detail?: "time_block" | "full_agenda";
   username?: string;
+  bio?: string;
 };
 
 type ProfileContextValue = {

@@ -66,6 +66,14 @@ export default function SettingsPage() {
               }}
             />
 
+            <BioRow
+              value={profile?.bio ?? ""}
+              disabled={!profile}
+              onSave={async (bio) => {
+                await update({ bio });
+              }}
+            />
+
             <HeightRow
               heightCm={profile?.height_cm ?? null}
               heightUnit={heightUnit}
@@ -599,6 +607,90 @@ function HeightRow({
           type="button"
           onClick={save}
           disabled={disabled || saving}
+          className="shrink-0 rounded-md bg-[var(--accent)] px-3 py-2 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
+// The server caps the bio at 160 runes; mirror that here so the counter and
+// the hard-cap match what the API will accept. We count by code points
+// ([...value].length) rather than UTF-16 units (value.length) so multibyte
+// characters (emoji, accented letters) count as one.
+const BIO_MAX_RUNES = 160;
+
+const runeLength = (value: string): number => [...value].length;
+
+// Trim a string to at most `max` runes without splitting a surrogate pair.
+const clampRunes = (value: string, max: number): string =>
+  runeLength(value) <= max ? value : [...value].slice(0, max).join("");
+
+/**
+ * Bio editor: a short textarea with a live `{count}/160` rune counter,
+ * hard-capped at 160 runes on input. An empty value clears the bio (the
+ * API treats "" as a clear). Save is disabled until the trimmed draft
+ * differs from the persisted bio.
+ */
+function BioRow({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: string;
+  disabled: boolean;
+  onSave: (bio: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Re-seed when the profile loads / changes from elsewhere.
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const trimmed = draft.trim();
+  const dirty = trimmed !== value.trim();
+  const count = runeLength(draft);
+
+  async function save() {
+    setError(null);
+    setSaving(true);
+    try {
+      await onSave(trimmed);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save bio");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">Bio</p>
+        <p className="text-xs text-[var(--muted)]">A short blurb shown on your public profile.</p>
+      </div>
+      <textarea
+        aria-label="Bio"
+        rows={3}
+        value={draft}
+        disabled={disabled || saving}
+        onChange={(e) => setDraft(clampRunes(e.target.value, BIO_MAX_RUNES))}
+        className={`${inputClass} w-full resize-none`}
+      />
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs tabular-nums text-[var(--muted)]">
+          {count}/{BIO_MAX_RUNES}
+        </span>
+        <button
+          type="button"
+          onClick={save}
+          disabled={disabled || saving || !dirty}
           className="shrink-0 rounded-md bg-[var(--accent)] px-3 py-2 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save"}

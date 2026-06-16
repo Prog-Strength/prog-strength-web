@@ -8,6 +8,7 @@ import { getProfile, type PublicProfile, type Relationship } from "@/lib/api";
 import { Avatar } from "@/components/social/Avatar";
 import { FollowButton } from "@/components/social/FollowButton";
 import { ProfileActivityFeed } from "./_components/ProfileActivityFeed";
+import { ProfileStats } from "./_components/ProfileStats";
 
 /**
  * Public profile — `/u/{username}`. Header carries the avatar, display name,
@@ -138,6 +139,11 @@ function ProfilePageInner() {
                   {profile.username && (
                     <p className="truncate text-sm text-[var(--muted)]">@{profile.username}</p>
                   )}
+                  {profile.bio && (
+                    <p className="whitespace-pre-wrap text-sm text-[var(--foreground)]">
+                      {profile.bio}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -180,6 +186,13 @@ function ProfilePageInner() {
               </Link>
             </div>
           </header>
+
+          <section className="flex flex-col gap-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
+              Stats
+            </h2>
+            <ProfileStats username={handle} />
+          </section>
 
           <section className="flex flex-col gap-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">

@@ -39,6 +39,12 @@ function comment(id: string, userId: string, body: string): TimelineComment {
     id,
     post_id: "p1",
     user_id: userId,
+    author: {
+      user_id: userId,
+      username: `user_${userId}`,
+      display_name: `User ${userId}`,
+      avatar_url: null,
+    },
     body,
     created_at: "2026-06-10T12:00:00Z",
   };
@@ -51,6 +57,7 @@ function postWith(comments: TimelineComment[]): TimelinePostWithComments {
     source_id: "w1",
     occurred_at: "2026-06-10T12:00:00Z",
     visibility: "private",
+    author: { user_id: "u_me", username: "sam", display_name: "Sam", avatar_url: null },
     content: { title: "t", subtitle: "", metrics: [], href: "/workouts/w1" },
     reactions: { summary: {}, mine: [] },
     comment_count: comments.length,
@@ -106,6 +113,10 @@ describe("CommentThread", () => {
 
     await screen.findByText("mine");
     expect(screen.getByText("theirs")).toBeInTheDocument();
+
+    // Each row renders its commenter's identity (display name).
+    expect(screen.getByText(`User ${VIEWER_ID}`)).toBeInTheDocument();
+    expect(screen.getByText("User u_other")).toBeInTheDocument();
 
     // Exactly one delete button — the viewer's own comment.
     const deletes = screen.getAllByRole("button", { name: /delete comment/i });

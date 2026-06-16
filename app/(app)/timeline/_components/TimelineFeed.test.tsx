@@ -42,6 +42,7 @@ function post(id: string, title: string): TimelinePost {
     source_id: `w_${id}`,
     occurred_at: "2026-06-10T12:00:00Z",
     visibility: "private",
+    author: { user_id: "u_me", username: "sam", display_name: "Sam", avatar_url: null },
     content: { title, subtitle: "", metrics: [], href: `/workouts/w_${id}` },
     reactions: { summary: {}, mine: [] },
     comment_count: 0,

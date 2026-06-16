@@ -6,6 +6,7 @@ import type { Exercise, TimelinePost } from "@/lib/api";
 import { ReactionBar } from "./ReactionBar";
 import { CommentThread } from "./CommentThread";
 import { WorkoutTimelineSummary } from "./WorkoutTimelineSummary";
+import { Avatar } from "@/components/social/Avatar";
 import { SOURCE_META, formatOccurredAt } from "./reactions";
 
 /**
@@ -31,14 +32,33 @@ export function TimelinePostCard({
   const [commentCount, setCommentCount] = useState(post.comment_count);
 
   const meta = SOURCE_META[post.source_type];
+  const author = post.author;
+  const authorHref = author.username ? `/u/${author.username}` : null;
 
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-      <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-        <span aria-hidden="true">{meta.emoji}</span>
-        <span className="font-semibold uppercase tracking-wider">{meta.label}</span>
-        <span aria-hidden="true">·</span>
-        <span className="tabular-nums">{formatOccurredAt(post.occurred_at)}</span>
+      <div className="flex items-center gap-2">
+        <Avatar url={author.avatar_url} name={author.display_name} size={32} />
+        <div className="flex min-w-0 flex-col">
+          {authorHref ? (
+            <Link
+              href={authorHref}
+              className="truncate text-sm font-semibold text-[var(--foreground)] hover:underline"
+            >
+              {author.display_name}
+            </Link>
+          ) : (
+            <span className="truncate text-sm font-semibold text-[var(--foreground)]">
+              {author.display_name}
+            </span>
+          )}
+          <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <span aria-hidden="true">{meta.emoji}</span>
+            <span className="font-semibold uppercase tracking-wider">{meta.label}</span>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">{formatOccurredAt(post.occurred_at)}</span>
+          </div>
+        </div>
       </div>
 
       <Link href={post.content.href} className="group flex flex-col gap-1">
