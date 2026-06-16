@@ -1,20 +1,27 @@
 "use client";
 
 import { useDistanceUnit } from "@/lib/distance-unit-context";
+import { weekStreakCopy } from "@/components/calendar/derivations";
 
 /**
- * Per-week rollups shown beside the calendar grid. The month grid is six
- * Monday-started weeks; this column places one compact tile next to each
- * week row (at md+) so a user can read "what did this week look like"
- * without scanning the cells. On narrow screens the same data renders as
- * a single-line chip above each week instead (see WeeklyChip / the page).
+ * Per-week consistency summary shown as the footer of each week panel. The
+ * month grid is six Monday-started weeks; one streak strip sits beneath each
+ * week's seven day cells, reframing the old right-column rollup as a coaching
+ * line: seven trained/untrained dots, "You trained N of M days" (or a gentle
+ * rest-week line), and compact lift/run/steps metric labels.
  */
+
+/** One day's marks within a week: whether it's in the cursor month and trained. */
+export type DayMark = { inMonth: boolean; trained: boolean };
+
 export type WeeklyStat = {
   weekStart: Date;
   activities: number;
   liftMinutes: number;
   runMeters: number;
   steps: number;
+  /** Seven entries, Monday→Sunday, aligned with the week's day cells. */
+  days: DayMark[];
 };
 
 /** Thousands-separated step count, e.g. 52340 → "52,340". */
@@ -23,11 +30,10 @@ function formatSteps(steps: number): string {
 }
 
 /**
- * Total duration as `Xh Ym`, `Xh`, or `Ym`; "0h" for non-positive.
- * keep in sync with page.tsx (formatTotalDuration there) — page.tsx
- * doesn't export it, so this private copy mirrors its logic exactly.
+ * Total duration as `Xh Ym`, `Xh`, or `Ym`; "0h" for non-positive. Kept in
+ * sync with page.tsx's formatTotalDuration (page.tsx doesn't export it).
  */
-function formatTotalDuration(minutes: number): string {
+export function formatTotalDuration(minutes: number): string {
   if (minutes <= 0) return "0h";
   if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);
@@ -36,109 +42,56 @@ function formatTotalDuration(minutes: number): string {
 }
 
 /**
- * Local-date key in `YYYY-M-D` form. Mirrors localDateKey in page.tsx so
- * the "is this the current week" check buckets days the same way the grid
- * does — local-tz, since the user's notion of "today" is local.
+ * One week's streak strip. Trained/total are derived from the in-month days
+ * in `week.days` (out-of-month leading/trailing days don't count toward the
+ * total and read de-emphasized). The current week gets a warm-accent border.
  */
-function weekKey(d: Date): string {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-/**
- * Compact card summarizing one week, meant to sit beside a calendar week
- * row. Sessions always shows; lift/run rows are omitted when zero so a
- * lift-only or run-only week doesn't carry empty lines.
- */
-export function WeeklyTile({ week, isCurrent }: { week: WeeklyStat; isCurrent: boolean }) {
+export function WeekStreakStrip({ week, isCurrent }: { week: WeeklyStat; isCurrent: boolean }) {
   const { formatDistance, unitLabel } = useDistanceUnit();
-  const borderClass = isCurrent ? "border-[var(--accent)]" : "border-[var(--border)]";
+  const trained = week.days.filter((d) => d.inMonth && d.trained).length;
+  const total = week.days.filter((d) => d.inMonth).length;
+
+  const metrics: string[] = [];
+  if (week.liftMinutes > 0) metrics.push(`🏋 ${formatTotalDuration(week.liftMinutes)}`);
+  if (week.runMeters > 0) metrics.push(`🏃 ${formatDistance(week.runMeters)} ${unitLabel}`);
+  if (week.steps > 0) metrics.push(`👟 ${formatSteps(week.steps)}`);
+
+  const borderClass = isCurrent ? "border-[var(--warm-accent)]" : "border-[var(--border)]";
+
   return (
     <div
-      data-testid="weekly-tile"
+      data-testid="week-streak-strip"
       data-current={isCurrent ? "true" : undefined}
-      className={`flex min-h-[88px] flex-col gap-0.5 rounded-md border ${borderClass} bg-[var(--surface)] px-2 py-1.5 text-xs`}
+      className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border ${borderClass} bg-[var(--surface)]/60 px-3 py-2.5`}
     >
-      <WeeklyRow
-        label="Sessions"
-        value={`${week.activities} ${week.activities === 1 ? "activity" : "activities"}`}
-      />
-      {week.liftMinutes > 0 && (
-        <WeeklyRow label="Lift" value={formatTotalDuration(week.liftMinutes)} />
+      <div className="flex items-center gap-1.5" aria-hidden="true">
+        {week.days.map((d, i) => (
+          <span
+            key={i}
+            data-testid="streak-dot"
+            data-trained={d.inMonth && d.trained ? "true" : undefined}
+            className={`h-2.5 w-2.5 rounded-full ${
+              d.inMonth && d.trained
+                ? "bg-[var(--warm-accent)]"
+                : d.inMonth
+                  ? "border border-[var(--border)] bg-transparent"
+                  : "border border-[var(--border)]/40 bg-transparent opacity-40"
+            }`}
+          />
+        ))}
+      </div>
+      <span
+        className={`text-xs font-medium ${
+          trained > 0 ? "text-[var(--foreground)]" : "text-[var(--muted)]"
+        }`}
+      >
+        {weekStreakCopy(trained, total)}
+      </span>
+      {metrics.length > 0 && (
+        <span className="ml-auto text-xs tabular-nums text-[var(--muted)]">
+          {metrics.join("  ·  ")}
+        </span>
       )}
-      {week.runMeters > 0 && (
-        <WeeklyRow label="Run" value={`${formatDistance(week.runMeters)} ${unitLabel}`} />
-      )}
-      {week.steps > 0 && <WeeklyRow label="Steps" value={formatSteps(week.steps)} />}
-    </div>
-  );
-}
-
-function WeeklyRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="text-[10px] uppercase tracking-wider text-[var(--muted)]">{label}</span>
-      <span className="tabular-nums text-[var(--foreground)]">{value}</span>
-    </div>
-  );
-}
-
-/**
- * Single-line horizontal summary of a week, used above each week row on
- * small screens where the side column is hidden. Same data as WeeklyTile,
- * omitting zero values, joined inline with a middle dot.
- */
-export function WeeklyChip({ week, isCurrent }: { week: WeeklyStat; isCurrent: boolean }) {
-  const { formatDistance, unitLabel } = useDistanceUnit();
-  const parts: string[] = [
-    `${week.activities} ${week.activities === 1 ? "activity" : "activities"}`,
-  ];
-  if (week.liftMinutes > 0) parts.push(formatTotalDuration(week.liftMinutes));
-  if (week.runMeters > 0) parts.push(`${formatDistance(week.runMeters)} ${unitLabel}`);
-  if (week.steps > 0) parts.push(`${formatSteps(week.steps)} steps`);
-  const toneClass = isCurrent
-    ? "border-[var(--accent)] text-[var(--accent)]"
-    : "border-[var(--border)] text-[var(--muted)]";
-  return (
-    <div
-      data-testid="weekly-chip"
-      data-current={isCurrent ? "true" : undefined}
-      className={`rounded-md border ${toneClass} bg-[var(--surface)] px-2 py-1 text-xs tabular-nums`}
-    >
-      {parts.join(" · ")}
-    </div>
-  );
-}
-
-/**
- * Vertical stack of WeeklyTile, one per week, aligned beside the grid at
- * md+. Hidden below md — the chip variant is rendered separately by the
- * page for `<md`. A week is "current" when todayKey matches any of its
- * seven local-date keys.
- */
-export function WeeklyOverviewColumn({
-  weeks,
-  todayKey,
-}: {
-  weeks: WeeklyStat[];
-  todayKey: string;
-}) {
-  return (
-    <div className="hidden md:flex md:flex-col md:gap-1">
-      {weeks.map((week) => {
-        let isCurrent = false;
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(
-            week.weekStart.getFullYear(),
-            week.weekStart.getMonth(),
-            week.weekStart.getDate() + i,
-          );
-          if (weekKey(d) === todayKey) {
-            isCurrent = true;
-            break;
-          }
-        }
-        return <WeeklyTile key={weekKey(week.weekStart)} week={week} isCurrent={isCurrent} />;
-      })}
     </div>
   );
 }

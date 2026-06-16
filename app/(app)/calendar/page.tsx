@@ -23,7 +23,7 @@ import { plannedToDraftExercises } from "@/lib/workout-draft";
 import { DayDigest } from "@/components/calendar/day-digest";
 import { DayCell } from "@/components/calendar/day-cell";
 import { buildEventsByDate, localDateKey } from "@/components/calendar/merge-events";
-import { WeeklyChip, WeeklyTile, type WeeklyStat } from "@/components/calendar/weekly-overview";
+import { WeekStreakStrip, type WeeklyStat } from "@/components/calendar/weekly-overview";
 import { PlannedWorkoutModal } from "@/components/planned-workout-modal";
 
 /**
@@ -321,7 +321,15 @@ export default function CalendarPage() {
       for (const s of steps ?? []) {
         if (isoKeys.has(s.date)) weekSteps += s.steps;
       }
-      weeks.push({ weekStart: weekDays[0], activities, liftMinutes, runMeters, steps: weekSteps });
+      weeks.push({
+        weekStart: weekDays[0],
+        activities,
+        liftMinutes,
+        runMeters,
+        steps: weekSteps,
+        // Placeholder until Task 6 builds per-day marks; keeps the type satisfied.
+        days: [],
+      });
     }
     return weeks;
   }, [days, workouts, runs, steps]);
@@ -486,7 +494,7 @@ export default function CalendarPage() {
                     day cells. `md:hidden` removes it from grid layout at
                     md+ entirely so it never claims a desktop cell. */}
                 <div className="col-span-7 md:hidden">
-                  <WeeklyChip
+                  <WeekStreakStrip
                     week={weeklyStats[w]}
                     isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
                   />
@@ -518,7 +526,7 @@ export default function CalendarPage() {
                     (locked alignment with the seven day cells). `hidden`
                     at <md removes it from layout entirely. */}
                 <div className="hidden md:contents">
-                  <WeeklyTile
+                  <WeekStreakStrip
                     week={weeklyStats[w]}
                     isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
                   />
