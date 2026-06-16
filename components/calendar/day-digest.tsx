@@ -22,7 +22,7 @@ export function DayDigest({
   onNavigateWorkout,
   onNavigateRun,
   onPlanWorkout,
-  onEditPlanned,
+  onOpenPlanned,
   onResyncPlanned,
   onNavigateSession,
 }: {
@@ -35,8 +35,8 @@ export function DayDigest({
   onNavigateRun: (runId: string) => void;
   // Open the create-plan modal (seeded to this day) from the empty state.
   onPlanWorkout?: () => void;
-  // Open the edit-plan modal for an existing planned workout.
-  onEditPlanned?: (planned: import("@/lib/api").PlannedWorkout) => void;
+  // Open the planned-workout modal (read-only view) for an existing plan.
+  onOpenPlanned?: (planned: import("@/lib/api").PlannedWorkout) => void;
   // Re-attempt a failed Google push for a planned workout.
   onResyncPlanned?: (id: string) => void;
   // Navigate to the logged session a completed plan was linked to.
@@ -110,9 +110,7 @@ export function DayDigest({
                 <PlannedBanner
                   key={`p-${ev.planned.id}`}
                   planned={ev.planned}
-                  exerciseMap={exerciseMap}
-                  defaultOpen={ev.planned.id === autoExpandId}
-                  onEdit={onEditPlanned ? () => onEditPlanned(ev.planned) : undefined}
+                  onOpen={onOpenPlanned ? () => onOpenPlanned(ev.planned) : undefined}
                   onResync={onResyncPlanned ? () => onResyncPlanned(ev.planned.id) : undefined}
                   onNavigateSession={onNavigateSession}
                 />

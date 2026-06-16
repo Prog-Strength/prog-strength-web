@@ -16,6 +16,7 @@ import {
   type PlannedWorkout,
 } from "@/lib/api";
 import { PlannedBanner } from "@/components/calendar/planned-banner";
+import { PlannedAgendaDetails } from "@/components/calendar/planned-agenda-details";
 import { PlannedWorkoutModal } from "@/components/planned-workout-modal";
 
 /**
@@ -188,14 +189,24 @@ export default function PlannedWorkoutDetailPage() {
           )}
 
           {plan && (
-            <PlannedBanner
-              planned={plan}
-              exerciseMap={exerciseMap}
-              defaultOpen
-              onResync={handleResync}
-              onNavigateSession={handleNavigateSession}
-              onUnlink={handleUnlink}
-            />
+            <div className="flex flex-col gap-4">
+              <PlannedBanner
+                planned={plan}
+                onResync={handleResync}
+                onNavigateSession={handleNavigateSession}
+                onUnlink={handleUnlink}
+              />
+              {plan.activity_kind === "lift" && plan.exercises.length > 0 && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+                  <PlannedAgendaDetails exercises={plan.exercises} exerciseMap={exerciseMap} />
+                </div>
+              )}
+              {plan.activity_kind === "run" && plan.run_details?.trim() && (
+                <p className="whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--muted)]">
+                  {plan.run_details}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>

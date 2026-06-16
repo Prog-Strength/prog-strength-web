@@ -1,4 +1,4 @@
-import type { WorkoutPayload, WorkoutSet, Workout } from "@/lib/api";
+import type { PlannedWorkout, WorkoutPayload, WorkoutSet, Workout } from "@/lib/api";
 
 export type DraftSet = { reps: number; weight: number; unit: "lb" | "kg" };
 
@@ -14,6 +14,10 @@ export type ActiveSession = {
   performed_at: string; // RFC3339, stamped at start
   notes?: string;
   exercises: DraftExercise[]; // order is array order
+  // The planned workout this session was started from, if any. Carried so
+  // that on save the logged workout can be linked back to the plan
+  // (completePlannedWorkout). Client-only, never part of the workout payload.
+  plannedWorkoutId?: string | null;
   // client-only, never sent on save:
   restTimer?: { startedAt: string; durationSec: number } | null;
   restDefaultSec: number; // user-configurable default rest duration
@@ -26,11 +30,22 @@ export function defaultSessionName(now: Date): string {
   return `Workout — ${weekday}, ${mon} ${now.getDate()}`;
 }
 
-export function createSession(now: Date): ActiveSession {
+/**
+ * Start a fresh session. `init` lets a caller seed it — used when starting
+ * from a planned workout: the plan's name + prefilled exercises become the
+ * session's starting point, and `plannedWorkoutId` is carried so the saved
+ * workout can be linked back to the plan. Omitting `init` yields the plain
+ * empty session the Activities "Start workout" button creates.
+ */
+export function createSession(
+  now: Date,
+  init?: { name?: string; exercises?: DraftExercise[]; plannedWorkoutId?: string | null },
+): ActiveSession {
   return {
-    name: defaultSessionName(now),
+    name: init?.name?.trim() ? init.name.trim() : defaultSessionName(now),
     performed_at: now.toISOString(),
-    exercises: [],
+    exercises: init?.exercises ?? [],
+    plannedWorkoutId: init?.plannedWorkoutId ?? null,
     restTimer: null,
     restDefaultSec: 90,
   };
@@ -204,4 +219,31 @@ function mapExercise(
   fn: (ex: DraftExercise) => DraftExercise,
 ): ActiveSession {
   return { ...s, exercises: s.exercises.map((ex, i) => (i === idx ? fn(ex) : ex)) };
+}
+
+/**
+ * Map a planned workout's agenda into live-session draft exercises, so
+ * "Start workout" opens the session pre-loaded with the plan. Each target
+ * set becomes a starting set: target reps/weight seed the inputs, an unset
+ * target weight starts at 0 (the user fills it in while lifting). Planned
+ * workouts have no supersets, so every exercise is standalone. Exercises
+ * and sets are emitted in their stored order_index order.
+ */
+export function plannedToDraftExercises(plan: PlannedWorkout): DraftExercise[] {
+  return plan.exercises
+    .slice()
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((ex) => ({
+      exercise_id: ex.exercise_id,
+      superset_group: null,
+      ...(ex.notes ? { notes: ex.notes } : {}),
+      sets: ex.sets
+        .slice()
+        .sort((a, b) => a.order_index - b.order_index)
+        .map((s) => ({
+          reps: s.target_reps ?? 0,
+          weight: s.target_weight ?? 0,
+          unit: s.unit ?? "lb",
+        })),
+    }));
 }

@@ -86,9 +86,10 @@ describe("PlannedWorkoutDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Upper 1" })).toBeInTheDocument();
     });
-    // The reused PlannedBanner renders the agenda (exercise name resolved
-    // from the catalog) — proves the deep-link landing actually shows the plan.
-    expect(screen.getByText("Bench Press")).toBeInTheDocument();
+    // The agenda renders below the banner (exercise name resolved from the
+    // catalog, numbered timeline-style) — proves the deep-link landing
+    // actually shows the plan.
+    expect(screen.getByText(/Bench Press/)).toBeInTheDocument();
     expect(getPlannedWorkout).toHaveBeenCalledWith(
       "test-token",
       "191ebc9824b002b3f9566c9edabecc53",
