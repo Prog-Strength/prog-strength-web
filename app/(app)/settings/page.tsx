@@ -48,6 +48,17 @@ const ALLOWED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 const SAVED_FLASH_MS = 1800;
 
+// A blank draft for the brief window before the profile resolves.
+const EMPTY_DRAFT: Draft = {
+  display_name: "",
+  username: "",
+  bio: "",
+  height: "",
+  distance_unit: "mi",
+  weight_unit: "lb",
+  calendar_default_detail: "time_block",
+};
+
 /**
  * Re-express a height display string from one unit to another, preserving the
  * underlying cm so flipping the distance toggle back and forth doesn't mark
@@ -367,17 +378,6 @@ export default function SettingsPage() {
   );
 }
 
-// A blank draft for the brief window before the profile resolves.
-const EMPTY_DRAFT: Draft = {
-  display_name: "",
-  username: "",
-  bio: "",
-  height: "",
-  distance_unit: "mi",
-  weight_unit: "lb",
-  calendar_default_detail: "time_block",
-};
-
 /**
  * Google Calendar connection row. Reads the connection state on mount.
  * When absent/revoked, a Connect button navigates the browser to the API's
@@ -391,25 +391,36 @@ function GoogleCalendarConnectionRow() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
+  // `isCancelled` lets the mount effect drop late updates after unmount
+  // (mirrors UsernameField's `cancelled` idiom); `disconnect()` calls it
+  // without a guard, so it defaults to never-cancelled.
+  const load = useCallback(async (isCancelled: () => boolean = () => false) => {
     const token = getToken();
     if (!token) {
+      if (isCancelled()) return;
       setLoading(false);
       return;
     }
     try {
-      setConn(await getCalendarConnection(token));
+      const next = await getCalendarConnection(token);
+      if (isCancelled()) return;
+      setConn(next);
     } catch {
       // Treat a read failure as "not connected" — the Connect button is a
       // safe default and re-running the OAuth flow is idempotent.
+      if (isCancelled()) return;
       setConn({ status: "absent" });
     } finally {
-      setLoading(false);
+      if (!isCancelled()) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    void load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   function connect() {
