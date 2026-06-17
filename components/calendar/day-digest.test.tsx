@@ -115,15 +115,15 @@ describe("DayDigest", () => {
 
   it("renders the empty state when there are no events and no steps", () => {
     renderDigest(new Date(2026, 5, 8), []);
-    expect(screen.getByText(/No activities on/)).toBeInTheDocument();
+    expect(screen.getByText(/Rest day/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Plan a workout/ })).toBeInTheDocument();
   });
 
   it("shows the day's step count when steps were logged", () => {
     renderDigest(new Date(2026, 5, 8), [], 8432);
     expect(screen.getByTestId("steps-banner")).toHaveTextContent("8,432 steps");
-    // A steps-only day is not "empty".
-    expect(screen.queryByText(/No activities on/)).not.toBeInTheDocument();
+    // A steps-only day is not "empty" — the rest-day copy is absent.
+    expect(screen.queryByText(/Rest day/)).not.toBeInTheDocument();
   });
 
   it("shows steps alongside activity banners", () => {

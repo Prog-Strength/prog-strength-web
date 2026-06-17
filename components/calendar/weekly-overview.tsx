@@ -1,14 +1,15 @@
 "use client";
 
 import { useDistanceUnit } from "@/lib/distance-unit-context";
-import { weekStreakCopy } from "@/components/calendar/derivations";
 
 /**
- * Per-week consistency summary shown as the footer of each week panel. The
- * month grid is six Monday-started weeks; one streak strip sits beneath each
- * week's seven day cells, reframing the old right-column rollup as a coaching
- * line: seven trained/untrained dots, "You trained N of M days" (or a gentle
- * rest-week line), and compact lift/run/steps metric labels.
+ * Slim per-week rollup cell — the 8th column of each week row in the
+ * `true-month-grid` calendar. Where the surface used to carry a full-width
+ * coaching strip beneath every week, the rollup now collapses into a compact
+ * ~84px column carrying the same {@link WeeklyStat}: a trained-days indicator
+ * plus that week's session count, lift time, run distance, and steps. The
+ * coaching sentence is demoted (it now lives in the day detail and modals);
+ * here the data reads at a glance, near-monochrome slate.
  */
 
 /** One day's marks within a week: whether it's in the cursor month and trained. */
@@ -42,56 +43,54 @@ export function formatTotalDuration(minutes: number): string {
 }
 
 /**
- * One week's streak strip. Trained/total are derived from the in-month days
- * in `week.days` (out-of-month leading/trailing days don't count toward the
- * total and read de-emphasized). The current week gets a warm-accent border.
+ * One week's slim rollup column. Trained/total are derived from the in-month
+ * days in `week.days` (out-of-month leading/trailing days don't count toward
+ * the total). Metrics with a zero value are omitted so an empty week reads as
+ * intentional rest rather than a wall of zeroes. The current week gets a quiet
+ * stronger hairline — never violet, which is reserved for today/selected.
  */
-export function WeekStreakStrip({ week, isCurrent }: { week: WeeklyStat; isCurrent: boolean }) {
+export function WeekColumn({ week, isCurrent }: { week: WeeklyStat; isCurrent: boolean }) {
   const { formatDistance, unitLabel } = useDistanceUnit();
   const trained = week.days.filter((d) => d.inMonth && d.trained).length;
   const total = week.days.filter((d) => d.inMonth).length;
 
-  const metrics: string[] = [];
-  if (week.liftMinutes > 0) metrics.push(`🏋 ${formatTotalDuration(week.liftMinutes)}`);
-  if (week.runMeters > 0) metrics.push(`🏃 ${formatDistance(week.runMeters)} ${unitLabel}`);
-  if (week.steps > 0) metrics.push(`👟 ${formatSteps(week.steps)}`);
+  const metrics: { key: string; label: string }[] = [];
+  if (week.liftMinutes > 0)
+    metrics.push({ key: "lift", label: `🏋 ${formatTotalDuration(week.liftMinutes)}` });
+  if (week.runMeters > 0)
+    metrics.push({ key: "run", label: `🏃 ${formatDistance(week.runMeters)} ${unitLabel}` });
+  if (week.steps > 0) metrics.push({ key: "steps", label: `👟 ${formatSteps(week.steps)}` });
 
-  const borderClass = isCurrent ? "border-[var(--warm-accent)]" : "border-[var(--border)]";
+  const borderClass = isCurrent ? "border-[var(--border-strong)]" : "border-[var(--border)]";
 
   return (
     <div
-      data-testid="week-streak-strip"
+      data-testid="week-column"
       data-current={isCurrent ? "true" : undefined}
-      className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border ${borderClass} bg-[var(--surface)]/60 px-3 py-2.5`}
+      aria-label={`Week of ${week.weekStart.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      })}: trained ${trained} of ${total} days`}
+      className={`flex flex-col gap-1 border-l ${borderClass} bg-[var(--surface-2)]/30 px-2 py-1.5 text-[10px] leading-tight`}
     >
-      <div className="flex items-center gap-1.5" aria-hidden="true">
-        {week.days.map((d, i) => (
-          <span
-            key={i}
-            data-testid="streak-dot"
-            data-trained={d.inMonth && d.trained ? "true" : undefined}
-            className={`h-2.5 w-2.5 rounded-full ${
-              d.inMonth && d.trained
-                ? "bg-[var(--warm-accent)]"
-                : d.inMonth
-                  ? "border border-[var(--border)] bg-transparent"
-                  : "border border-[var(--border)]/40 bg-transparent opacity-40"
-            }`}
-          />
-        ))}
-      </div>
       <span
-        className={`text-xs font-medium ${
+        className={`font-semibold tabular-nums ${
           trained > 0 ? "text-[var(--foreground)]" : "text-[var(--muted)]"
         }`}
+        title={`Trained ${trained} of ${total} days`}
       >
-        {weekStreakCopy(trained, total)}
+        {trained}/{total}
       </span>
-      {metrics.length > 0 && (
-        <span className="ml-auto text-xs tabular-nums text-[var(--muted)]">
-          {metrics.join("  ·  ")}
+      {week.activities > 0 && (
+        <span className="tabular-nums text-[var(--muted)]">
+          {week.activities} {week.activities === 1 ? "session" : "sessions"}
         </span>
       )}
+      {metrics.map((m) => (
+        <span key={m.key} className="truncate tabular-nums text-[var(--muted)]" title={m.label}>
+          {m.label}
+        </span>
+      ))}
     </div>
   );
 }

@@ -64,7 +64,9 @@ export function DayDigest({
   const stepCount = steps != null && steps > 0 ? steps : null;
 
   return (
-    <section className="mt-6 border-t border-[var(--border)] pt-6">
+    // An intentional, finished panel beneath the grid: a rounded slate
+    // container holding the dated header and that day's activity rows.
+    <section className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)]/40 p-4 md:p-5">
       <header className="mb-4">
         <h2 className="text-base font-semibold tracking-tight">{longDate}</h2>
         <p className="mt-0.5 text-xs text-[var(--muted)]">
@@ -73,7 +75,7 @@ export function DayDigest({
       </header>
 
       {events.length === 0 && stepCount == null ? (
-        <EmptyState date={date} onPlanWorkout={onPlanWorkout} />
+        <EmptyState onPlanWorkout={onPlanWorkout} />
       ) : (
         <div className="flex flex-col gap-2">
           {stepCount != null && <StepsBanner steps={stepCount} />}
@@ -202,15 +204,11 @@ function FootprintsIcon() {
   );
 }
 
-function EmptyState({ date, onPlanWorkout }: { date: Date; onPlanWorkout?: () => void }) {
-  const shortDate = date.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+function EmptyState({ onPlanWorkout }: { onPlanWorkout?: () => void }) {
+  // A blank day reads as a deliberate rest day, not a broken/empty surface.
   return (
     <p className="text-sm text-[var(--muted)]">
-      No activities on {shortDate}.{" "}
+      Rest day — nothing logged or planned.{" "}
       {/* Planning a workout is now a first-class action on the calendar
           (Phase 3), so the empty-state CTA opens the create-plan modal
           seeded to this day rather than linking elsewhere. */}

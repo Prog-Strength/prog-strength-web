@@ -52,16 +52,6 @@ export function isTrainedDay(events: CalendarEvent[]): boolean {
 }
 
 /**
- * Coaching line for a single week's streak strip. `trained` is in-month days
- * with a done event; `total` is the in-month days in that week. A zero-trained
- * week reads as intentional rest, never as a failure.
- */
-export function weekStreakCopy(trained: number, total: number): string {
-  if (trained === 0) return "Rest week — recovery counts too";
-  return `You trained ${trained} of ${total} days`;
-}
-
-/**
  * Coaching greeting for the month. Greets by `name` when known (graceful
  * neutral fallback when null), and states the month's trained-day count
  * honestly — a zero-day month reads as a fresh start, not a scold.

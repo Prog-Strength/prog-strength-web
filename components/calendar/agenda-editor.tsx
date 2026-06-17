@@ -123,7 +123,7 @@ export function AgendaEditor({
             return run.group != null && run.indices.length > 1 ? (
               <div
                 key={`g-${run.group}`}
-                className="rounded-lg border-l-2 border-[var(--accent)] bg-[var(--surface-2)]/30 py-2 pl-3 pr-1"
+                className="rounded-lg border-l-2 border-[var(--accent-line)] bg-[var(--surface-2)]/30 py-2 pl-3 pr-1"
               >
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
                   Superset
@@ -140,7 +140,7 @@ export function AgendaEditor({
       <button
         type="button"
         onClick={addExercise}
-        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] py-2 text-xs font-medium text-[var(--accent)] transition hover:border-[var(--accent)]/60 hover:bg-[var(--surface-2)]/40"
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] py-2 text-xs font-medium text-[var(--accent)] transition outline-none hover:border-[var(--accent)]/60 hover:bg-[var(--surface-2)]/40 focus-visible:ring-1 focus-visible:ring-[var(--accent-line)]"
       >
         <PlusIcon /> Add exercise
       </button>
@@ -204,7 +204,7 @@ function FocusedExercise({
       />
 
       <div className="flex flex-col gap-1.5">
-        <div className="grid grid-cols-[1fr_1fr_auto_1fr_auto_auto] items-center gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <div className="grid grid-cols-[1fr_1fr_auto_1fr_auto_auto] items-center gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--faint)]">
           <span>
             Reps<span className="text-[var(--danger)]">*</span>
           </span>
@@ -261,10 +261,10 @@ function FocusedExercise({
               aria-label="Toggle AMRAP"
               aria-pressed={s.amrap}
               onClick={() => setSet(j, (set) => ({ ...set, amrap: !set.amrap }))}
-              className={`rounded-md px-1.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide transition ${
+              className={`rounded-md border px-1.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide transition outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-line)] ${
                 s.amrap
-                  ? "bg-[var(--accent)] text-[var(--accent-fg)]"
-                  : "bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                  ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-fg)]"
+                  : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)]"
               }`}
             >
               ∞
@@ -286,7 +286,7 @@ function FocusedExercise({
         <button
           type="button"
           onClick={addSet}
-          className="text-xs font-medium text-[var(--accent)] transition hover:underline"
+          className="rounded text-xs font-medium text-[var(--accent)] transition outline-none hover:underline focus-visible:ring-1 focus-visible:ring-[var(--accent-line)]"
         >
           + Add set
         </button>
@@ -295,7 +295,7 @@ function FocusedExercise({
             type="button"
             onClick={onToggleSuperset}
             aria-pressed={exercise.superset_group != null}
-            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-line)] ${
               exercise.superset_group != null
                 ? "bg-[var(--accent)]/15 text-[var(--accent)]"
                 : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -531,11 +531,15 @@ export function summarizeDraftSets(sets: PlannedSetDraft[]): string {
 
 // --- styles + icons --------------------------------------------------------
 
+// The agenda controls share the modal's field-surface convention: a slate
+// input on --surface-2 with a real hairline border and an accent focus ring.
+// `inputClasses` is the full-width text field; `cellClasses` is the compact set
+// grid cell (tighter padding, smaller radius).
 const inputClasses =
-  "w-full rounded-lg border border-transparent bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition focus-visible:border-[var(--accent)] focus-visible:outline-none";
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition outline-none focus-visible:border-[var(--accent)] focus-visible:ring-1 focus-visible:ring-[var(--accent-line)]";
 
 const cellClasses =
-  "w-full rounded-md border border-transparent bg-[var(--surface-2)] px-2 py-1.5 text-sm text-[var(--foreground)] transition focus-visible:border-[var(--accent)] focus-visible:outline-none";
+  "w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-sm text-[var(--foreground)] transition outline-none focus-visible:border-[var(--accent)] focus-visible:ring-1 focus-visible:ring-[var(--accent-line)]";
 
 function PlusIcon() {
   return (

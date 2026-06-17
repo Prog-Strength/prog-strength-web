@@ -67,7 +67,7 @@ export function PlanScheduleField({
 function FieldLabel({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--faint)]">
         {label}
       </span>
       {children}
@@ -122,7 +122,7 @@ function DatePopover({ value, onSelect }: { value: string; onSelect: (date: stri
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-transparent bg-[var(--surface-2)] px-3 py-2 text-left text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-2)]/70 focus-visible:border-[var(--accent)] focus-visible:outline-none"
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-left text-sm text-[var(--foreground)] transition outline-none hover:bg-[var(--surface-3)] focus-visible:border-[var(--accent)] focus-visible:ring-1 focus-visible:ring-[var(--accent-line)]"
       >
         <span>{formatDateLabel(value)}</span>
         <CalendarIcon />
@@ -199,8 +199,10 @@ function DatePopover({ value, onSelect }: { value: string; onSelect: (date: stri
   );
 }
 
+// Selects share the modal's field-surface convention: slate on --surface-2, a
+// real hairline border, and an accent focus ring (border + 1px ring).
 const selectClasses =
-  "w-full rounded-lg border border-transparent bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--foreground)] transition focus-visible:border-[var(--accent)] focus-visible:outline-none";
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--foreground)] transition outline-none focus-visible:border-[var(--accent)] focus-visible:ring-1 focus-visible:ring-[var(--accent-line)]";
 
 // --- time / duration data --------------------------------------------------
 
