@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import type { MealType, NutritionLogEntry, PantryItem, Recipe } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
-import { MACRO_COLORS } from "@/lib/macro-colors";
 import { EntryActionSheet } from "@/components/nutrition/entry-action-sheet";
 
 const MEAL_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
@@ -15,10 +14,13 @@ const MEAL_LABELS: Record<MealType, string> = {
 };
 
 /**
- * The meal-bucketed daily log for /nutrition. Renders one compact
- * table per meal so a full day fits on screen without paging. Per-row
- * pencil/trash buttons hand the entry up to the page, which owns the
- * edit/delete modals.
+ * The meal-bucketed daily log for /nutrition, rebuilt as the "demoted
+ * log" of the dashboard-hero design: calm, neutral, small-type meal
+ * cards. The hero band above carries the macro story, so the log stays
+ * quiet — every meal section header renders (even empty buckets), with
+ * per-meal subtotals on the right. Per-row pencil/trash buttons on
+ * desktop, and a tap-to-open action sheet on mobile, hand the entry up
+ * to the page, which owns the edit/delete modals.
  */
 export function NutritionLogView({
   entries,
@@ -92,16 +94,11 @@ function MealSections({
     return m;
   }, [entries]);
 
-  if (entries.length === 0) {
-    return (
-      <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
-        Nothing logged on this day yet.
-      </p>
-    );
-  }
-
+  // Every meal section header always renders — even an empty bucket
+  // shows its header with "nothing logged". A wholly empty day is just
+  // four "nothing logged" headers; there is no separate empty state.
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {MEAL_ORDER.map((m) => (
         <MealSection
           key={m}
@@ -145,109 +142,44 @@ function MealSection({
 
   // The mobile layout collapses the desktop row's two icon-action
   // buttons into a single tap on the whole row, surfacing Edit /
-  // Delete as a small action sheet so the row itself stays a
-  // dedicated name + macros surface. State lives here per-section
+  // Delete as a small action sheet. State lives here per-section
   // because the action sheet is a modal — only one can be open
   // anywhere on the page at a time.
   const [actionTarget, setActionTarget] = useState<NutritionLogEntry | null>(null);
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4">
       <header className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight">{MEAL_LABELS[meal]}</h2>
-        <p className="text-xs text-[var(--muted)] tabular-nums">
-          {entries.length === 0 ? (
-            <span className="italic">No entries</span>
-          ) : (
-            <>
-              {formatNumber(subtotal.calories)} cal ·{" "}
-              <span style={{ color: MACRO_COLORS.protein }} className="font-semibold">
-                P
-              </span>{" "}
-              {formatNumber(subtotal.protein_g)}g ·{" "}
-              <span style={{ color: MACRO_COLORS.fat }} className="font-semibold">
-                F
-              </span>{" "}
-              {formatNumber(subtotal.fat_g)}g ·{" "}
-              <span style={{ color: MACRO_COLORS.carbs }} className="font-semibold">
-                C
-              </span>{" "}
-              {formatNumber(subtotal.carbs_g)}g
-            </>
-          )}
-        </p>
+        <h2 className="text-sm font-bold">{MEAL_LABELS[meal]}</h2>
+        {entries.length === 0 ? (
+          <span className="text-[11px] text-[var(--faint)]">nothing logged</span>
+        ) : (
+          <span className="text-[11px] text-[var(--faint)] tabular-nums">
+            {formatNumber(subtotal.calories)} cal · P {formatNumber(subtotal.protein_g)}g · C{" "}
+            {formatNumber(subtotal.carbs_g)}g · F {formatNumber(subtotal.fat_g)}g
+          </span>
+        )}
       </header>
+
       {entries.length > 0 && (
-        <table className="hidden w-full border-collapse text-sm sm:table">
-          <thead>
-            <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
-              <th scope="col" className="py-1.5 pr-3 text-left font-semibold">
-                Item
-              </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
-                Serv
-              </th>
-              <th scope="col" className="py-1.5 pr-3 text-right font-semibold">
-                Cal
-              </th>
-              <th
-                scope="col"
-                className="py-1.5 pr-3 text-right font-semibold"
-                style={{ color: MACRO_COLORS.protein }}
-              >
-                P
-              </th>
-              <th
-                scope="col"
-                className="py-1.5 pr-3 text-right font-semibold"
-                style={{ color: MACRO_COLORS.fat }}
-              >
-                F
-              </th>
-              <th
-                scope="col"
-                className="py-1.5 pr-3 text-right font-semibold"
-                style={{ color: MACRO_COLORS.carbs }}
-              >
-                C
-              </th>
-              <th scope="col" className="py-1.5 text-right font-semibold">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e) => {
-              const name = resolveItemName(e, pantryByID, recipeByID);
-              return (
-                <tr
-                  key={e.id}
-                  className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface)]"
-                >
-                  <td className="py-2 pr-3 text-left">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{name}</span>
-                      {e.recipe_id && (
-                        <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
-                          recipe
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.quantity)}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.calories)}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums">
-                    {formatNumber(e.protein_g)}g
-                  </td>
-                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.fat_g)}g</td>
-                  <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(e.carbs_g)}g</td>
-                  <td className="py-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
+        <ul className="mt-2 divide-y divide-[var(--border)]">
+          {entries.map((e) => {
+            const name = resolveItemName(e, pantryByID, recipeByID);
+            return (
+              <li key={e.id} className="group">
+                {/* Desktop row: name + calories with inline edit/delete. */}
+                <div className="hidden items-start justify-between gap-4 py-2 sm:flex">
+                  <EntryName name={name} entry={e} />
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs font-semibold tabular-nums">
+                      {formatNumber(e.calories)} cal
+                    </span>
+                    <div className="flex items-center gap-0.5 opacity-0 transition group-focus-within:opacity-100 group-hover:opacity-100">
                       <button
                         type="button"
                         onClick={() => onEdit(e)}
                         aria-label="Edit entry"
-                        className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+                        className="rounded p-1 text-[var(--faint)] transition hover:bg-[var(--background)] hover:text-[var(--foreground)]"
                       >
                         <PencilIcon />
                       </button>
@@ -255,54 +187,25 @@ function MealSection({
                         type="button"
                         onClick={() => onDelete(e)}
                         aria-label="Delete entry"
-                        className="rounded p-1 text-[var(--muted)] transition hover:bg-[var(--background)] hover:text-[var(--danger)]"
+                        className="rounded p-1 text-[var(--faint)] transition hover:bg-[var(--background)] hover:text-[var(--danger)]"
                       >
                         <TrashIcon />
                       </button>
                     </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+                  </div>
+                </div>
 
-      {entries.length > 0 && (
-        <ul className="flex flex-col gap-2 sm:hidden">
-          {entries.map((e) => {
-            const name = resolveItemName(e, pantryByID, recipeByID);
-            return (
-              <li key={e.id}>
+                {/* Mobile row: tap anywhere to open the action sheet. */}
                 <button
                   type="button"
                   onClick={() => setActionTarget(e)}
-                  className="flex w-full flex-col gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left transition active:opacity-80"
                   aria-label={`${name} — tap to edit or delete`}
+                  className="flex w-full items-start justify-between gap-4 py-2 text-left transition active:opacity-80 sm:hidden"
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
-                    {e.recipe_id && (
-                      <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] uppercase tracking-wider">
-                        recipe
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-[var(--muted)] tabular-nums">
-                    {formatNumber(e.calories)} cal ·{" "}
-                    <span style={{ color: MACRO_COLORS.protein }} className="font-semibold">
-                      P
-                    </span>{" "}
-                    {formatNumber(e.protein_g)}g ·{" "}
-                    <span style={{ color: MACRO_COLORS.fat }} className="font-semibold">
-                      F
-                    </span>{" "}
-                    {formatNumber(e.fat_g)}g ·{" "}
-                    <span style={{ color: MACRO_COLORS.carbs }} className="font-semibold">
-                      C
-                    </span>{" "}
-                    {formatNumber(e.carbs_g)}g
-                  </p>
+                  <EntryName name={name} entry={e} />
+                  <span className="shrink-0 text-xs font-semibold tabular-nums">
+                    {formatNumber(e.calories)} cal
+                  </span>
                 </button>
               </li>
             );
@@ -328,6 +231,26 @@ function MealSection({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Shared row name cell for both the desktop and mobile layouts. The
+ * name is allowed to wrap (no truncation) so long entries stay legible;
+ * a faint quantity trails it, and a small "recipe" pill marks
+ * recipe-sourced entries.
+ */
+function EntryName({ name, entry }: { name: string; entry: NutritionLogEntry }) {
+  return (
+    <span className="min-w-0 flex-1 text-xs text-[var(--muted)]">
+      {name}
+      <span className="text-[var(--faint)]"> ×{formatNumber(entry.quantity)}</span>
+      {entry.recipe_id && (
+        <span className="ml-2 inline-block rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 align-middle text-[10px] uppercase tracking-wider">
+          recipe
+        </span>
+      )}
+    </span>
   );
 }
 
