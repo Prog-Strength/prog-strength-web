@@ -13,6 +13,7 @@ const toastSuccessMock = vi.hoisted(() => vi.fn());
 const getCalendarConnectionMock = vi.hoisted(() => vi.fn());
 const disconnectCalendarMock = vi.hoisted(() => vi.fn());
 const checkUsernameAvailableMock = vi.hoisted(() => vi.fn());
+const setUnitMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
@@ -31,7 +32,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/distance-unit-context", () => ({
-  useDistanceUnit: () => ({ unit: "mi", setUnit: vi.fn() }),
+  useDistanceUnit: () => ({ unit: "mi", setUnit: setUnitMock }),
 }));
 
 vi.mock("@/components/toast", () => ({
@@ -113,13 +114,22 @@ beforeEach(() => {
   disconnectCalendarMock.mockResolvedValue(undefined);
   // Default: a free handle. Tests that need "taken" override per-case.
   checkUsernameAvailableMock.mockResolvedValue(true);
+  // update() resolves to the patched profile by default; cases that need a
+  // specific re-baseline override per-case.
+  updateMock.mockImplementation(async () => profile());
 });
 
 function progressFill(): HTMLElement {
   return screen.getByRole("progressbar", { name: "Daily AI allowance" });
 }
 
-describe("Settings — Usage section", () => {
+function saveBar(): HTMLElement | null {
+  return screen.queryByRole("region", { name: "Unsaved changes" });
+}
+
+// --- Usage section ----------------------------------------------------------
+
+describe("Settings — Daily AI allowance", () => {
   it("renders a 0% accent bar", () => {
     useUsageMock.mockReturnValue(snapshot({ percentUsed: 0 }));
     render(<SettingsPage />);
@@ -159,56 +169,159 @@ describe("Settings — Usage section", () => {
     useUsageMock.mockReturnValue(snapshot({ error: "boom" }));
     render(<SettingsPage />);
     expect(screen.getByText("Usage unavailable right now.")).toBeInTheDocument();
-    // The progress bar is replaced by a hatched/disabled track on error.
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(screen.getByTestId("usage-bar-unavailable")).toBeInTheDocument();
   });
 });
 
-describe("Settings — Profile section", () => {
-  it("renders the current display name", () => {
+// --- Save bar dirty/count/discard/save -------------------------------------
+
+describe("Settings — save bar", () => {
+  it("shows no save bar when clean", () => {
     render(<SettingsPage />);
+    expect(saveBar()).not.toBeInTheDocument();
+  });
+
+  it("shows the bar with a singular count after one edit", () => {
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Sammy" } });
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+  });
+
+  it("shows a plural count after two edits", () => {
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Sammy" } });
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "hi" } });
+    expect(screen.getByText("2 unsaved changes")).toBeInTheDocument();
+  });
+
+  it("discards edits and hides the bar", () => {
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Sammy" } });
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.getByLabelText("Display name")).toHaveValue("Sam");
+    expect(screen.getByLabelText("Bio")).toHaveValue("");
+    expect(saveBar()).not.toBeInTheDocument();
   });
 
-  it("saves an edited display name via update()", async () => {
+  it("saves with one update() of only the changed keys, flashes, and retracts", async () => {
+    updateMock.mockResolvedValueOnce(profile({ display_name: "Sammy", bio: "hi" }));
     render(<SettingsPage />);
-    const input = screen.getByLabelText("Display name");
-    fireEvent.change(input, { target: { value: "Sammy" } });
-    // The display-name row's Save button is the first of the two Save
-    // buttons (name, then height).
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[0]);
-    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ display_name: "Sammy" }));
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Sammy" } });
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith({ display_name: "Sammy", bio: "hi" }),
+    );
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("All changes saved ✓")).toBeInTheDocument();
+    // After re-baseline, no more "unsaved" copy.
+    await waitFor(() => expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument());
   });
 
-  it("shows the required error and skips update() on an empty display name", async () => {
+  it("disables Save with a reason when the display name is empty", () => {
     render(<SettingsPage />);
-    const input = screen.getByLabelText("Display name");
-    // Clearing the seeded "Sam" makes the row dirty (so Save is enabled)
-    // but the trimmed value is empty → the inline required guard fires.
-    fireEvent.change(input, { target: { value: "" } });
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[0]);
-    await waitFor(() => expect(screen.getByText("Display name is required.")).toBeInTheDocument());
-    expect(updateMock).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "" } });
+    expect(screen.getByText("Add a display name to save")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
-  it("shows the server error inline when update() rejects with a 400", async () => {
-    // Simulate the api layer surfacing a server 400 as a thrown Error; the
-    // row's catch should render its message inline rather than swallow it.
+  it("surfaces a save error via toast and keeps the bar up", async () => {
     updateMock.mockRejectedValueOnce(new Error("Display name already taken"));
     render(<SettingsPage />);
-    const input = screen.getByLabelText("Display name");
-    fireEvent.change(input, { target: { value: "Sammy" } });
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[0]);
-    await waitFor(() => expect(screen.getByText("Display name already taken")).toBeInTheDocument());
-    expect(updateMock).toHaveBeenCalledWith({ display_name: "Sammy" });
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Sammy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Display name already taken"));
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+  });
+});
+
+// --- Username gating --------------------------------------------------------
+
+describe("Settings — username", () => {
+  it("renders the current username", () => {
+    render(<SettingsPage />);
+    expect(screen.getByLabelText("Username")).toHaveValue("sam");
   });
 
+  it("blocks Save with a charset hint for an invalid dirty handle, skipping probe", async () => {
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "1bad" } });
+    await waitFor(() =>
+      expect(screen.getByText(/3–30 characters: start with a letter/)).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Fix the username to save")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(checkUsernameAvailableMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks Save while checking, then shows available and enables Save", async () => {
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "newhandle" } });
+    // While checking, Save is blocked with the reason.
+    await waitFor(() => expect(screen.getByText("Fix the username to save")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    await waitFor(() =>
+      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "newhandle"),
+    );
+    await waitFor(() => expect(screen.getByText("@newhandle is available.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
+  });
+
+  it("shows taken and keeps Save disabled when the handle is taken", async () => {
+    checkUsernameAvailableMock.mockResolvedValue(false);
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "occupied" } });
+    await waitFor(() => expect(screen.getByText("@occupied is taken.")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  });
+
+  it("lowercases input and saves a valid handle in the patch", async () => {
+    updateMock.mockResolvedValueOnce(profile({ username: "newsam" }));
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "NewSam" } });
+    expect(screen.getByLabelText("Username")).toHaveValue("newsam");
+    await waitFor(() =>
+      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "newsam"),
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ username: "newsam" }));
+  });
+});
+
+// --- Bio --------------------------------------------------------------------
+
+describe("Settings — bio", () => {
+  it("renders the current bio", () => {
+    useProfileMock.mockReturnValue(profileCtx({ bio: "Lifts heavy things." }));
+    render(<SettingsPage />);
+    expect(screen.getByLabelText("Bio")).toHaveValue("Lifts heavy things.");
+  });
+
+  it("shows the rune counter and caps input at 160 runes incl. emoji", () => {
+    render(<SettingsPage />);
+    const input = screen.getByLabelText("Bio") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "😀".repeat(200) } });
+    expect([...input.value].length).toBe(160);
+    expect(screen.getByText("160/160")).toBeInTheDocument();
+  });
+
+  it("clears the bio by sending an empty string", async () => {
+    useProfileMock.mockReturnValue(profileCtx({ bio: "Old bio" }));
+    updateMock.mockResolvedValueOnce(profile({ bio: null }));
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ bio: "" }));
+  });
+});
+
+// --- Height -----------------------------------------------------------------
+
+describe("Settings — height", () => {
   it("displays height in inches when distance unit is miles", () => {
-    // 180 cm / 2.54 = 70.9 in.
     render(<SettingsPage />);
     expect(screen.getByLabelText("Height (in)")).toHaveValue(70.9);
   });
@@ -219,26 +332,51 @@ describe("Settings — Profile section", () => {
     expect(screen.getByLabelText("Height (cm)")).toHaveValue(180);
   });
 
-  it("shows 'No height set.' when height is null", () => {
+  it("shows an empty height field when height is null", () => {
     useProfileMock.mockReturnValue(profileCtx({ height_cm: null }));
     render(<SettingsPage />);
-    expect(screen.getByText("No height set.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Height (in)")).toHaveValue(null);
   });
 
   it("saves height converted from inches to cm", async () => {
+    updateMock.mockResolvedValueOnce(profile({ height_cm: 182.9 }));
     render(<SettingsPage />);
-    const input = screen.getByLabelText("Height (in)");
-    fireEvent.change(input, { target: { value: "72" } });
-    // Save buttons render in DOM order: display name, username, bio, height.
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[3]);
-    // 72 in * 2.54 = 182.88 → rounded to 182.9.
+    fireEvent.change(screen.getByLabelText("Height (in)"), { target: { value: "72" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ height_cm: 182.9 }));
   });
 
+  it("aborts the save and toasts on an invalid height", async () => {
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByLabelText("Height (in)"), { target: { value: "-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith("Enter a valid height, or leave blank to clear."),
+    );
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("re-expresses height when distance is flipped without marking height dirty", () => {
+    render(<SettingsPage />);
+    // 180cm shows as 70.9 in. Flipping to km re-expresses the display into cm
+    // (~180, modulo the lossy 0.1 round-trip) and only the distance unit is
+    // dirty — height is re-expressed in the baseline too, so it stays clean.
+    fireEvent.click(screen.getByRole("button", { name: "Kilometers" }));
+    expect(screen.getByLabelText("Height (cm)")).toHaveValue(180.1);
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+    // Flip back: height returns to inches and the dirty count drops to 0 (no
+    // spurious height dirty from round-tripping the conversion).
+    fireEvent.click(screen.getByRole("button", { name: "Miles" }));
+    expect(screen.getByLabelText("Height (in)")).toHaveValue(70.9);
+    expect(saveBar()).not.toBeInTheDocument();
+  });
+});
+
+// --- Avatar (immediate / out of draft) -------------------------------------
+
+describe("Settings — avatar", () => {
   it("renders an initials placeholder when no avatar is set", () => {
     render(<SettingsPage />);
-    // Single-word name "Sam" → first two letters "SA".
     expect(screen.getByText("SA")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
   });
@@ -248,6 +386,15 @@ describe("Settings — Profile section", () => {
     render(<SettingsPage />);
     expect(screen.getByRole("img")).toHaveAttribute("src", "https://signed.example/a.png");
     expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+
+  it("uploads a valid image immediately, not via the save bar", async () => {
+    render(<SettingsPage />);
+    const fileInput = screen.getByLabelText("Upload avatar");
+    const png = new File(["x"], "a.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [png] } });
+    await waitFor(() => expect(uploadAvatarMock).toHaveBeenCalledWith(png));
+    expect(saveBar()).not.toBeInTheDocument();
   });
 
   it("removes the avatar via removeAvatar()", async () => {
@@ -275,17 +422,39 @@ describe("Settings — Profile section", () => {
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Use PNG, JPG, or WebP."));
     expect(uploadAvatarMock).not.toHaveBeenCalled();
   });
+});
 
-  it("uploads a valid image via uploadAvatar()", async () => {
+// --- Units (draftable) ------------------------------------------------------
+
+describe("Settings — units", () => {
+  it("makes the weight toggle draftable rather than saving immediately", () => {
     render(<SettingsPage />);
-    const fileInput = screen.getByLabelText("Upload avatar");
-    const png = new File(["x"], "a.png", { type: "image/png" });
-    fireEvent.change(fileInput, { target: { files: [png] } });
-    await waitFor(() => expect(uploadAvatarMock).toHaveBeenCalledWith(png));
+    fireEvent.click(screen.getByRole("button", { name: "Kilograms" }));
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("saves the weight unit in the patch on Save", async () => {
+    updateMock.mockResolvedValueOnce(profile({ weight_unit: "kg" }));
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Kilograms" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ weight_unit: "kg" }));
+  });
+
+  it("writes the distance unit through setUnit after a successful save", async () => {
+    updateMock.mockResolvedValueOnce(profile({ distance_unit: "km" }));
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Kilometers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ distance_unit: "km" }));
+    await waitFor(() => expect(setUnitMock).toHaveBeenCalledWith("km"));
   });
 });
 
-describe("Settings — Google Calendar section", () => {
+// --- Google Calendar --------------------------------------------------------
+
+describe("Settings — Google Calendar", () => {
   it("shows Connect Google Calendar when the connection is absent", async () => {
     getCalendarConnectionMock.mockResolvedValue({ status: "absent" });
     render(<SettingsPage />);
@@ -311,148 +480,27 @@ describe("Settings — Google Calendar section", () => {
     const btn = await screen.findByRole("button", { name: "Disconnect" });
     fireEvent.click(btn);
     await waitFor(() => expect(disconnectCalendarMock).toHaveBeenCalled());
-    // After disconnecting it re-reads the (now revoked) connection and flips
-    // back to the Connect affordance.
     expect(
       await screen.findByRole("button", { name: "Connect Google Calendar" }),
     ).toBeInTheDocument();
   });
 
-  it("changes the default-detail control via update()", async () => {
+  it("makes the default-detail toggle draftable rather than saving immediately", async () => {
     render(<SettingsPage />);
-    // Profile fixture defaults to "time_block"; click "Full agenda".
     const fullAgenda = await screen.findByRole("button", { name: "Full agenda" });
     fireEvent.click(fullAgenda);
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("saves the default-detail change in the patch on Save", async () => {
+    updateMock.mockResolvedValueOnce(profile({ calendar_default_detail: "full_agenda" }));
+    render(<SettingsPage />);
+    const fullAgenda = await screen.findByRole("button", { name: "Full agenda" });
+    fireEvent.click(fullAgenda);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(updateMock).toHaveBeenCalledWith({ calendar_default_detail: "full_agenda" }),
     );
-  });
-});
-
-describe("Settings — Bio row", () => {
-  it("renders the current bio", () => {
-    useProfileMock.mockReturnValue(profileCtx({ bio: "Lifts heavy things." }));
-    render(<SettingsPage />);
-    expect(screen.getByLabelText("Bio")).toHaveValue("Lifts heavy things.");
-  });
-
-  it("shows the rune counter and caps input at 160 runes", () => {
-    render(<SettingsPage />);
-    const input = screen.getByLabelText("Bio") as HTMLTextAreaElement;
-    // Use a multibyte emoji (😀 is 2 UTF-16 code units) so the cap is
-    // exercised by rune count, not `.length`: a `.length`-based clamp would
-    // cap this at 80 emoji and fail. 200 runes in → capped to 160 runes.
-    fireEvent.change(input, { target: { value: "😀".repeat(200) } });
-    expect([...input.value].length).toBe(160);
-    expect(screen.getByText("160/160")).toBeInTheDocument();
-  });
-
-  it("disables Save when the textarea equals the persisted bio", () => {
-    useProfileMock.mockReturnValue(profileCtx({ bio: "Same bio" }));
-    render(<SettingsPage />);
-    // No edit yet → the bio row's Save (third Save button) is disabled.
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    expect(saveButtons[2]).toBeDisabled();
-  });
-
-  it("saves an edited bio via update()", async () => {
-    render(<SettingsPage />);
-    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "New bio" } });
-    // Save buttons in DOM order: display name, username, bio, height.
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[2]);
-    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ bio: "New bio" }));
-  });
-
-  it("shows the server error inline when update() rejects", async () => {
-    // The api layer surfaces a server error as a thrown Error; the bio row's
-    // catch should setError and render the message inline.
-    updateMock.mockRejectedValueOnce(new Error("Bio too long"));
-    render(<SettingsPage />);
-    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "New bio" } });
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[2]);
-    await waitFor(() => expect(screen.getByText("Bio too long")).toBeInTheDocument());
-  });
-
-  it("clears the bio by sending an empty string", async () => {
-    useProfileMock.mockReturnValue(profileCtx({ bio: "Old bio" }));
-    render(<SettingsPage />);
-    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "" } });
-    const saveButtons = screen.getAllByRole("button", { name: "Save" });
-    fireEvent.click(saveButtons[2]);
-    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ bio: "" }));
-  });
-});
-
-describe("Settings — Username row", () => {
-  // The username row's own Save button is the second of the four Save
-  // buttons (display name, username, bio, height).
-  function usernameSave(): HTMLElement {
-    return screen.getAllByRole("button", { name: "Save" })[1];
-  }
-
-  it("renders the current username", () => {
-    render(<SettingsPage />);
-    expect(screen.getByLabelText("Username")).toHaveValue("sam");
-  });
-
-  it("shows the charset hint, disables Save, and skips probe on an invalid handle", async () => {
-    render(<SettingsPage />);
-    const input = screen.getByLabelText("Username");
-    // Leading digit + uppercase → fails the ^[a-z][a-z0-9_]{2,29}$ rule.
-    fireEvent.change(input, { target: { value: "1Bad" } });
-    // The inline charset hint renders immediately for invalid, dirty input.
-    await waitFor(() =>
-      expect(screen.getByText(/3–30 characters: start with a letter/)).toBeInTheDocument(),
-    );
-    // Save is disabled (can't be clicked) and no availability probe fires.
-    expect(usernameSave()).toBeDisabled();
-    expect(updateMock).not.toHaveBeenCalled();
-    expect(checkUsernameAvailableMock).not.toHaveBeenCalled();
-  });
-
-  it("debounce-probes and shows 'available' for a free, valid handle", async () => {
-    checkUsernameAvailableMock.mockResolvedValue(true);
-    render(<SettingsPage />);
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "newhandle" } });
-    await waitFor(() =>
-      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "newhandle"),
-    );
-    await waitFor(() => expect(screen.getByText("@newhandle is available.")).toBeInTheDocument());
-  });
-
-  it("shows 'taken' and disables Save when the handle is taken", async () => {
-    checkUsernameAvailableMock.mockResolvedValue(false);
-    render(<SettingsPage />);
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "occupied" } });
-    await waitFor(() => expect(screen.getByText("@occupied is taken.")).toBeInTheDocument());
-    expect(usernameSave()).toBeDisabled();
-  });
-
-  it("lowercases input and saves via update(), toasting success", async () => {
-    checkUsernameAvailableMock.mockResolvedValue(true);
-    render(<SettingsPage />);
-    // Uppercase entry is normalized to lowercase before save + probe.
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "NewSam" } });
-    await waitFor(() =>
-      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "newsam"),
-    );
-    fireEvent.click(usernameSave());
-    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ username: "newsam" }));
-    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith("Username updated."));
-  });
-
-  it("surfaces a server 409 inline and via toast", async () => {
-    checkUsernameAvailableMock.mockResolvedValue(true);
-    updateMock.mockRejectedValueOnce(new Error("username already taken"));
-    render(<SettingsPage />);
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "racey" } });
-    await waitFor(() =>
-      expect(checkUsernameAvailableMock).toHaveBeenCalledWith("test-token", "racey"),
-    );
-    fireEvent.click(usernameSave());
-    await waitFor(() => expect(screen.getByText("username already taken")).toBeInTheDocument());
-    expect(toastErrorMock).toHaveBeenCalledWith("username already taken");
   });
 });
