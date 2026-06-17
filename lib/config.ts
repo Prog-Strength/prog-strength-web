@@ -20,4 +20,10 @@ export const config = {
   // address — override via the env var if you set up a dedicated
   // alias later.
   betaContactEmail: process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
+  // Gate for the throwaway settings Design Exploration route at
+  // /design-explore/settings. Off everywhere by default (the route
+  // notFound()s when false) so it is dead in production; flip the env var
+  // to "1" on a preview deploy to compare the variants. See
+  // app/(app)/design-explore/settings/page.tsx.
+  designExplore: process.env.NEXT_PUBLIC_DESIGN_EXPLORE === "1",
 };
