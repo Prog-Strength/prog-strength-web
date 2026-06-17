@@ -298,3 +298,21 @@ describe("Chat — profile in /chat payload", () => {
     }
   });
 });
+
+describe("Chat — history pane toggle", () => {
+  it("starts collapsed and toggles the history pane open/closed", () => {
+    useUsageMock.mockReturnValue(snapshot({ capped: false }));
+    render(<ChatPage />);
+
+    // The header "Chats" control toggles the conversation pane. It defaults
+    // to collapsed so the pane doesn't eat chat space on load.
+    const toggle = screen.getByRole("button", { name: /chats/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+});

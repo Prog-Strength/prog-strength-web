@@ -767,9 +767,9 @@ export default function ChatPage() {
     router.push("/chat");
   };
 
-  // Escape closes the mobile conversation sheet, matching the dismissal
-  // affordance the retired History drawer offered. Only wired while the
-  // sheet is open so the listener doesn't run on desktop.
+  // Escape collapses the conversation pane — the desktop inline column and
+  // the mobile slide-over alike, since both are driven by paneOpen. Only
+  // wired while the pane is open so the listener doesn't run when closed.
   useEffect(() => {
     if (!paneOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -781,12 +781,20 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Persistent conversation pane on desktop. */}
-      <ConversationList
-        activeSessionId={sessionId}
-        onNewChat={startNewChat}
-        className="hidden lg:flex"
-      />
+      {/* Collapsible conversation pane on desktop. Defaults closed (see
+          paneOpen) so it doesn't eat chat width on load — the header's
+          "Chats" button toggles it. The wrapper animates its width while the
+          inner column keeps its fixed w-72, so the list slides in from the
+          edge. `inert` while collapsed keeps the clipped pane out of the
+          tab/a11y order. */}
+      <div
+        className={`hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out lg:flex ${
+          paneOpen ? "w-72" : "w-0"
+        }`}
+        inert={!paneOpen}
+      >
+        <ConversationList activeSessionId={sessionId} onNewChat={startNewChat} />
+      </div>
 
       {/* Mobile: the same pane in a slide-over overlay, toggled by the
           header's "Chats" button. */}
@@ -826,7 +834,8 @@ export default function ChatPage() {
           capped={capped}
           cappedTooltip={cappedTooltip}
           onNewChat={startNewChat}
-          onOpenChats={() => setPaneOpen(true)}
+          chatsOpen={paneOpen}
+          onToggleChats={() => setPaneOpen((v) => !v)}
         />
 
         <div
@@ -956,14 +965,16 @@ function ChatHeader({
   capped,
   cappedTooltip,
   onNewChat,
-  onOpenChats,
+  chatsOpen,
+  onToggleChats,
 }: {
   voiceMode: boolean;
   onToggleVoice: () => void;
   capped: boolean;
   cappedTooltip: string;
   onNewChat: () => void;
-  onOpenChats: () => void;
+  chatsOpen: boolean;
+  onToggleChats: () => void;
 }) {
   return (
     <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-6">
@@ -980,14 +991,20 @@ function ChatHeader({
         </div>
       </div>
       <div className="flex items-center gap-1.5 sm:gap-2">
-        {/* Mobile-only: open the conversation pane. Hidden on lg where the
-            pane is a persistent column. */}
+        {/* Toggle the conversation history pane. On lg it expands/collapses
+            the inline column; below lg it opens/closes the slide-over.
+            Defaults collapsed, so this is how users reach past chats. */}
         <button
           type="button"
-          onClick={onOpenChats}
-          aria-label="Open chats"
-          title="Open chats"
-          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium text-[var(--muted)] transition hover:text-[var(--foreground)] sm:px-3 lg:hidden"
+          onClick={onToggleChats}
+          aria-expanded={chatsOpen}
+          aria-label={chatsOpen ? "Close chats" : "Open chats"}
+          title={chatsOpen ? "Close chats" : "Open chats"}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition sm:px-3 ${
+            chatsOpen
+              ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
+              : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          }`}
         >
           <ChatsIcon />
           <span className="hidden sm:inline">Chats</span>
@@ -1031,7 +1048,7 @@ function ChatHeader({
 }
 
 /**
- * Speech-bubble glyph for the mobile "Chats" toggle. Local to the page
+ * Speech-bubble glyph for the header's "Chats" toggle. Local to the page
  * (the shared icon set has no chat-thread icon); matches the rest of the
  * header's 12px stroked-icon vocabulary.
  */
