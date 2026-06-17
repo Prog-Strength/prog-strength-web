@@ -32,7 +32,7 @@ export default function RootLayout({
       // with our forced-dark palette in globals.css.
       className={`${nunito.variable} ${geistMono.variable} h-full antialiased dark`}
     >
-      <body className="min-h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
+      <body className="h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
         <Providers>
           <ToastProvider>
             <DistanceUnitProvider>{children}</DistanceUnitProvider>
