@@ -6,16 +6,31 @@ import type { Exercise, TimelinePost } from "@/lib/api";
 import { ReactionBar } from "./ReactionBar";
 import { CommentThread } from "./CommentThread";
 import { WorkoutTimelineSummary } from "./WorkoutTimelineSummary";
+import { RouteMap } from "./RouteMap";
+import { StatRow } from "./StatRow";
 import { Avatar } from "@/components/social/Avatar";
 import { SOURCE_META, formatOccurredAt } from "./reactions";
+import { useProfile } from "@/lib/profile-context";
 
 /**
- * One feed card. Presentation switches on `source_type` for the header
- * glyph/label; the body renders the API's denormalized `content` block
- * (title, subtitle, metric chips) and deep-links to the source detail page
- * via `content.href`. Workout posts additionally render a concise, expandable
- * exercise breakdown (<WorkoutTimelineSummary>). Hosts the <ReactionBar> and a
- * comments affordance that toggles the lazy-loading <CommentThread>.
+ * Milestone source types get a celebratory banner across the top of the card;
+ * workout/run posts (the day-to-day feed) do not. The copy mirrors SOURCE_META
+ * but is intentionally separate so the banner can carry its own emphatic tone.
+ */
+const MILESTONE: Partial<Record<TimelinePost["source_type"], { emoji: string; label: string }>> = {
+  pr: { emoji: "🏆", label: "Personal Record" },
+  best_effort: { emoji: "⚡", label: "Best Effort" },
+};
+
+/**
+ * One feed card — a confident athletic ActivityCard. Presentation switches on
+ * `source_type`: a celebratory milestone banner for PRs/best efforts, a route
+ * map slot for runs, and the expandable exercise/muscle breakdown
+ * (<WorkoutTimelineSummary>) for workouts. The body renders the API's
+ * denormalized `content` block (title/subtitle deep-linking to the source via
+ * `content.href`, plus a big-value <StatRow> built from `content.metrics`).
+ * A "You" badge marks the viewer's own posts. Hosts the kudos <ReactionBar>
+ * and a comments affordance that toggles the lazy-loading <CommentThread>.
  */
 export function TimelinePostCard({
   post,
@@ -26,32 +41,51 @@ export function TimelinePostCard({
   post: TimelinePost;
   exercises: Exercise[];
 }) {
+  const { profile } = useProfile();
   const [showComments, setShowComments] = useState(false);
   // Local mirror of the count so the badge updates as the user adds/removes
   // comments in the thread without a feed refetch.
   const [commentCount, setCommentCount] = useState(post.comment_count);
 
   const meta = SOURCE_META[post.source_type];
+  const milestone = MILESTONE[post.source_type];
   const author = post.author;
   const authorHref = author.username ? `/u/${author.username}` : null;
+  const isMine = !!profile && profile.id === author.user_id;
 
   return (
-    <article className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-      <div className="flex items-center gap-2">
-        <Avatar url={author.avatar_url} name={author.display_name} size={32} />
+    <article className="flex flex-col gap-4 rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
+      {milestone && (
+        <div className="flex items-center gap-2 rounded-2xl border border-[var(--accent-line)] bg-[var(--accent-soft)] px-3 py-1.5">
+          <span aria-hidden="true">{milestone.emoji}</span>
+          <span className="font-display text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">
+            {milestone.label}
+          </span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Avatar url={author.avatar_url} name={author.display_name} size={40} />
         <div className="flex min-w-0 flex-col">
-          {authorHref ? (
-            <Link
-              href={authorHref}
-              className="truncate text-sm font-semibold text-[var(--foreground)] hover:underline"
-            >
-              {author.display_name}
-            </Link>
-          ) : (
-            <span className="truncate text-sm font-semibold text-[var(--foreground)]">
-              {author.display_name}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {authorHref ? (
+              <Link
+                href={authorHref}
+                className="truncate text-sm font-semibold text-[var(--foreground)] hover:underline"
+              >
+                {author.display_name}
+              </Link>
+            ) : (
+              <span className="truncate text-sm font-semibold text-[var(--foreground)]">
+                {author.display_name}
+              </span>
+            )}
+            {isMine && (
+              <span className="rounded-full border border-[var(--accent-line)] bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
+                You
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
             <span aria-hidden="true">{meta.emoji}</span>
             <span className="font-semibold uppercase tracking-wider">{meta.label}</span>
@@ -62,38 +96,33 @@ export function TimelinePostCard({
       </div>
 
       <Link href={post.content.href} className="group flex flex-col gap-1">
-        <h2 className="text-sm font-semibold text-[var(--foreground)] group-hover:underline">
+        <h2 className="font-display text-xl font-semibold text-[var(--foreground)] group-hover:underline">
           {post.content.title}
         </h2>
         {post.content.subtitle && (
-          <p className="text-xs text-[var(--muted)]">{post.content.subtitle}</p>
+          <p className="text-sm text-[var(--muted)]">{post.content.subtitle}</p>
         )}
       </Link>
 
-      {post.content.metrics.length > 0 && (
-        <ul className="flex flex-wrap gap-2">
-          {post.content.metrics.map((metric, i) => (
-            <li
-              key={i}
-              className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs tabular-nums text-[var(--foreground)]"
-            >
-              {metric}
-            </li>
-          ))}
-        </ul>
-      )}
+      {post.source_type === "run" && <RouteMap route={post.content.route} />}
 
       {post.source_type === "workout" && (
         <WorkoutTimelineSummary sourceId={post.source_id} exercises={exercises} />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <StatRow metrics={post.content.metrics} />
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] pt-4">
         <ReactionBar postId={post.id} reactions={post.reactions} />
         <button
           type="button"
           onClick={() => setShowComments((v) => !v)}
           aria-expanded={showComments}
-          className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
+            showComments
+              ? "border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--foreground)]"
+              : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          }`}
         >
           <CommentIcon />
           <span className="tabular-nums">{commentCount}</span>

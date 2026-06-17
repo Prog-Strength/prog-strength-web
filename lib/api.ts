@@ -2180,6 +2180,21 @@ export type TimelineAuthor = {
 };
 
 /**
+ * A compact, render-ready route geometry for a run card's map slot. This is
+ * the FUTURE shape the API will project once run geometry is captured
+ * (see prog-strength-docs/sows/run-route-geometry-capture.md); today nothing
+ * populates it, so <RouteMap> renders its placeholder. Defined now so the
+ * RouteMap boundary is stable: when geometry lands, the card needs no rework.
+ *
+ * `points` is a simplified polyline of [lat, lng] pairs in track order;
+ * `bounds` is the lat/lng extent for fitting the polyline to the slot.
+ */
+export type TimelineRoute = {
+  points: [number, number][];
+  bounds: { min_lat: number; min_lng: number; max_lat: number; max_lng: number };
+};
+
+/**
  * One feed entry. `content` is the API's denormalized render block so the
  * card needs no per-source fetch; `href` deep-links to the source detail
  * page (e.g. /workouts/{id}, /running/{id}). `occurred_at` is the source
@@ -2199,6 +2214,9 @@ export type TimelinePost = {
     subtitle: string;
     metrics: string[];
     href: string;
+    // Future run geometry (see TimelineRoute). Absent on every current API
+    // response; <RouteMap> renders a placeholder until this is populated.
+    route?: TimelineRoute | null;
   };
   reactions: ReactionSummary;
   comment_count: number;

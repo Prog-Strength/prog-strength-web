@@ -29,6 +29,13 @@ vi.mock("./TimelinePostCard", () => ({
   TimelinePostCard: ({ post }: { post: TimelinePost }) => <div>{post.content.title}</div>,
 }));
 
+// The feed compares each post's author to the viewer's id to decide the
+// own-only / no-followers state. The fixture posts all use "u_me", so this
+// viewer owns them.
+vi.mock("@/lib/profile-context", () => ({
+  useProfile: () => ({ profile: { id: "u_me" } }),
+}));
+
 import { TimelineFeed } from "./TimelineFeed";
 
 beforeEach(() => {
@@ -116,7 +123,21 @@ describe("TimelineFeed", () => {
   it("renders the empty state when the first page has no posts", async () => {
     listTimelineMock.mockResolvedValue({ posts: [], next_before: null });
     render(<TimelineFeed />);
-    expect(await screen.findByText(/no activity yet/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a discovery callout when the feed is only your own posts", async () => {
+    listTimelineMock.mockResolvedValue({ posts: [post("1", "Mine")], next_before: null });
+    render(<TimelineFeed />);
+    // Own posts still render…
+    expect(await screen.findByText("Mine")).toBeInTheDocument();
+    // …above a callout that foregrounds following other athletes.
+    expect(screen.getByText(/follow other athletes/i)).toBeInTheDocument();
+  });
+
+  it("foregrounds discovery in the empty state", async () => {
+    listTimelineMock.mockResolvedValue({ posts: [], next_before: null });
+    render(<TimelineFeed />);
+    expect(await screen.findByText(/follow other athletes/i)).toBeInTheDocument();
   });
 });

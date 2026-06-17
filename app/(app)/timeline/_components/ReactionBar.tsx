@@ -89,7 +89,7 @@ export function ReactionBar({ postId, reactions }: { postId: string; reactions: 
             title={label}
             className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
               active
-                ? "border-[var(--accent)] bg-[var(--surface-2)] text-[var(--foreground)]"
+                ? "border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--foreground)]"
                 : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
             }`}
           >

@@ -103,6 +103,7 @@
   --color-discipline-core-fg: var(--discipline-core-fg);
   --color-discipline-core-dot: var(--discipline-core-dot);
   --font-sans: var(--font-nunito);
+  --font-display: var(--font-oswald), "Oswald", system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
