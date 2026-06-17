@@ -20,4 +20,10 @@ export const config = {
   // address — override via the env var if you set up a dedicated
   // alias later.
   betaContactEmail: process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
+  // Gate for throwaway Design Exploration (DX) routes under
+  // /design-explore/*. Off by default so these comparison mockups are
+  // dead in production and unreachable in normal navigation; set
+  // NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE=true locally / on a preview deploy
+  // to view them. Never enable in production.
+  enableDesignExplore: process.env.NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE === "true",
 };
