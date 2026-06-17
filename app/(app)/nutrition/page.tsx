@@ -17,7 +17,7 @@ import {
   type Recipe,
 } from "@/lib/api";
 import { DateTileStrip } from "@/components/date-tile-strip";
-import { MacroGoalRings } from "@/components/macro-goal-rings";
+import { HeroBand } from "./_components/hero-band";
 import { MacroGoalsModal } from "@/components/macro-goals-modal";
 import { QuickAddModal } from "@/components/quick-add-modal";
 import { NutritionLogView, resolveItemName } from "@/components/nutrition/nutrition-log-view";
@@ -27,7 +27,6 @@ import { LogEntryDeleteModal } from "@/components/nutrition/log-entry-delete-mod
 import { PantryView } from "@/components/nutrition/pantry-view";
 import { RecipesView } from "@/components/nutrition/recipes-view";
 import { useToast } from "@/components/toast";
-import { ToolbarButton } from "@/components/toolbar-button";
 
 type View = "log" | "pantry" | "recipes";
 
@@ -244,7 +243,7 @@ function NutritionPageInner() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <div className="mx-auto flex max-w-4xl flex-col gap-8">
           {error && (
             <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
               {error}
@@ -253,41 +252,58 @@ function NutritionPageInner() {
 
           <DateTileStrip value={date} onChange={setDate} />
 
-          {goals && <MacroGoalRings totals={totals} goals={goals} date={date} />}
+          {goals && (
+            <HeroBand totals={totals} goals={goals} onEditGoals={() => setShowGoalsModal(true)} />
+          )}
 
-          {/* Toolbar row: left group are actions, right group are view
-              switches. The bottom border of this row doubles as the
-              separator between the toolbar and the body below. On
-              mobile (< sm:) the labels collapse to icon-only to fit
-              all five controls comfortably within the viewport;
-              aria-label keeps the icons accessible. */}
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
-            <div className="flex items-center gap-3 sm:gap-5">
-              <ToolbarButton
-                onClick={() => setShowQuickAdd(true)}
-                icon={<PlusIcon />}
-                label="Quick Add"
-              />
-              <ToolbarButton
-                onClick={() => setShowGoalsModal(true)}
-                icon={<PencilIcon />}
-                label={goals?.created_at ? "Edit Macros" : "Set Macros"}
-              />
-            </div>
-            <div className="flex items-center gap-3 sm:gap-5">
-              <ToolbarButton
+          {/* Action row: the two primary actions on the left (Quick Add
+              fills, Edit Macros outlines), and the Log/Pantry/Recipes
+              view switch as a segmented pill group pushed to the right.
+              The hero band and the gap rhythm carry the separation
+              from the body below, so there's no bottom border here.
+              On mobile (< sm:) the labels collapse to icon-only to fit
+              comfortably within the viewport; aria-label keeps every
+              icon accessible. */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowQuickAdd(true)}
+              aria-label="Quick Add"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-[var(--accent-fg)] transition hover:opacity-90"
+            >
+              <PlusIcon />
+              <span className="hidden sm:inline">Quick Add</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowGoalsModal(true)}
+              aria-label={goals?.created_at ? "Edit Macros" : "Set Macros"}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] px-4 py-2.5 text-sm font-semibold text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            >
+              <PencilIcon />
+              <span className="hidden sm:inline">
+                {goals?.created_at ? "Edit Macros" : "Set Macros"}
+              </span>
+            </button>
+
+            <div
+              role="group"
+              aria-label="Choose view"
+              className="ml-auto flex items-center gap-1 rounded-full bg-[var(--surface)] p-1 text-xs font-semibold"
+            >
+              <ViewTab
                 onClick={() => setView("log")}
                 icon={<LogIcon />}
                 label="Log"
                 active={view === "log"}
               />
-              <ToolbarButton
+              <ViewTab
                 onClick={() => setView("pantry")}
                 icon={<JarIcon />}
                 label="Pantry"
                 active={view === "pantry"}
               />
-              <ToolbarButton
+              <ViewTab
                 onClick={() => setView("recipes")}
                 icon={<ListIcon />}
                 label="Recipes"
@@ -407,6 +423,43 @@ function toLocalYMD(d: Date): string {
 }
 
 // --- Toolbar bits --------------------------------------------------
+
+/**
+ * One segment of the Log/Pantry/Recipes pill group. The active segment
+ * lifts onto --surface-2 with --foreground text; inactive segments stay
+ * --faint and brighten toward --foreground on hover. Icon always shows;
+ * the text label collapses below sm:. aria-pressed announces the
+ * selected view to assistive tech.
+ */
+function ViewTab({
+  onClick,
+  icon,
+  label,
+  active,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      className={
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition " +
+        (active
+          ? "bg-[var(--surface-2)] text-[var(--foreground)]"
+          : "text-[var(--faint)] hover:text-[var(--foreground)]")
+      }
+    >
+      {icon}
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  );
+}
 
 function PlusIcon() {
   return (

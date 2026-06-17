@@ -161,17 +161,17 @@ function NavButton({
   ariaLabel: string;
   children: React.ReactNode;
 }) {
-  // Same surface bg + border as default tiles so the chevrons read
-  // as part of the strip rather than floating controls. Disabled
-  // state dims to 30% opacity and disables pointer events so the
-  // forward chevron at today-rightmost feels inert.
+  // Quiet, borderless chevrons to match the calmer pill tiles — they
+  // read as faint controls flanking the strip rather than cards.
+  // Disabled state dims to 30% opacity and disables pointer events so
+  // the forward chevron at today-rightmost feels inert.
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
-      className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition hover:bg-[var(--background)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-[var(--surface)]"
+      className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--faint)] transition hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-[var(--faint)]"
     >
       {children}
     </button>
@@ -199,18 +199,16 @@ function DateTile({
   const showMonth = day === 1;
   const monthAbbrev = date.toLocaleDateString("en-US", { month: "short" });
 
-  // Selected = highlighted (accent fill) + depressed (inset shadow
-  // + 1px down-translate). The composite reads as "this button is
-  // currently pressed in" the way a physical hardware toggle would.
-  // Default tiles use the surface bg + border so they read as
-  // clickable cards. Today (when not selected) gets a small accent
-  // dot under the date number so the user can spot it without
-  // counting backwards from the right edge.
+  // Calmer pill treatment: the selected tile is a solid accent pill,
+  // and unselected tiles are quiet — transparent, borderless, faint
+  // text that brightens to --foreground on hover. Today (when not
+  // selected) gets a small accent dot under the date number so the
+  // user can spot it without counting backwards from the right edge.
   const baseClasses =
-    "relative flex flex-col items-center justify-center gap-0.5 rounded-md py-2 text-xs font-medium tabular-nums transition";
+    "relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-xs font-medium tabular-nums transition";
   const stateClasses = selected
-    ? "bg-[var(--accent)] text-[var(--accent-fg)] shadow-[inset_0_1px_3px_rgba(0,0,0,0.45)] translate-y-px"
-    : "bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--background)]";
+    ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+    : "text-[var(--faint)] hover:text-[var(--foreground)]";
 
   return (
     <button
@@ -225,11 +223,7 @@ function DateTile({
       })}
       className={`${baseClasses} ${stateClasses}`}
     >
-      <span
-        className={`text-[10px] uppercase tracking-wider ${
-          selected ? "opacity-80" : "text-[var(--muted)]"
-        }`}
-      >
+      <span className={`text-[10px] uppercase tracking-wider ${selected ? "opacity-80" : ""}`}>
         {weekday}
       </span>
       <span className="text-base font-semibold leading-none">
