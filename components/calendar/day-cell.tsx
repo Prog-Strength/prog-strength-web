@@ -6,9 +6,13 @@ import type { CalendarEvent } from "@/components/calendar/types";
 import { disciplineOf, type Discipline } from "@/components/calendar/derivations";
 
 /**
- * One day cell of the month grid, plus the pills it stacks inside. Pulled
- * out of page.tsx so the page component stays focused on data wiring; the
- * click model and visual-state classes are unchanged.
+ * One day cell of the `true-month-grid` month grid, plus the pills it stacks
+ * inside. Cells are compact and uniform and sit flush inside the single
+ * bordered grid (the grid container draws the surrounding hairline; each cell
+ * carries a left hairline so the columns read as ruled). Colour is frugal:
+ * violet (`--accent`) marks ONLY today and the selected cell; run vs lift is
+ * carried by the cool per-discipline tonal hues as a left-bar + tint, so an
+ * activity never reads as "today".
  */
 
 // Three pills fit comfortably and cover the realistic case of a morning
@@ -17,14 +21,15 @@ import { disciplineOf, type Discipline } from "@/components/calendar/derivations
 const MAX_VISIBLE_PILLS = 3;
 
 // Shared chip skeleton + per-discipline "done" tone, sourced from the design
-// tokens so run vs lift read as distinct warm hues on dark.
+// tokens so run vs lift read as distinct cool hues on dark, each with a tonal
+// left-bar.
 const CHIP_BASE =
-  "flex items-center gap-1 truncate rounded-lg px-1.5 py-0.5 text-left text-[9px] font-medium leading-tight transition md:px-2 md:py-0.5 md:text-[10px] md:leading-normal";
+  "flex items-center gap-1 truncate rounded-md border-l-2 px-1.5 py-0.5 text-left text-[9px] font-medium leading-tight transition md:px-2 md:text-[10px] md:leading-normal";
 
 function doneToneClasses(discipline: Discipline): string {
   return discipline === "run"
-    ? "bg-[var(--discipline-run-bg)] text-[var(--discipline-run-fg)] hover:opacity-90"
-    : "bg-[var(--discipline-lift-bg)] text-[var(--discipline-lift-fg)] hover:opacity-90";
+    ? "border-[var(--discipline-run-dot)] bg-[var(--discipline-run-bg)] text-[var(--discipline-run-fg)] hover:opacity-90"
+    : "border-[var(--discipline-lift-dot)] bg-[var(--discipline-lift-bg)] text-[var(--discipline-lift-fg)] hover:opacity-90";
 }
 
 export function DayCell({
@@ -51,36 +56,32 @@ export function DayCell({
   const visible = events.slice(0, MAX_VISIBLE_PILLS);
   const hiddenCount = events.length - visible.length;
 
-  // Cell skeleton: every cell has a fixed minimum height so the grid
-  // rows stay visually balanced even when a day has no events. The
-  // accent ring on today's cell stays inside the border to avoid
-  // shifting any adjacent cells.
-  //
-  // Two independent visual axes stack here. "Today" gets an accent
-  // border/ring; "selected" gets a filled accent background. They're
-  // distinct so a selected-but-not-today day and today-but-not-selected
-  // day read differently, and both at once (filled bg + accent border)
-  // is unambiguous. Hover adds a faint accent border so cells feel
-  // clickable without committing to a state color.
-  // Tighter padding / smaller min-height on phone widths so the 6×7 grid
-  // fits a portrait viewport without forcing the page to scroll past the
-  // calendar before anything else is visible. Desktop sizing (≥md) is
-  // unchanged from the original — only the small-screen ceiling moves.
+  // Compact, uniform cell. A fixed minimum height keeps the grid rows even
+  // when a day has no events. Two independent visual axes stack here:
+  // "selected" fills the cell with the accent-soft tint + an inset accent
+  // hairline; "today" marks the day number violet. They're distinct so a
+  // selected-but-not-today day and today-but-not-selected day read
+  // differently. Hover adds a faint slate wash so cells feel clickable
+  // without spending colour. Greyed (inMonth=false) cells stay quiet but
+  // still show their day number.
   const baseClasses =
-    "flex min-h-[72px] cursor-pointer flex-col gap-1 rounded-2xl border p-1.5 transition hover:border-[var(--warm-accent)]/50 md:min-h-[104px] md:gap-1.5 md:p-2";
-  const borderClasses = isToday ? "border-[var(--warm-accent)]" : "border-[var(--border)]";
-  const fillClasses = isSelected ? "bg-[var(--warm-accent)]/10" : "bg-[var(--surface)]";
+    "flex min-h-[72px] cursor-pointer flex-col gap-1 border-l border-[var(--border)] p-1.5 transition hover:bg-[var(--surface-2)]/40 md:min-h-[104px] md:gap-1.5 md:p-2";
+  const fillClasses = isSelected
+    ? "bg-[var(--accent-soft)] ring-1 ring-inset ring-[var(--accent-line)]"
+    : inMonth
+      ? "bg-[var(--surface)]"
+      : "bg-[var(--surface)]/40";
   const labelClasses = inMonth ? "text-[var(--foreground)]" : "text-[var(--muted)] opacity-50";
 
   return (
     <div
-      className={`${baseClasses} ${borderClasses} ${fillClasses}`}
+      className={`${baseClasses} ${fillClasses}`}
       aria-label={ariaLabelFor(day, events)}
       onClick={onSelectDay}
     >
       <div className="px-0.5 leading-none md:px-1">
         {isToday ? (
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--warm-accent)] text-[11px] font-semibold text-[var(--warm-accent-fg)] md:h-6 md:w-6 md:text-xs">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[11px] font-semibold text-[var(--accent-fg)] md:h-6 md:w-6 md:text-xs">
             {day.getDate()}
           </span>
         ) : (
@@ -197,10 +198,10 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
 }
 
 /**
- * Distinct from `WorkoutPill` by discipline tone (warm clay run hue vs the
- * warm amber lift hue) so a stacked run + lift reads as two different things
- * at a glance, not just two sessions of the same kind. Clicking selects the
- * day and auto-expands this run's banner in the digest below the grid.
+ * Distinct from `WorkoutPill` by discipline tone (cool teal run hue vs the
+ * cool steel-blue lift hue) so a stacked run + lift reads as two different
+ * things at a glance, not just two sessions of the same kind. Clicking selects
+ * the day and auto-expands this run's banner in the digest below the grid.
  */
 function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
   const time = new Date(run.start_time).toLocaleTimeString("en-US", {
@@ -255,10 +256,10 @@ function PlannedPill({
   // strikethrough.
   const plannedTone =
     discipline === "run"
-      ? "border-[var(--discipline-run-dot)]/60 text-[var(--discipline-run-fg)]"
-      : "border-[var(--discipline-lift-dot)]/60 text-[var(--discipline-lift-fg)]";
+      ? "border-[var(--discipline-run-dot)]/70 text-[var(--discipline-run-fg)]"
+      : "border-[var(--discipline-lift-dot)]/70 text-[var(--discipline-lift-fg)]";
   const tone = completed
-    ? "border-emerald-500/60 text-emerald-300"
+    ? "border-emerald-500/70 text-emerald-300"
     : skipped
       ? "border-[var(--border)] text-[var(--muted)] line-through"
       : plannedTone;
@@ -287,8 +288,9 @@ function PlannedPill({
  * A planned session that's been completed and linked to the logged session
  * that fulfilled it. Unlike PlannedPill (dashed, forward-looking), this
  * reads as done: a SOLID fill in the logged activity's discipline tone (the
- * amber lift hue, or the clay run hue) with a leading check. The single pill replaces what
- * used to be a dashed planned pill stacked on its identical logged pill.
+ * cool lift hue, or the cool run hue) with a leading check. The single pill
+ * replaces what used to be a dashed planned pill stacked on its identical
+ * logged pill.
  */
 function CompletedPlannedPill({
   event,

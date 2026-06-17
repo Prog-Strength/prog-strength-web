@@ -1,13 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { CalendarEvent } from "@/components/calendar/types";
 import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
-import {
-  disciplineOf,
-  chipStateOf,
-  isTrainedDay,
-  weekStreakCopy,
-  monthConsistencyCopy,
-} from "./derivations";
+import { disciplineOf, chipStateOf, isTrainedDay, monthConsistencyCopy } from "./derivations";
 
 const workout = { id: "w1", performed_at: "2026-06-15T08:00:00Z" } as unknown as Workout;
 const run = { id: "r1", start_time: "2026-06-15T07:00:00Z" } as unknown as RunningSession;
@@ -67,17 +61,6 @@ describe("isTrainedDay", () => {
     expect(isTrainedDay([evPlannedLift])).toBe(false);
     expect(isTrainedDay([evPlannedLift, evWorkout])).toBe(true);
     expect(isTrainedDay([evCompletedRun])).toBe(true);
-  });
-});
-
-describe("weekStreakCopy", () => {
-  it("frames a trained week as N of M", () => {
-    expect(weekStreakCopy(4, 7)).toBe("You trained 4 of 7 days");
-    expect(weekStreakCopy(1, 5)).toBe("You trained 1 of 5 days");
-  });
-  it("uses a gentle rest-week line when nothing was trained", () => {
-    expect(weekStreakCopy(0, 7)).toBe("Rest week — recovery counts too");
-    expect(weekStreakCopy(0, 3)).toBe("Rest week — recovery counts too");
   });
 });
 

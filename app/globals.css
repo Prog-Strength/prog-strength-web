@@ -45,17 +45,16 @@
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
   --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
 
-  /* Warm-organic coaching tokens (shipped calendar). Unchanged — the
-     accent flip is blue→violet only; warm-accent is a separate token. */
-  --warm-accent: #e08a5e;
-  --warm-accent-fg: #1b1206;
-
-  --discipline-run-bg: #3a241a;
-  --discipline-run-fg: #f0b48f;
-  --discipline-run-dot: #e08a5e;
-  --discipline-lift-bg: #332a16;
-  --discipline-lift-fg: #e8c878;
-  --discipline-lift-dot: #d6ab54;
+  /* Activity tonal hues — per-discipline, desaturated and cool so they read
+     on the dark slate and stay distinct from the violet accent (an activity
+     must never look like "today"). run = green-teal, lift = steel-blue.
+     mobility/core stay reserved and un-inferred. */
+  --discipline-run-bg: #16302a;
+  --discipline-run-fg: #82d3b8;
+  --discipline-run-dot: #46b893;
+  --discipline-lift-bg: #1a2a3c;
+  --discipline-lift-fg: #8cbce8;
+  --discipline-lift-dot: #5598d8;
   --discipline-mobility-bg: #1f3330;
   --discipline-mobility-fg: #8fd6c4;
   --discipline-mobility-dot: #4fbfa3;
@@ -88,8 +87,6 @@
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-success: var(--success);
-  --color-warm-accent: var(--warm-accent);
-  --color-warm-accent-fg: var(--warm-accent-fg);
   --color-discipline-run-bg: var(--discipline-run-bg);
   --color-discipline-run-fg: var(--discipline-run-fg);
   --color-discipline-run-dot: var(--discipline-run-dot);

@@ -167,9 +167,13 @@ export function PlannedWorkoutModal({
       aria-modal="true"
       aria-labelledby="planned-workout-modal-title"
     >
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
-      <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
-        <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-5 py-3">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
+        <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-5 py-3.5">
           <h2 id="planned-workout-modal-title" className="min-w-0 truncate text-base font-semibold">
             {mode === "view" && currentPlan
               ? viewTitle(currentPlan)
@@ -291,7 +295,7 @@ export function PlannedWorkoutModal({
                     type="checkbox"
                     checked={draft.calendar_sync}
                     onChange={(e) => updateField("calendar_sync", e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-[var(--border)]"
+                    className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--accent)]"
                   />
                   <span>Sync to Google Calendar</span>
                 </label>
@@ -311,7 +315,7 @@ export function PlannedWorkoutModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+                className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-3)]"
               >
                 Close
               </button>
@@ -321,7 +325,7 @@ export function PlannedWorkoutModal({
                   <button
                     type="button"
                     onClick={() => onStartWorkout(currentPlan)}
-                    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90"
+                    className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:bg-[var(--accent-dark)]"
                   >
                     Start workout
                   </button>
@@ -332,7 +336,7 @@ export function PlannedWorkoutModal({
               <button
                 type="button"
                 onClick={cancelEdit}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+                className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-3)]"
               >
                 Cancel
               </button>
@@ -340,7 +344,7 @@ export function PlannedWorkoutModal({
                 type="button"
                 onClick={save}
                 disabled={!canSave || saving}
-                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90 disabled:opacity-40"
+                className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:bg-[var(--accent-dark)] disabled:opacity-40"
               >
                 {saving ? "Saving…" : currentPlan ? "Save changes" : "Plan workout"}
               </button>
@@ -387,9 +391,13 @@ function PlannedViewBody({
         {isRun ? (
           <RunSummary runType={plan.run_type} details={plan.run_details} />
         ) : plan.exercises.length > 0 ? (
-          <PlannedAgendaDetails exercises={plan.exercises} exerciseMap={exerciseMap} />
+          <PlannedAgendaDetails
+            exercises={plan.exercises}
+            exerciseMap={exerciseMap}
+            variant="calendar"
+          />
         ) : (
-          <p className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
+          <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs text-[var(--muted)]">
             No agenda yet — edit to add exercises, or start the workout and log as you go.
           </p>
         )}
@@ -411,7 +419,7 @@ function ViewRow({ label, children }: { label: string; children: React.ReactNode
 
 function TypeBadge({ kind }: { kind: ActivityKind }) {
   return (
-    <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--foreground)]">
+    <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-medium text-[var(--foreground)]">
       {kind === "run" ? "Run" : "Lift"}
     </span>
   );
@@ -517,7 +525,7 @@ function Segmented<T extends string>({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+            className={`rounded-full px-3 py-1 text-xs font-medium transition outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-line)] ${
               active
                 ? "bg-[var(--accent)] text-[var(--accent-fg)]"
                 : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -541,8 +549,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="font-medium text-[var(--muted)]">
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--faint)]">
         {label}
         {required && <span className="ml-0.5 text-[var(--danger)]">*</span>}
       </span>
@@ -551,8 +559,12 @@ function Field({
   );
 }
 
+// The shared field surface for every edit control: a slate input on
+// --surface-2 with a real hairline border, comfortable padding, and an accent
+// focus ring (border + 1px ring). This is the design-system convention every
+// form field in the app should adopt.
 const inputClasses =
-  "w-full rounded-lg border border-transparent bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition focus-visible:border-[var(--accent)] focus-visible:outline-none";
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition outline-none focus-visible:border-[var(--accent)] focus-visible:ring-1 focus-visible:ring-[var(--accent-line)]";
 
 // --- icons -----------------------------------------------------------------
 

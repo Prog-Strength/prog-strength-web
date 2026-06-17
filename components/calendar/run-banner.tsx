@@ -7,7 +7,7 @@ import { useDistanceUnit } from "@/lib/distance-unit-context";
 import type { RunningSession } from "@/lib/api";
 
 /**
- * Banner row for a single run, the run-toned (warm clay) sibling of WorkoutBanner.
+ * Banner row for a single run, the run-toned (cool teal) sibling of WorkoutBanner.
  * The body button navigates (via `onNavigate`) to the run detail; the
  * chevron toggles an inline {@link RunDigest} dropdown without navigating.
  * The dropdown mounts lazily — only when `open`.

@@ -321,27 +321,47 @@ describe("CalendarPage", () => {
     expect(within(digest).getByText(/Total volume/i)).toBeInTheDocument();
   });
 
-  it("shows one streak strip per week summarizing trained days", async () => {
+  it("shows one Week rollup column per week summarizing trained days", async () => {
     renderPage();
     await findDigest(TODAY);
 
-    const strips = await screen.findAllByTestId("week-streak-strip");
-    expect(strips.length).toBe(6); // six week rows
-    // At least one week reads as a trained week, since every fixture lands in
-    // the cursor month.
-    expect(strips.some((s) => /You trained \d+ of \d+ days/.test(s.textContent ?? ""))).toBe(true);
+    // The grid is now month-bounded: only the whole weeks intersecting the
+    // current month render, so the row count varies (4–6) by month. Replicate
+    // the page's Monday-first span here rather than hardcoding 6.
+    const mondayOffset = (new Date(YEAR, MONTH, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(YEAR, MONTH + 1, 0).getDate();
+    const expectedWeeks = Math.ceil((mondayOffset + daysInMonth) / 7);
+    expect(expectedWeeks).toBeGreaterThanOrEqual(4);
+    expect(expectedWeeks).toBeLessThanOrEqual(6);
+
+    const columns = await screen.findAllByTestId("week-column");
+    expect(columns.length).toBe(expectedWeeks);
+    // No phantom next-month rows: the last week row holds at least one day of
+    // the cursor month (a fixed 42-cell grid would emit an all-next-month row
+    // for short months). The grid's day cells expose their long date via
+    // aria-label; assert the cursor month appears among the last seven cells.
+    const cells = screen.getAllByLabelText(new RegExp(`^[A-Za-z]+, [A-Za-z]+ \\d+, \\d{4}`));
+    const lastWeekCells = cells.slice(-7);
+    const cursorMonthName = new Date(YEAR, MONTH, 1).toLocaleDateString("en-US", {
+      month: "long",
+    });
+    expect(
+      lastWeekCells.some((c) => (c.getAttribute("aria-label") ?? "").includes(cursorMonthName)),
+    ).toBe(true);
+    // Each Week column carries a trained-days indicator (N/M of in-month days).
+    expect(columns.some((c) => /\d+\/\d+/.test(c.textContent ?? ""))).toBe(true);
     // Exactly the week containing today is emphasized as the current week.
-    expect(strips.filter((s) => s.getAttribute("data-current") === "true")).toHaveLength(1);
+    expect(columns.filter((c) => c.getAttribute("data-current") === "true")).toHaveLength(1);
   });
 
-  it("rolls weekly steps into the streak strip metric labels", async () => {
+  it("rolls weekly steps into the Week rollup column", async () => {
     renderPage();
     await findDigest(TODAY);
 
-    const strips = await screen.findAllByTestId("week-streak-strip");
-    // The seeded step totals land in the cursor month, so at least one strip
-    // carries a steps metric label (👟 with a separated total).
-    expect(strips.some((s) => /👟/.test(s.textContent ?? ""))).toBe(true);
+    const columns = await screen.findAllByTestId("week-column");
+    // The seeded step totals land in the cursor month, so at least one Week
+    // column carries a steps metric label (👟 with a separated total).
+    expect(columns.some((c) => /👟/.test(c.textContent ?? ""))).toBe(true);
   });
 
   it("greets the user by name with a month-consistency line", async () => {
