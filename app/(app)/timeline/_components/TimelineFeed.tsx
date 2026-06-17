@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import { listExercises, listTimeline, type Exercise, type TimelinePost } from "@/lib/api";
+import { useProfile } from "@/lib/profile-context";
 import { TimelinePostCard } from "./TimelinePostCard";
 
 const PAGE_SIZE = 20;
@@ -20,6 +21,7 @@ const PAGE_SIZE = 20;
  */
 export function TimelineFeed() {
   const router = useRouter();
+  const { profile } = useProfile();
   // Keep `router` in a ref so the mount effect can depend on a stable
   // callback (useRouter() returns a fresh object each render; depending on
   // it directly would re-run the page-1 fetch on every render). Synced in
@@ -132,13 +134,23 @@ export function TimelineFeed() {
     }
   };
 
+  // Own-only / no-followers detection: when every loaded post is the viewer's
+  // own, the feed is effectively "just you" (this account follows nobody yet),
+  // so we surface a discovery-forward callout above the posts rather than a
+  // barren list. Compared against the viewer id from useProfile().
+  const ownOnly = posts.length > 0 && posts.every((p) => p.author.user_id === profile?.id);
+
   if (loading) {
-    return <p className="py-8 text-center text-sm text-[var(--muted)]">Loading your timeline…</p>;
+    return (
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center shadow-[var(--shadow-soft)]">
+        <p className="text-sm text-[var(--muted)]">Loading your timeline…</p>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="rounded-lg border border-[var(--danger)] bg-[var(--surface)] px-4 py-6 text-center">
+      <div className="rounded-2xl border border-[var(--danger)] bg-[var(--surface)] px-4 py-6 text-center shadow-[var(--shadow-soft)]">
         <p className="text-sm text-[var(--danger)]">{error}</p>
       </div>
     );
@@ -160,9 +172,11 @@ export function TimelineFeed() {
     return (
       <>
         <div className="flex items-center justify-end">{refreshButton}</div>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center shadow-[var(--shadow-soft)]">
           <p className="text-sm text-[var(--muted)]">
-            No activity yet — complete a workout or import a run to see it here.
+            No activity in your feed yet. Complete a workout or import a run — and{" "}
+            <span className="font-semibold text-[var(--foreground)]">follow other athletes</span> to
+            fill your feed with their training.
           </p>
         </div>
       </>
@@ -172,6 +186,13 @@ export function TimelineFeed() {
   return (
     <>
       <div className="flex items-center justify-end">{refreshButton}</div>
+
+      {ownOnly && (
+        <div className="rounded-2xl border border-[var(--accent-line)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--foreground)]">
+          Your feed is just you right now —{" "}
+          <span className="font-semibold">follow other athletes</span> to see their training here.
+        </div>
+      )}
 
       {posts.map((post) => (
         <TimelinePostCard key={post.id} post={post} exercises={exercises} />
