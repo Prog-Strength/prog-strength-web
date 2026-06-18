@@ -175,7 +175,7 @@ export function TrendSection({
               dataKey="trend"
               stroke={CHART_COLORS.trend}
               strokeWidth={3.5}
-              dot={false}
+              dot={trendData.length === 1 ? { fill: CHART_COLORS.trend, r: 4 } : false}
               isAnimationActive={false}
             />
             {goalInDisplayUnit !== null && (
