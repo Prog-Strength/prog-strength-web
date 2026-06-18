@@ -618,7 +618,7 @@ export default function ChatPage() {
           // preserving any tools that were attached during this turn.
           setMessages((prev) => replaceLast(prev, (last) => ({ ...last, content: assistantText })));
         } else if (ev.type === "tool_use_start") {
-          toolsLog.push({ name: ev.name, state: "running" });
+          toolsLog.push({ name: ev.name, state: "running", itemCount: ev.item_count });
           // Append a "running" tool to the in-progress assistant
           // message. Persisting tools on the message (rather than a
           // separate activeTools state) keeps them visible after the
@@ -627,7 +627,10 @@ export default function ChatPage() {
           setMessages((prev) =>
             replaceLast(prev, (last) => ({
               ...last,
-              tools: [...(last.tools ?? []), { name: ev.name, state: "running" }],
+              tools: [
+                ...(last.tools ?? []),
+                { name: ev.name, state: "running", itemCount: ev.item_count },
+              ],
             })),
           );
         } else if (ev.type === "tool_result") {
