@@ -98,9 +98,8 @@ export function DayCell({
           ) : ev.kind === "completed-planned" ? (
             // A planned session that's been completed + linked. Renders as a
             // single solid "done" pill (not the planned pill stacked on its
-            // logged twin). Clicking auto-expands the LOGGED session's banner
-            // in the digest, so it reuses the same select-and-expand paths as
-            // a standalone logged pill.
+            // logged twin). Clicking navigates to the LOGGED session's detail
+            // page, the same target a standalone logged pill opens.
             <CompletedPlannedPill
               key={`cp-${ev.planned.id}`}
               event={ev}
@@ -197,8 +196,8 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
 /**
  * Distinct from `WorkoutPill` by discipline tone (cool teal run hue vs the
  * cool steel-blue lift hue) so a stacked run + lift reads as two different
- * things at a glance, not just two sessions of the same kind. Clicking selects
- * the day and auto-expands this run's banner in the digest below the grid.
+ * things at a glance, not just two sessions of the same kind. Clicking
+ * navigates to this run's detail page.
  */
 function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
   const time = new Date(run.start_time).toLocaleTimeString("en-US", {
@@ -229,8 +228,8 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
  * logged WorkoutPill/RunPill: a dashed outline (rather than a solid fill)
  * signals "intended, not yet done". Status decorates it — a check for
  * completed, a strikethrough+muted treatment for skipped — and a synced
- * Google event shows a small sync glyph. Clicking selects the day and
- * scrolls the digest in, same as the logged pills.
+ * Google event shows a small sync glyph. Clicking opens the read-only
+ * planned-workout modal (its detail / edit surface).
  */
 function PlannedPill({
   planned,
@@ -316,8 +315,8 @@ function CompletedPlannedPill({
     <button
       type="button"
       data-testid="completed-planned-pill"
-      // stopPropagation so selecting this banner doesn't also fire the cell's
-      // whitespace-click (which would clear the auto-expand).
+      // stopPropagation so clicking the pill doesn't also fire the cell's
+      // whitespace-click (which would re-select the day).
       onClick={(e) => {
         e.stopPropagation();
         onClick();

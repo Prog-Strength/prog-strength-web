@@ -123,7 +123,7 @@ function makeRun(id: string, name: string, day: number): RunningSession {
 // Today gets a workout + run (07:00 run before 08:00 lift) so the
 // default-selected (today) digest has activities to assert and the two-a-day
 // ordering path is exercised. A DISTINCT_DAY (≠ today, in-month) gets its own
-// workout for the select-a-day and pill auto-expand tests. The 1st also gets a
+// workout for the select-a-day and pill navigation tests. The 1st also gets a
 // run so the month's running tiles always have data even when today isn't the
 // 1st (and so the re-anchor-to-1st test lands on a populated day).
 const TODAY_WORKOUT = makeWorkout("w-today", "Today Lift", TODAY_DAY);
