@@ -1,29 +1,35 @@
 @import "tailwindcss";
 
-/* Force dark. Soft-modern-messenger slate-dark system — the app's
-   foundational visual language (see sows/chat-and-app-shell-redesign.md).
+/* Force dark. Oura-calm-minimal re-tone — the app's foundational visual
+   language (see sows/activities-page-redesign.md).
    One palette, no `dark:` variants. */
 :root {
   /* Neutrals — slate ramp */
-  --background: #15171c; /* base */
-  --surface: #1e2128; /* panels / rails / bubbles */
-  --surface-2: #272b33; /* raised — hover, chips */
-  --surface-3: #2e333c; /* raised-2 */
-  --foreground: #eef0f4; /* primary text */
-  --muted: #9aa1ad; /* secondary text */
-  --faint: #6b7280; /* tertiary text */
+  --background: #0e0f12; /* base */
+  --surface: #15171b; /* panels / rails / bubbles */
+  --surface-2: #191c21; /* raised — hover, chips */
+  --surface-3: #1e2127; /* raised-2 */
+  --foreground: #c8cad0; /* primary text */
+  --muted: #7d818c; /* secondary text */
+  --faint: #565a63; /* tertiary text */
   /* Hairline borders — white-alpha so they read on any slate surface */
-  --border: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.1);
 
-  /* Accent — violet (replaces blue). Solid hex so `/NN` opacity
-     modifiers on existing consumers keep working; soft/line are
-     named tints for new code. */
-  --accent: #8b7cf6;
-  --accent-dark: #7765ec;
-  --accent-fg: #ffffff;
-  --accent-soft: rgba(139, 124, 246, 0.14);
-  --accent-line: rgba(139, 124, 246, 0.3);
+  /* Accent — desaturated periwinkle (oura-calm-minimal; replaces violet).
+     Primary actions + active states + the lifting domain hue. Solid hex so
+     `/NN` opacity modifiers on existing consumers keep working. */
+  --accent: #9aa6d6;
+  --accent-dark: #8490c4;
+  --accent-fg: #0e0f12;
+  --accent-soft: rgba(154, 166, 214, 0.14);
+  --accent-line: rgba(154, 166, 214, 0.3);
+
+  /* Secondary domain accent — sage (running). Peer to the periwinkle
+     lifting hue, not a louder "primary". */
+  --accent-2: #7fae9e;
+  --accent-2-soft: rgba(127, 174, 158, 0.14);
+  --accent-2-line: rgba(127, 174, 158, 0.3);
 
   /* Macro tints — macro card P/F/C chips (each ~13%-alpha bg) */
   --macro-protein: #34d399;
@@ -34,33 +40,33 @@
   --macro-carb-bg: rgba(96, 165, 250, 0.13);
 
   /* Status */
-  --warning: #fbbf24;
-  --danger: #ef4444;
-  --success: #34d399;
+  --warning: #d6b87f;
+  --danger: #c79292;
+  --success: #86b39f;
 
   /* Radii + soft depth */
-  --radius-card: 1rem; /* rounded-2xl */
+  --radius-card: 0.875rem; /* 14px */
   --radius-card-lg: 1.5rem; /* rounded-3xl */
   --radius-pill: 9999px;
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
   --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
 
-  /* Activity tonal hues — per-discipline, desaturated and cool so they read
-     on the dark slate and stay distinct from the violet accent (an activity
-     must never look like "today"). run = green-teal, lift = steel-blue.
+  /* Activity tonal hues — per-discipline, desaturated so they read on the
+     soft near-black field and stay distinct from the periwinkle accent (an
+     activity must never look like "today"). run = sage, lift = periwinkle.
      mobility/core stay reserved and un-inferred. */
-  --discipline-run-bg: #16302a;
-  --discipline-run-fg: #82d3b8;
-  --discipline-run-dot: #46b893;
-  --discipline-lift-bg: #1a2a3c;
-  --discipline-lift-fg: #8cbce8;
-  --discipline-lift-dot: #5598d8;
-  --discipline-mobility-bg: #1f3330;
-  --discipline-mobility-fg: #8fd6c4;
-  --discipline-mobility-dot: #4fbfa3;
-  --discipline-core-bg: #2c2440;
-  --discipline-core-fg: #c2adf0;
-  --discipline-core-dot: #9a7fe0;
+  --discipline-run-bg: #16241f;
+  --discipline-run-fg: #9cc7b8;
+  --discipline-run-dot: #7fae9e;
+  --discipline-lift-bg: #1b1f2e;
+  --discipline-lift-fg: #aab4dd;
+  --discipline-lift-dot: #9aa6d6;
+  --discipline-mobility-bg: #182622;
+  --discipline-mobility-fg: #8fc4b6;
+  --discipline-mobility-dot: #6fae9b;
+  --discipline-core-bg: #211d2e;
+  --discipline-core-fg: #b4a9d6;
+  --discipline-core-dot: #8f82c0;
 }
 
 @theme inline {
@@ -78,6 +84,9 @@
   --color-accent-fg: var(--accent-fg);
   --color-accent-soft: var(--accent-soft);
   --color-accent-line: var(--accent-line);
+  --color-accent-2: var(--accent-2);
+  --color-accent-2-soft: var(--accent-2-soft);
+  --color-accent-2-line: var(--accent-2-line);
   --color-macro-protein: var(--macro-protein);
   --color-macro-protein-bg: var(--macro-protein-bg);
   --color-macro-fat: var(--macro-fat);
