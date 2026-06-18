@@ -2,15 +2,24 @@
 
 import { useMemo } from "react";
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import type { Workout } from "@/lib/api";
+import {
+  CHART_AXIS,
+  CHART_CURSOR,
+  CHART_GRID,
+  CHART_LIFT_LINE,
+  CHART_TOOLTIP_BG,
+  CHART_TOOLTIP_BORDER,
+  CHART_TOOLTIP_RADIUS,
+} from "@/lib/chart-colors";
 import { formatHours, formatWeekRangeFromMonday, formatYTick } from "@/lib/chart-format";
 import { buildWeeklyBuckets, type WeekBucket } from "@/lib/weekly-buckets";
 
@@ -19,7 +28,7 @@ import { buildWeeklyBuckets, type WeekBucket } from "@/lib/weekly-buckets";
  * spend enough time lifting?" answer at the top of the Workouts page.
  *
  * Deliberately chrome-less. This renders only the inner chart block
- * (loading / empty / area) plus the truncated note — the analytics
+ * (loading / empty / single-stroke line) plus the truncated note — the analytics
  * wrapper (WorkoutsAnalytics) owns the card border and the shared
  * summary header (Total Time / Sessions / PRs) so the sibling views can
  * sit under one set of totals.
@@ -65,20 +74,14 @@ export function WorkoutDurationChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={summary.weeks} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
-              <defs>
-                <linearGradient id="duration-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.32} />
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+            <LineChart data={summary.weeks} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+              <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="t"
                 type="number"
                 domain={["dataMin", "dataMax"]}
-                stroke="#a1a1aa"
-                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                stroke={CHART_AXIS}
+                tick={{ fill: CHART_AXIS, fontSize: 11 }}
                 tickFormatter={(v: number) =>
                   new Date(v).toLocaleDateString("en-US", {
                     month: "short",
@@ -87,17 +90,17 @@ export function WorkoutDurationChart({
                 }
               />
               <YAxis
-                stroke="#a1a1aa"
-                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                stroke={CHART_AXIS}
+                tick={{ fill: CHART_AXIS, fontSize: 11 }}
                 tickFormatter={formatYTick}
                 width={48}
               />
               <Tooltip
-                cursor={{ stroke: "#52525b", strokeWidth: 1 }}
+                cursor={{ stroke: CHART_CURSOR, strokeWidth: 1 }}
                 contentStyle={{
-                  backgroundColor: "#18181b",
-                  border: "1px solid #3f3f46",
-                  borderRadius: "0.375rem",
+                  backgroundColor: CHART_TOOLTIP_BG,
+                  border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+                  borderRadius: CHART_TOOLTIP_RADIUS,
                   padding: "6px 10px",
                   fontSize: "12px",
                 }}
@@ -109,17 +112,16 @@ export function WorkoutDurationChart({
                   typeof v === "number" ? [formatHours(v), "Total"] : ["—", "Total"]
                 }
               />
-              <Area
+              <Line
                 type="monotone"
                 dataKey="minutes"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                fill="url(#duration-fill)"
+                stroke={CHART_LIFT_LINE}
+                strokeWidth={1}
+                dot={false}
+                activeDot={{ r: 3 }}
                 isAnimationActive={false}
-                dot={{ r: 3, fill: "#3b82f6", stroke: "#3b82f6" }}
-                activeDot={{ r: 4 }}
               />
-            </AreaChart>
+            </LineChart>
           </ResponsiveContainer>
         )}
       </div>
