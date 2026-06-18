@@ -9,7 +9,7 @@ import type { ToolCall } from "./types";
  * which prompt.
  */
 export function ToolPill({ tool }: { tool: ToolCall }) {
-  const name = humanizeToolName(tool.name);
+  const name = toolLabel(tool);
   if (tool.state === "running") {
     return (
       <span className="inline-flex animate-pulse items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-medium text-[var(--muted)]">
@@ -32,6 +32,22 @@ export function ToolPill({ tool }: { tool: ToolCall }) {
       <span>{name} failed</span>
     </span>
   );
+}
+
+/**
+ * Display label for a tool chip. log_consumption_batch reads "Log
+ * Consumption" with an optional " (N items)" suffix from the batch's item
+ * count (singular "1 item"); every other tool uses humanizeToolName.
+ */
+function toolLabel(tool: ToolCall): string {
+  if (tool.name === "log_consumption_batch") {
+    const base = "Log Consumption";
+    if (typeof tool.itemCount === "number") {
+      return `${base} (${tool.itemCount} ${tool.itemCount === 1 ? "item" : "items"})`;
+    }
+    return base;
+  }
+  return humanizeToolName(tool.name);
 }
 
 /**
