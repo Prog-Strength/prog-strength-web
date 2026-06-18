@@ -18,8 +18,8 @@ import type { Discipline } from "@/components/calendar/derivations";
  */
 export type ActivityColorTokens = { dot: string; bg: string; fg: string };
 
-/** The activity types with a live color mapping today. */
-export type ActivityType = Extract<Discipline, "run" | "lift">;
+/** The disciplines with a live color mapping today. */
+type MappedDiscipline = Extract<Discipline, "run" | "lift">;
 
 const NEUTRAL: ActivityColorTokens = {
   dot: "var(--border)",
@@ -27,7 +27,7 @@ const NEUTRAL: ActivityColorTokens = {
   fg: "var(--muted)",
 };
 
-export const ACTIVITY_COLORS: Record<ActivityType, ActivityColorTokens> = {
+const ACTIVITY_COLORS: Record<MappedDiscipline, ActivityColorTokens> = {
   run: {
     dot: "var(--discipline-run-dot)",
     bg: "var(--discipline-run-bg)",
@@ -51,7 +51,7 @@ export function activityColors(type: Discipline): ActivityColorTokens {
  * color stays sourced from the same module as the fills. Literal strings (not
  * interpolated) so Tailwind's scanner generates the utilities.
  */
-const ACTIVITY_RING: Record<ActivityType, string> = {
+const ACTIVITY_RING: Record<MappedDiscipline, string> = {
   run: "focus-visible:ring-[var(--discipline-run-dot)]",
   lift: "focus-visible:ring-[var(--discipline-lift-dot)]",
 };

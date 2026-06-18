@@ -1,5 +1,5 @@
 /// <reference types="vitest/globals" />
-import { activityColors, activityRingClass, ACTIVITY_COLORS } from "./activity-colors";
+import { activityColors, activityRingClass } from "./activity-colors";
 
 describe("activityColors", () => {
   it("resolves run to the run discipline tokens", () => {
@@ -31,11 +31,6 @@ describe("activityColors", () => {
     const neutral = { dot: "var(--border)", bg: "var(--surface-2)", fg: "var(--muted)" };
     expect(activityColors("mobility")).toEqual(neutral);
     expect(activityColors("core")).toEqual(neutral);
-  });
-
-  it("exposes the static map as the present resolver source", () => {
-    expect(ACTIVITY_COLORS.run).toBeDefined();
-    expect(ACTIVITY_COLORS.lift).toBeDefined();
   });
 });
 
