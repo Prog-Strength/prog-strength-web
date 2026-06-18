@@ -84,7 +84,7 @@ export function YourWeekRail() {
       <div className="flex items-center gap-3">
         <Avatar url={profile?.avatar_url ?? null} name={profile?.display_name ?? "You"} size={44} />
         <div className="min-w-0">
-          <p className="truncate font-display text-lg font-semibold text-[var(--foreground)]">
+          <p className="truncate text-lg font-semibold text-[var(--foreground)]">
             {profile?.display_name ?? "You"}
           </p>
           <p className="text-xs text-[var(--muted)]">Your training week</p>
@@ -92,7 +92,7 @@ export function YourWeekRail() {
       </div>
 
       <div className="flex items-baseline gap-2">
-        <span className="font-display text-4xl font-bold leading-none text-[var(--accent)] tabular-nums">
+        <span className="text-4xl font-bold leading-none text-[var(--accent)] tabular-nums">
           {streak}
         </span>
         <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
@@ -125,7 +125,7 @@ export function YourWeekRail() {
 function StatTile({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (
     <div className="flex flex-col rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5">
-      <span className="font-display text-2xl font-bold leading-none text-[var(--foreground)] tabular-nums">
+      <span className="text-2xl font-bold leading-none text-[var(--foreground)] tabular-nums">
         {value}
       </span>
       <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">

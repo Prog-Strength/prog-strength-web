@@ -108,8 +108,7 @@
   --color-discipline-core-bg: var(--discipline-core-bg);
   --color-discipline-core-fg: var(--discipline-core-fg);
   --color-discipline-core-dot: var(--discipline-core-dot);
-  --font-sans: var(--font-nunito);
-  --font-display: var(--font-oswald), "Oswald", system-ui, sans-serif;
+  --font-sans: var(--font-manrope);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -117,5 +116,5 @@ html,
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-nunito), ui-rounded, system-ui, sans-serif;
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
 }

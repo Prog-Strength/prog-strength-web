@@ -88,7 +88,7 @@ export function TrendSection({
             Trend now
           </span>
           <div className="flex items-end gap-2">
-            <span className="font-display text-5xl font-bold leading-none tabular-nums text-[var(--foreground)]">
+            <span className="text-5xl font-bold leading-none tabular-nums text-[var(--foreground)]">
               {summary.current !== null ? formatNumber(summary.current) : "—"}
             </span>
             <span className="pb-1 text-sm font-semibold text-[var(--muted)]">{displayUnit}</span>

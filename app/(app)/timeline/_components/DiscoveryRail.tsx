@@ -10,8 +10,7 @@ import { ProfileRow } from "@/components/social/ProfileRow";
  * the existing searchProfiles API + ProfileRow (which renders a FollowButton).
  * This is a search-entry, not a suggestion algorithm or leaderboard: the user
  * types a query, hits Search, and sees matching athletes to follow. Empty /
- * initial state shows an inviting prompt. Tokens only; font-display on the
- * heading.
+ * initial state shows an inviting prompt. Tokens only.
  */
 export function DiscoveryRail() {
   const [q, setQ] = useState("");
@@ -38,9 +37,7 @@ export function DiscoveryRail() {
       className="flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]"
     >
       <div className="flex flex-col gap-1">
-        <h2 className="font-display text-base font-semibold text-[var(--foreground)]">
-          Find people to follow
-        </h2>
+        <h2 className="text-base font-semibold text-[var(--foreground)]">Find people to follow</h2>
         <p className="text-xs text-[var(--muted)]">
           Follow other athletes to fill your feed with their training.
         </p>

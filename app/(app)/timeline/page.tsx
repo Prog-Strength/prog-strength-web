@@ -45,7 +45,7 @@ function TimelinePageInner() {
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-1 border-b border-[var(--border)] px-6 py-4">
-        <h1 className="font-display text-xl font-bold tracking-tight">Timeline</h1>
+        <h1 className="text-xl font-bold tracking-tight">Timeline</h1>
         <p className="text-xs text-[var(--muted)]">
           Your training and the athletes you follow — react, comment, and discover.
         </p>

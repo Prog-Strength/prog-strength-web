@@ -13,7 +13,7 @@ export function StatRow({ metrics }: { metrics: string[] }) {
     <dl className="flex flex-wrap gap-x-6 gap-y-3">
       {stats.map((s, i) => (
         <div key={i} className="flex flex-col">
-          <dd className="font-display text-2xl font-bold leading-none text-[var(--foreground)] tabular-nums">
+          <dd className="text-2xl font-bold leading-none text-[var(--foreground)] tabular-nums">
             {s.value}
           </dd>
           {s.label && (
