@@ -19,8 +19,8 @@ import type { Exercise, PlannedWorkout, RunningSession, Workout } from "@/lib/ap
  * a footer that names the plan it closed out with a "View plan" disclosure.
  *
  * Two independent disclosures hang off the row:
- *   - the chevron (and `defaultOpen`) toggles the LOGGED session digest
- *     (splits / sets) — same inline detail a standalone logged banner shows;
+ *   - the chevron toggles the LOGGED session digest (splits / sets) — same
+ *     inline detail a standalone logged banner shows;
  *   - "View plan" toggles the planned target (exercises / run target),
  *     reusing {@link PlannedAgenda} so it matches the planned banner exactly.
  * The body button navigates to the full logged-session detail surface.
