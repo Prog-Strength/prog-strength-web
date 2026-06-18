@@ -4,6 +4,7 @@ import { hasMeaningfulName } from "@/components/workout-details";
 import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 import type { CalendarEvent } from "@/components/calendar/types";
 import { disciplineOf, type Discipline } from "@/components/calendar/derivations";
+import { activityColors } from "@/lib/activity-colors";
 
 /**
  * One day cell of the `true-month-grid` month grid, plus the pills it stacks
@@ -26,12 +27,6 @@ const MAX_VISIBLE_PILLS = 3;
 const CHIP_BASE =
   "flex items-center gap-1 truncate rounded-md border-l-2 px-1.5 py-0.5 text-left text-[9px] font-medium leading-tight transition md:px-2 md:text-[10px] md:leading-normal";
 
-function doneToneClasses(discipline: Discipline): string {
-  return discipline === "run"
-    ? "border-[var(--discipline-run-dot)] bg-[var(--discipline-run-bg)] text-[var(--discipline-run-fg)] hover:opacity-90"
-    : "border-[var(--discipline-lift-dot)] bg-[var(--discipline-lift-bg)] text-[var(--discipline-lift-fg)] hover:opacity-90";
-}
-
 export function DayCell({
   day,
   inMonth,
@@ -39,9 +34,9 @@ export function DayCell({
   isSelected,
   events,
   onSelectDay,
-  onSelectWorkout,
-  onSelectRun,
-  onSelectPlanned,
+  onNavigateWorkout,
+  onNavigateRun,
+  onOpenPlanned,
 }: {
   day: Date;
   inMonth: boolean;
@@ -49,9 +44,9 @@ export function DayCell({
   isSelected: boolean;
   events: CalendarEvent[];
   onSelectDay: () => void;
-  onSelectWorkout: (id: string) => void;
-  onSelectRun: (id: string) => void;
-  onSelectPlanned: (id: string) => void;
+  onNavigateWorkout: (id: string) => void;
+  onNavigateRun: (id: string) => void;
+  onOpenPlanned: (plan: PlannedWorkout) => void;
 }) {
   const visible = events.slice(0, MAX_VISIBLE_PILLS);
   const hiddenCount = events.length - visible.length;
@@ -96,23 +91,22 @@ export function DayCell({
             <WorkoutPill
               key={`w-${ev.workout.id}`}
               workout={ev.workout}
-              onClick={() => onSelectWorkout(ev.workout.id)}
+              onClick={() => onNavigateWorkout(ev.workout.id)}
             />
           ) : ev.kind === "run" ? (
-            <RunPill key={`r-${ev.run.id}`} run={ev.run} onClick={() => onSelectRun(ev.run.id)} />
+            <RunPill key={`r-${ev.run.id}`} run={ev.run} onClick={() => onNavigateRun(ev.run.id)} />
           ) : ev.kind === "completed-planned" ? (
             // A planned session that's been completed + linked. Renders as a
             // single solid "done" pill (not the planned pill stacked on its
-            // logged twin). Clicking auto-expands the LOGGED session's banner
-            // in the digest, so it reuses the same select-and-expand paths as
-            // a standalone logged pill.
+            // logged twin). Clicking navigates to the LOGGED session's detail
+            // page, the same target a standalone logged pill opens.
             <CompletedPlannedPill
               key={`cp-${ev.planned.id}`}
               event={ev}
               onClick={() =>
                 ev.logged.kind === "workout"
-                  ? onSelectWorkout(ev.logged.workout.id)
-                  : onSelectRun(ev.logged.run.id)
+                  ? onNavigateWorkout(ev.logged.workout.id)
+                  : onNavigateRun(ev.logged.run.id)
               }
             />
           ) : (
@@ -120,7 +114,7 @@ export function DayCell({
               key={`p-${ev.planned.id}`}
               planned={ev.planned}
               discipline={disciplineOf(ev)}
-              onClick={() => onSelectPlanned(ev.planned.id)}
+              onClick={() => onOpenPlanned(ev.planned)}
             />
           ),
         )}
@@ -181,6 +175,7 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
   // calendar cell so we fall back to the start time instead.
   const named = hasMeaningfulName(workout.name);
   const label = named ? (workout.name as string) : time;
+  const c = activityColors("lift");
   return (
     <button
       type="button"
@@ -189,7 +184,8 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
         onClick();
       }}
       title={named ? `${time} · ${workout.name}` : time}
-      className={`${CHIP_BASE} ${doneToneClasses("lift")}`}
+      className={`${CHIP_BASE} hover:opacity-90`}
+      style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.dot }}
     >
       <CheckGlyph />
       <span className="truncate">{label}</span>
@@ -200,8 +196,8 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
 /**
  * Distinct from `WorkoutPill` by discipline tone (cool teal run hue vs the
  * cool steel-blue lift hue) so a stacked run + lift reads as two different
- * things at a glance, not just two sessions of the same kind. Clicking selects
- * the day and auto-expands this run's banner in the digest below the grid.
+ * things at a glance, not just two sessions of the same kind. Clicking
+ * navigates to this run's detail page.
  */
 function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
   const time = new Date(run.start_time).toLocaleTimeString("en-US", {
@@ -209,6 +205,7 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
     minute: "2-digit",
   });
   const label = run.name?.trim() ? run.name : time;
+  const c = activityColors("run");
   return (
     <button
       type="button"
@@ -217,7 +214,8 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
         onClick();
       }}
       title={`${time} · Run${run.name ? ` · ${run.name}` : ""}`}
-      className={`${CHIP_BASE} ${doneToneClasses("run")}`}
+      className={`${CHIP_BASE} hover:opacity-90`}
+      style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.dot }}
     >
       <CheckGlyph />
       <span className="truncate">{label}</span>
@@ -230,8 +228,8 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
  * logged WorkoutPill/RunPill: a dashed outline (rather than a solid fill)
  * signals "intended, not yet done". Status decorates it — a check for
  * completed, a strikethrough+muted treatment for skipped — and a synced
- * Google event shows a small sync glyph. Clicking selects the day and
- * scrolls the digest in, same as the logged pills.
+ * Google event shows a small sync glyph. Clicking opens the read-only
+ * planned-workout modal (its detail / edit surface).
  */
 function PlannedPill({
   planned,
@@ -251,18 +249,13 @@ function PlannedPill({
   const skipped = planned.status === "skipped";
   const synced = planned.google_sync_status === "synced";
 
-  // Status drives the dashed-outline tint. Planned: the activity's discipline
-  // tone (via disciplineOf). Completed: solid-ish success. Skipped: muted +
-  // strikethrough.
-  const plannedTone =
-    discipline === "run"
-      ? "border-[var(--discipline-run-dot)]/70 text-[var(--discipline-run-fg)]"
-      : "border-[var(--discipline-lift-dot)]/70 text-[var(--discipline-lift-fg)]";
-  const tone = completed
-    ? "border-emerald-500/70 text-emerald-300"
-    : skipped
-      ? "border-[var(--border)] text-[var(--muted)] line-through"
-      : plannedTone;
+  // Color (border + text) is always the activity-type tone; status drives only
+  // shape (always dashed), the leading glyph (clock planned / check completed /
+  // none skipped), and skipped's strikethrough + muting.
+  const c = activityColors(discipline);
+  const style: React.CSSProperties = skipped
+    ? { color: "var(--muted)", borderColor: "var(--border)" }
+    : { color: c.fg, borderColor: c.dot };
 
   return (
     <button
@@ -275,7 +268,10 @@ function PlannedPill({
       title={`${time} · Planned${planned.name ? ` · ${planned.name}` : ""}${
         completed ? " (completed)" : skipped ? " (skipped)" : ""
       }`}
-      className={`${CHIP_BASE} border border-dashed bg-transparent hover:bg-[var(--surface-2)] ${tone}`}
+      className={`${CHIP_BASE} border border-dashed bg-transparent hover:bg-[var(--surface-2)] ${
+        skipped ? "line-through" : ""
+      }`}
+      style={style}
     >
       {completed ? <CheckGlyph /> : skipped ? null : <ClockGlyph />}
       <span className="truncate">{label}</span>
@@ -314,19 +310,20 @@ function CompletedPlannedPill({
   // Match the logged-pill palettes so a completed plan is visually a logged
   // session, just carrying a check to mark that it closed out a plan. The
   // discipline comes from the centralized disciplineOf so chips agree.
-  const tone = doneToneClasses(disciplineOf(event));
+  const c = activityColors(disciplineOf(event));
   return (
     <button
       type="button"
       data-testid="completed-planned-pill"
-      // stopPropagation so selecting this banner doesn't also fire the cell's
-      // whitespace-click (which would clear the auto-expand).
+      // stopPropagation so clicking the pill doesn't also fire the cell's
+      // whitespace-click (which would re-select the day).
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
       title={`${time} · ${label} (completed planned ${isRun ? "run" : "workout"})`}
-      className={`${CHIP_BASE} ${tone}`}
+      className={`${CHIP_BASE} hover:opacity-90`}
+      style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.dot }}
     >
       <CheckGlyph />
       <span className="truncate">{label}</span>

@@ -123,7 +123,7 @@ function makeRun(id: string, name: string, day: number): RunningSession {
 // Today gets a workout + run (07:00 run before 08:00 lift) so the
 // default-selected (today) digest has activities to assert and the two-a-day
 // ordering path is exercised. A DISTINCT_DAY (≠ today, in-month) gets its own
-// workout for the select-a-day and pill auto-expand tests. The 1st also gets a
+// workout for the select-a-day and pill navigation tests. The 1st also gets a
 // run so the month's running tiles always have data even when today isn't the
 // 1st (and so the re-anchor-to-1st test lands on a populated day).
 const TODAY_WORKOUT = makeWorkout("w-today", "Today Lift", TODAY_DAY);
@@ -293,32 +293,28 @@ describe("CalendarPage", () => {
     await screen.findByRole("heading", { level: 2, name: longDate(prevMonthFirst) });
   });
 
-  it("auto-expands the digest banner when a grid pill is clicked", async () => {
+  it("navigates to the session detail when a logged grid pill is clicked", async () => {
     renderPage();
     await findDigest(TODAY);
 
-    // Use the DISTINCT_DAY's workout pill so it's distinct from the default
-    // (today) digest.
     const cell = screen.getByLabelText(new RegExp(`^${longDate(DISTINCT_DATE)}`));
-    // The pill is a button inside the cell whose accessible name is the name.
-    // Day cells render synchronously from the date grid, but their pills paint
-    // only after the async listWorkouts data settles — so find (await) the
-    // pill rather than get it, or this races on slower (CI) machines and sees
-    // an empty cell.
     const pill = await within(cell).findByRole("button", { name: "Midmonth Lift" });
     fireEvent.click(pill);
 
-    const digest = await findDigest(DISTINCT_DATE);
-    // The chevron's accessible name flips to "Collapse details" when open,
-    // and the dropdown content ("Total volume") becomes visible. The chevron
-    // only exists in the digest banner, not in the grid pill.
-    await waitFor(() => {
-      expect(within(digest).getByLabelText("Collapse details")).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
-    });
-    expect(within(digest).getByText(/Total volume/i)).toBeInTheDocument();
+    expect(pushMock).toHaveBeenCalledWith("/workouts/w-distinct");
+  });
+
+  it("opens the read-only planned modal when a planned grid pill is clicked", async () => {
+    renderPage();
+    await findDigest(TODAY);
+
+    const cell = screen.getByLabelText(new RegExp(`^${longDate(DISTINCT_DATE)}`));
+    const pill = await within(cell).findByTestId("planned-pill");
+    fireEvent.click(pill);
+
+    // The planned-workout modal opens in read-only view for that plan.
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("Edit planned workout")).toBeInTheDocument();
   });
 
   it("shows one Week rollup column per week summarizing trained days", async () => {

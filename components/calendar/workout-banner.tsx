@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutDigest } from "@/components/calendar/workout-digest";
+import { activityColors, activityRingClass } from "@/lib/activity-colors";
 import type { Exercise, Workout } from "@/lib/api";
 
 /**
@@ -37,6 +38,9 @@ export function WorkoutBanner({
   const exerciseCount = workout.exercises.length;
   const stats = `${time} · ${exerciseCount} ${exerciseCount === 1 ? "exercise" : "exercises"}`;
 
+  const c = activityColors("lift");
+  const ring = activityRingClass("lift");
+
   return (
     <div
       role="group"
@@ -46,11 +50,12 @@ export function WorkoutBanner({
         <button
           type="button"
           onClick={onNavigate}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--discipline-lift-dot)] focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5"
+          className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 ${ring} focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5`}
         >
           <span
             aria-hidden="true"
-            className="h-7 w-1 shrink-0 rounded-full bg-[var(--discipline-lift-dot)] md:h-8 md:w-1.5"
+            className="h-7 w-1 shrink-0 rounded-full md:h-8 md:w-1.5"
+            style={{ backgroundColor: c.dot }}
           />
           <span className="flex min-w-0 flex-col">
             <span className="truncate text-[13px] font-medium text-[var(--foreground)] md:text-sm">
@@ -67,7 +72,7 @@ export function WorkoutBanner({
           aria-controls={dropdownId}
           aria-label={open ? "Collapse details" : "Expand details"}
           onClick={() => setOpen((o) => !o)}
-          className="flex shrink-0 items-center justify-center px-2 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--discipline-lift-dot)] focus-visible:ring-inset md:px-3"
+          className={`flex shrink-0 items-center justify-center px-2 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 ${ring} focus-visible:ring-inset md:px-3`}
         >
           <svg
             viewBox="0 0 24 24"

@@ -1,5 +1,6 @@
 "use client";
 
+import { activityColors, activityRingClass } from "@/lib/activity-colors";
 import type { CompletedSessionKind, Exercise, PlannedWorkout, RunType } from "@/lib/api";
 
 /**
@@ -30,6 +31,9 @@ export function PlannedBanner({
     minute: "2-digit",
   });
   const isRun = planned.activity_kind === "run";
+  const discipline = isRun ? "run" : "lift";
+  const c = activityColors(discipline);
+  const ring = activityRingClass(discipline);
   const kindLabel = isRun ? "Run" : "Lift";
   // Unnamed plans lead with the kind so "Run · 6:00 AM" vs "Lift · 6:00 PM"
   // reads at a glance — useful on a two-a-day.
@@ -50,10 +54,9 @@ export function PlannedBanner({
   const completed = planned.status === "completed";
   const skipped = planned.status === "skipped";
 
-  // The left accent rail color tracks status so a glance reads the
-  // lifecycle: accent for planned, emerald for completed, muted for
-  // skipped.
-  const rail = completed ? "bg-emerald-500" : skipped ? "bg-[var(--muted)]" : "bg-[var(--accent)]";
+  // The left accent rail is the activity-type color (run vs lift); status is
+  // conveyed by shape (the dashed border) and the neutral text badge, never
+  // by the rail color. A skipped plan mutes the rail.
 
   return (
     <div
@@ -61,18 +64,19 @@ export function PlannedBanner({
       data-testid="planned-banner"
       // Dashed border distinguishes a forward-looking plan from the solid
       // logged-event banners.
-      className="overflow-hidden rounded-2xl border border-dashed border-[var(--accent)]/50 bg-[var(--surface)]"
+      className="overflow-hidden rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)]"
     >
       <div className="flex items-stretch">
         <button
           type="button"
           onClick={onOpen}
           aria-label={`Open planned workout: ${title}`}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5"
+          className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 ${ring} focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5`}
         >
           <span
             aria-hidden="true"
-            className={`h-7 w-1 shrink-0 rounded-full md:h-8 md:w-1.5 ${rail}`}
+            className="h-7 w-1 shrink-0 rounded-full md:h-8 md:w-1.5"
+            style={{ backgroundColor: skipped ? "var(--muted)" : c.dot }}
           />
           <span className="flex min-w-0 flex-col">
             <span className="flex items-center gap-1.5">
@@ -211,8 +215,8 @@ function setsLabel(sets: PlannedWorkout["exercises"][number]["sets"]): string {
 
 function StatusBadge({ status }: { status: PlannedWorkout["status"] }) {
   const map = {
-    planned: { label: "Planned", cls: "border-[var(--accent)]/50 text-[var(--accent)]" },
-    completed: { label: "Completed", cls: "border-emerald-500/50 text-emerald-400" },
+    planned: { label: "Planned", cls: "border-[var(--border)] text-[var(--muted)]" },
+    completed: { label: "Completed", cls: "border-[var(--border)] text-[var(--foreground)]" },
     skipped: { label: "Skipped", cls: "border-[var(--border)] text-[var(--muted)]" },
   } as const;
   const { label, cls } = map[status];
