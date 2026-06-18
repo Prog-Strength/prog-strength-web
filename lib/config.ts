@@ -20,4 +20,15 @@ export const config = {
   // address — override via the env var if you set up a dedicated
   // alias later.
   betaContactEmail: process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
+  // Gate for throwaway design-exploration (DX) routes (e.g.
+  // /design-explore/bodyweight-page). These are read only by server
+  // components, so the gate is evaluated server-side and the route 404s
+  // in production. It's enabled when either:
+  //   - NEXT_PUBLIC_DESIGN_EXPLORE === "true" (opt in locally / explicitly), or
+  //   - the deploy is a Vercel *preview* (VERCEL_ENV === "preview"), so a
+  //     reviewer can compare variants on the PR's preview URL.
+  // It is NEVER on in production (VERCEL_ENV === "production") and is never
+  // linked from product navigation, so it stays dead in the shipped app.
+  designExplore:
+    process.env.NEXT_PUBLIC_DESIGN_EXPLORE === "true" || process.env.VERCEL_ENV === "preview",
 };
