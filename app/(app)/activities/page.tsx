@@ -113,7 +113,7 @@ function ActivitiesPageInner() {
                 className={`rounded-full px-3 py-1 text-xs transition ${
                   active
                     ? "bg-[var(--accent)] text-[var(--accent-fg)]"
-                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--faint)] hover:text-[var(--foreground)]"
                 }`}
               >
                 {tf.label}

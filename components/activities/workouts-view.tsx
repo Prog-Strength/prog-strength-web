@@ -418,10 +418,11 @@ function PencilIcon() {
 function TrophyIcon({ count, title }: { count: number; title: string }) {
   // Inline trophy with the PR count next to it. Same visual idiom as
   // the sidebar trophy so users learn it once and recognize it across
-  // surfaces. Amber to read as "achievement" without using emoji.
+  // surfaces. The calm warning amber reads as "achievement" without
+  // using emoji.
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--warning)]/15 px-1.5 py-0.5 text-[10px] font-medium text-[var(--warning)]"
       title={title}
       aria-label={title}
     >

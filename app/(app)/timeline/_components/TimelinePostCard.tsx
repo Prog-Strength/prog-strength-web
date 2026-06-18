@@ -58,7 +58,7 @@ export function TimelinePostCard({
       {milestone && (
         <div className="flex items-center gap-2 rounded-2xl border border-[var(--accent-line)] bg-[var(--accent-soft)] px-3 py-1.5">
           <span aria-hidden="true">{milestone.emoji}</span>
-          <span className="font-display text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">
+          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">
             {milestone.label}
           </span>
         </div>
@@ -96,7 +96,7 @@ export function TimelinePostCard({
       </div>
 
       <Link href={post.content.href} className="group flex flex-col gap-1">
-        <h2 className="font-display text-xl font-semibold text-[var(--foreground)] group-hover:underline">
+        <h2 className="text-xl font-semibold text-[var(--foreground)] group-hover:underline">
           {post.content.title}
         </h2>
         {post.content.subtitle && (

@@ -2,10 +2,10 @@
 
 import { useMemo } from "react";
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,18 +14,29 @@ import {
 import type { RunningSession, Workout } from "@/lib/api";
 import { formatHours, formatWeekRangeFromMonday, formatYTick } from "@/lib/chart-format";
 import { buildWeeklyBuckets } from "@/lib/weekly-buckets";
+import {
+  CHART_AXIS,
+  CHART_CURSOR,
+  CHART_GRID,
+  CHART_LIFT_LINE,
+  CHART_RUN_LINE,
+  CHART_TOOLTIP_BG,
+  CHART_TOOLTIP_BORDER,
+  CHART_TOOLTIP_RADIUS,
+} from "@/lib/chart-colors";
 
 /**
  * Combined weekly activity chart for the Activities Overview — the "how
- * active was I this week?" answer at a glance. A single stacked AreaChart
- * showing minutes spent lifting (blue) stacked under minutes spent running
- * (green), week over week, so the consolidated trend lives somewhere.
+ * active was I this week?" answer at a glance. The signature calm-instrument
+ * move: two overlaid 1px single-stroke lines — periwinkle for minutes spent
+ * lifting, sage for minutes spent running — tracing each modality's trend
+ * week over week.
  *
  * Structurally a sibling of WorkoutDurationChart / RunningTimeChart: numeric
- * Monday-anchored weekly buckets on the X-axis, gradient-filled areas,
- * formatYTick on Y, the same tooltip/grid chrome. The twist is two series
- * sharing a single `stackId` so the areas stack into a total-activity band
- * instead of overlapping.
+ * Monday-anchored weekly buckets on the X-axis, formatYTick on Y, the same
+ * tooltip/grid chrome. The two series overlay rather than stack, so both stay
+ * legible where they cross and where a rest week sends one series to zero
+ * — no filled band swallowing the other line.
  *
  * Deliberately chrome-less: the outer card border and the Overview's hero
  * stat tiles live on the parent view (ActivitiesOverviewView). This renders
@@ -91,26 +102,19 @@ export function ActivitiesCombinedChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={points} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
-              <defs>
-                {/* Blue gradient for the lifting band. */}
-                <linearGradient id="combined-workout-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.32} />
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
-                </linearGradient>
-                {/* Green gradient for the running band. */}
-                <linearGradient id="combined-running-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.32} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+            {/* Colors come from lib/chart-colors (periwinkle = --accent/lift,
+                sage = --accent-2/run, faint axis, hairline grid). They are
+                hardcoded hex mirroring the design-system tokens because
+                recharts writes SVG presentation attributes, which can't
+                resolve var(--token). */}
+            <LineChart data={points} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+              <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="t"
                 type="number"
                 domain={["dataMin", "dataMax"]}
-                stroke="#a1a1aa"
-                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                stroke={CHART_AXIS}
+                tick={{ fill: CHART_AXIS, fontSize: 11 }}
                 tickFormatter={(v: number) =>
                   new Date(v).toLocaleDateString("en-US", {
                     month: "short",
@@ -119,8 +123,8 @@ export function ActivitiesCombinedChart({
                 }
               />
               <YAxis
-                stroke="#a1a1aa"
-                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                stroke={CHART_AXIS}
+                tick={{ fill: CHART_AXIS, fontSize: 11 }}
                 tickFormatter={formatYTick}
                 width={48}
               />
@@ -131,11 +135,11 @@ export function ActivitiesCombinedChart({
                 wrapperStyle={{ fontSize: "12px", paddingBottom: "4px" }}
               />
               <Tooltip
-                cursor={{ stroke: "#52525b", strokeWidth: 1 }}
+                cursor={{ stroke: CHART_CURSOR, strokeWidth: 1 }}
                 contentStyle={{
-                  backgroundColor: "#18181b",
-                  border: "1px solid #3f3f46",
-                  borderRadius: "0.375rem",
+                  backgroundColor: CHART_TOOLTIP_BG,
+                  border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+                  borderRadius: CHART_TOOLTIP_RADIUS,
                   padding: "6px 10px",
                   fontSize: "12px",
                 }}
@@ -151,30 +155,31 @@ export function ActivitiesCombinedChart({
                   name,
                 ]}
               />
-              {/* Lifting band (bottom of the stack). `name` drives both the
-                  legend label and the tooltip series name. */}
-              <Area
-                stackId="activity"
+              {/* Lifting line (periwinkle). `name` drives both the legend
+                  label and the tooltip series name. */}
+              <Line
                 type="monotone"
                 dataKey="workout_minutes"
                 name="Lifting"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                fill="url(#combined-workout-fill)"
+                stroke={CHART_LIFT_LINE}
+                strokeWidth={1}
+                dot={false}
+                activeDot={{ r: 3 }}
                 isAnimationActive={false}
               />
-              {/* Running band (stacked on top). */}
-              <Area
-                stackId="activity"
+              {/* Running line (sage). Overlaid, not stacked, so it stays
+                  legible where it crosses the lifting line or drops to zero. */}
+              <Line
                 type="monotone"
                 dataKey="running_minutes"
                 name="Running"
-                stroke="#10b981"
-                strokeWidth={2}
-                fill="url(#combined-running-fill)"
+                stroke={CHART_RUN_LINE}
+                strokeWidth={1}
+                dot={false}
+                activeDot={{ r: 3 }}
                 isAnimationActive={false}
               />
-            </AreaChart>
+            </LineChart>
           </ResponsiveContainer>
         )}
       </div>

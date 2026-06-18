@@ -1,19 +1,13 @@
 import type { Metadata } from "next";
-import { Nunito, Geist_Mono, Oswald } from "next/font/google";
+import { Manrope, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { ToastProvider } from "@/components/toast";
 import { DistanceUnitProvider } from "@/lib/distance-unit-context";
 
-const nunito = Nunito({
-  variable: "--font-nunito",
+const manrope = Manrope({
+  variable: "--font-manrope",
   subsets: ["latin"],
-});
-
-const oswald = Oswald({
-  variable: "--font-oswald",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -36,7 +30,7 @@ export default function RootLayout({
       lang="en"
       // `dark` makes Tailwind's `dark:` variants resolve consistently
       // with our forced-dark palette in globals.css.
-      className={`${nunito.variable} ${oswald.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${manrope.variable} ${geistMono.variable} h-full antialiased dark`}
     >
       <body className="h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
         <Providers>

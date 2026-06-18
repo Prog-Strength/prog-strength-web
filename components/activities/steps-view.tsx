@@ -6,6 +6,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -23,17 +24,28 @@ import {
   type StepsGoal,
 } from "@/lib/api";
 import { StatTile } from "@/components/stat-tile";
+import {
+  CHART_AXIS,
+  CHART_GRID,
+  CHART_LIFT_LINE,
+  CHART_STEPS_MET,
+  CHART_STEPS_UNDER,
+  CHART_TOOLTIP_BG,
+  CHART_TOOLTIP_BORDER,
+  CHART_TOOLTIP_RADIUS,
+} from "@/lib/chart-colors";
 
 const PAGE_SIZE = 25;
 const MAX_STEPS = 200000;
-const BAR_COLOR = "#3b82f6"; // blue-500
 
 /**
  * Steps sub-view of the Activities page. Top → bottom:
  *   - Stat tiles (avg / total / best day / goal attainment) over the
  *     selected timeframe window.
- *   - Daily bar chart, one bar per day in the range, with a goal
- *     reference line when a goal is set.
+ *   - Daily bar chart, one bar per day in the range. When a goal is
+ *     set, days that met/over the goal read in the calm success tone and
+ *     under-goal days in a muted neutral, against a dashed goal line;
+ *     with no goal set every bar reads in the calm periwinkle accent.
  *   - A keyset-paginated log table (one row per day) with Log / Edit /
  *     Delete affordances and a "Set steps goal" control.
  *
@@ -276,29 +288,35 @@ function ChartCard({
 }) {
   if (data.length === 0) {
     return (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">
+      <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">
         No steps logged in this range.
       </div>
     );
   }
 
+  // Day-by-day bar tone: with no goal the whole chart reads calm
+  // periwinkle; with a goal, met/over days read success and under days a
+  // muted neutral so attainment is visible at a glance against the line.
+  const barColor = (steps: number) =>
+    goal === null ? CHART_LIFT_LINE : steps >= goal ? CHART_STEPS_MET : CHART_STEPS_UNDER;
+
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:p-4">
+    <div className="flex flex-col gap-4 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-3 sm:p-4">
       <h3 className="text-base font-semibold tracking-tight">Daily steps</h3>
       <div className="h-[280px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 12, right: 16, bottom: 8, left: 0 }}>
-            <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
+            <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="date"
-              stroke="#a1a1aa"
-              tick={{ fill: "#a1a1aa", fontSize: 11 }}
+              stroke={CHART_AXIS}
+              tick={{ fill: CHART_AXIS, fontSize: 11 }}
               minTickGap={16}
               tickFormatter={(v: string) => formatAxisDate(v)}
             />
             <YAxis
-              stroke="#a1a1aa"
-              tick={{ fill: "#a1a1aa", fontSize: 11 }}
+              stroke={CHART_AXIS}
+              tick={{ fill: CHART_AXIS, fontSize: 11 }}
               width={48}
               // Force the goal into the visible domain so its reference
               // line never clips off-axis (mirrors the bodyweight fix).
@@ -309,11 +327,11 @@ function ChartCard({
               tickFormatter={(v: number) => formatSteps(Math.round(v))}
             />
             <Tooltip
-              cursor={{ fill: "rgba(255,255,255,0.05)" }}
+              cursor={{ fill: "rgba(255,255,255,0.04)" }}
               contentStyle={{
-                backgroundColor: "#18181b",
-                border: "1px solid #3f3f46",
-                borderRadius: "0.375rem",
+                backgroundColor: CHART_TOOLTIP_BG,
+                border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+                borderRadius: CHART_TOOLTIP_RADIUS,
                 padding: "8px 10px",
                 fontSize: "12px",
               }}
@@ -324,17 +342,21 @@ function ChartCard({
                 return [formatSteps(v), "Steps"];
               }}
             />
-            <Bar dataKey="steps" fill={BAR_COLOR} radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="steps" radius={[2, 2, 0, 0]} isAnimationActive={false}>
+              {data.map((d) => (
+                <Cell key={d.date} fill={barColor(d.steps)} />
+              ))}
+            </Bar>
             {goal !== null && (
               <ReferenceLine
                 y={goal}
-                stroke="#10b981"
+                stroke={CHART_STEPS_MET}
                 strokeDasharray="6 4"
                 strokeWidth={1.5}
                 label={{
                   value: `Goal ${formatSteps(goal)}`,
                   position: "right",
-                  fill: "#10b981",
+                  fill: CHART_STEPS_MET,
                   fontSize: 10,
                 }}
               />
@@ -364,7 +386,7 @@ function StepsTable({
   onLoadMore: () => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+    <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)]">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--border)] text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
@@ -841,7 +863,7 @@ function TargetIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-4 w-4 text-emerald-500"
+      className="h-4 w-4 text-[var(--success)]"
       aria-hidden="true"
     >
       <circle cx="12" cy="12" r="9" />

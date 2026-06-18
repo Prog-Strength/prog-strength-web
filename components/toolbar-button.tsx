@@ -1,8 +1,8 @@
 /**
- * Ghost-style button. When `active` is true (used by the Pantry and
- * Recipes tabs), the button paints a 2px underline that aligns with
- * the parent row's bottom border, so the active tab visually
- * "connects" to the separator below.
+ * Ghost-style button. When `active` is true (the Activities tab bar and
+ * the nutrition Pantry/Recipes tabs), the button paints a 2px accent
+ * underline that aligns with the parent row's bottom border, so the
+ * active tab visually "connects" to the separator below.
  */
 export function ToolbarButton({
   onClick,
@@ -32,8 +32,10 @@ export function ToolbarButton({
       // on mobile without extra padding.
       aria-label={label}
       className={
-        "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 " +
-        (active ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3" : "")
+        "inline-flex items-center gap-1.5 text-sm font-medium transition hover:opacity-70 " +
+        (active
+          ? "border-b-2 border-[var(--accent)] -mb-[14px] pb-3 text-[var(--foreground)]"
+          : "text-[var(--faint)] hover:text-[var(--foreground)]")
       }
     >
       {icon}

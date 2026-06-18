@@ -59,7 +59,8 @@ vi.mock("recharts", () => {
   return {
     ResponsiveContainer,
     BarChart: passthrough("BarChart"),
-    Bar: stub("Bar"),
+    Bar: passthrough("Bar"),
+    Cell: (props: { fill?: string }) => <div data-recharts="Cell" data-fill={props.fill} />,
     CartesianGrid: stub("CartesianGrid"),
     XAxis: stub("XAxis"),
     YAxis: stub("YAxis"),
@@ -118,6 +119,47 @@ describe("StepsView — goal reference line", () => {
   });
 });
 
+describe("StepsView — over/under-goal bars", () => {
+  it("tones over-goal and under-goal days with distinct fills", async () => {
+    getStepsGoalMock.mockResolvedValue({
+      goal: 10000,
+      created_at: "2026-01-01",
+      updated_at: "2026-01-01",
+    });
+    listStepsMock.mockResolvedValue({
+      steps: [entry("2026-06-10", 12000), entry("2026-06-11", 8000)],
+      next_before: null,
+    });
+
+    render(<StepsView days={30} />);
+    await waitFor(() => expect(screen.getByText("Avg daily steps")).toBeInTheDocument());
+
+    const cells = Array.from(document.querySelectorAll('[data-recharts="Cell"]'));
+    expect(cells).toHaveLength(2);
+    const fills = cells.map((c) => c.getAttribute("data-fill"));
+    // Two distinct tones: success for the over-goal day, muted for under.
+    expect(new Set(fills).size).toBe(2);
+    expect(fills).toContain("#86b39f"); // CHART_STEPS_MET (over goal)
+    expect(fills).toContain("#5b6168"); // CHART_STEPS_UNDER (under goal)
+  });
+
+  it("uses one calm periwinkle tone for every bar when no goal is set", async () => {
+    getStepsGoalMock.mockResolvedValue({ goal: 0, created_at: null, updated_at: null });
+    listStepsMock.mockResolvedValue({
+      steps: [entry("2026-06-10", 12000), entry("2026-06-11", 8000)],
+      next_before: null,
+    });
+
+    render(<StepsView days={30} />);
+    await waitFor(() => expect(screen.getByText("Avg daily steps")).toBeInTheDocument());
+
+    const cells = Array.from(document.querySelectorAll('[data-recharts="Cell"]'));
+    expect(cells).toHaveLength(2);
+    const fills = cells.map((c) => c.getAttribute("data-fill"));
+    expect(new Set(fills)).toEqual(new Set(["#9aa6d6"])); // CHART_LIFT_LINE
+  });
+});
+
 describe("StepsView — keyset pagination", () => {
   it("shows Load more when next_before is set and fetches with before on click", async () => {
     // Range fetch (call 1) + first keyset page (call 2) both resolve via
@@ -142,5 +184,37 @@ describe("StepsView — keyset pagination", () => {
     await waitFor(() =>
       expect(listStepsMock).toHaveBeenCalledWith("tok", { limit: 25, before: "2026-06-10" }),
     );
+  });
+});
+
+describe("StepsView — log edit/delete mutations", () => {
+  it("fires deleteStepsForDate and refetches when a row is deleted", async () => {
+    deleteStepsMock.mockResolvedValue(undefined);
+    render(<StepsView days={30} />);
+    // Two log rows render from the default mock (2026-06-10, 2026-06-11).
+    const deleteButtons = await screen.findAllByRole("button", { name: /delete steps/i });
+    expect(deleteButtons.length).toBeGreaterThan(0);
+
+    const callsBefore = listStepsMock.mock.calls.length;
+    fireEvent.click(deleteButtons[0]);
+
+    // The mutation fires for the clicked row's date…
+    await waitFor(() => expect(deleteStepsMock).toHaveBeenCalledWith("tok", "2026-06-10"));
+    // …and the view refetches (listSteps called again) to reflect the change.
+    await waitFor(() => expect(listStepsMock.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it("fires upsertStepsForDate when an existing row is edited and saved", async () => {
+    upsertStepsMock.mockResolvedValue(undefined);
+    render(<StepsView days={30} />);
+    const editButtons = await screen.findAllByRole("button", { name: /edit steps/i });
+    fireEvent.click(editButtons[0]); // edit the 2026-06-10 row
+
+    // The edit modal opens pre-filled; change the count and save.
+    const stepsInput = await screen.findByPlaceholderText("10000");
+    fireEvent.change(stepsInput, { target: { value: "9500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(upsertStepsMock).toHaveBeenCalledWith("tok", "2026-06-10", 9500));
   });
 });
