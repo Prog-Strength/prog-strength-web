@@ -1,11 +1,13 @@
 /**
- * A single headline stat for the Running dashboard / detail grids.
+ * A single headline stat rendered as a calm hairline-panel tile.
  *
- * Mirrors the Progress page's StatTile styling (rounded border, surface
- * background, large value, uppercase muted label) so the two surfaces
- * read as one design language. The optional `sub` line carries a small
- * secondary annotation (a delta, a run count, a context label); `tone`
- * colors the value for positive/negative deltas.
+ * A quiet instrument: a soft surface card with a hairline border, a
+ * large tabular value, and a faint uppercase label. The optional `sub`
+ * line carries a small secondary annotation (a delta, a run count, a
+ * context label); `tone` colors the value for positive/negative deltas.
+ * Used across the Activities views (Overview/Running/Steps), the run
+ * history list, and the run-detail page so the surfaces read as one
+ * design language.
  */
 
 export function StatTile({
@@ -21,14 +23,16 @@ export function StatTile({
 }) {
   const toneColor =
     tone === "positive"
-      ? "text-[#86efac]"
+      ? "text-[var(--success)]"
       : tone === "negative"
         ? "text-[var(--danger)]"
         : "text-[var(--foreground)]";
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-      <p className={`text-2xl font-semibold tracking-tight tabular-nums ${toneColor}`}>{value}</p>
-      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+    <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+      <p className={`text-2xl font-semibold tabular-nums tracking-[-0.03em] ${toneColor}`}>
+        {value}
+      </p>
+      <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--faint)]">
         {label}
       </p>
       {sub && <p className="mt-0.5 text-xs tabular-nums text-[var(--muted)]">{sub}</p>}

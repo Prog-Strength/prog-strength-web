@@ -18,8 +18,8 @@ export function ViewButton({
       aria-pressed={active}
       className={`rounded-md px-2 py-1 transition ${
         active
-          ? "bg-[var(--accent)] text-[var(--accent-fg)]"
-          : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          ? "bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent-line)]"
+          : "border border-[var(--border)] bg-[var(--surface)] text-[var(--faint)] hover:text-[var(--foreground)]"
       }`}
     >
       {children}

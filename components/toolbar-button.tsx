@@ -32,8 +32,10 @@ export function ToolbarButton({
       // on mobile without extra padding.
       aria-label={label}
       className={
-        "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)] transition hover:opacity-70 " +
-        (active ? "border-b-2 border-[var(--foreground)] -mb-[14px] pb-3" : "")
+        "inline-flex items-center gap-1.5 text-sm font-medium transition hover:opacity-70 " +
+        (active
+          ? "border-b-2 border-[var(--accent)] -mb-[14px] pb-3 text-[var(--foreground)]"
+          : "text-[var(--faint)] hover:text-[var(--foreground)]")
       }
     >
       {icon}
