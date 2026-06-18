@@ -4,7 +4,7 @@
    language (see sows/activities-page-redesign.md).
    One palette, no `dark:` variants. */
 :root {
-  /* Neutrals — slate ramp */
+  /* Neutrals — soft near-black ramp */
   --background: #0e0f12; /* base */
   --surface: #15171b; /* panels / rails / bubbles */
   --surface-2: #191c21; /* raised — hover, chips */
@@ -12,7 +12,7 @@
   --foreground: #c8cad0; /* primary text */
   --muted: #7d818c; /* secondary text */
   --faint: #565a63; /* tertiary text */
-  /* Hairline borders — white-alpha so they read on any slate surface */
+  /* Hairline borders — white-alpha so they read on any surface */
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.1);
 

@@ -14,6 +14,16 @@ import {
 import type { RunningSession, Workout } from "@/lib/api";
 import { formatHours, formatWeekRangeFromMonday, formatYTick } from "@/lib/chart-format";
 import { buildWeeklyBuckets } from "@/lib/weekly-buckets";
+import {
+  CHART_AXIS,
+  CHART_CURSOR,
+  CHART_GRID,
+  CHART_LIFT_LINE,
+  CHART_RUN_LINE,
+  CHART_TOOLTIP_BG,
+  CHART_TOOLTIP_BORDER,
+  CHART_TOOLTIP_RADIUS,
+} from "@/lib/chart-colors";
 
 /**
  * Combined weekly activity chart for the Activities Overview — the "how
@@ -92,23 +102,19 @@ export function ActivitiesCombinedChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            {/* Colors are hardcoded hex that mirror the design-system tokens
-                (periwinkle #9aa6d6 = --accent/--discipline-lift; sage #7fae9e
-                = --accent-2/--discipline-run; faint axis #565a63; hairline
-                grid rgba(255,255,255,0.06)). recharts writes SVG presentation
-                attributes, which can't resolve var(--token). */}
+            {/* Colors come from lib/chart-colors (periwinkle = --accent/lift,
+                sage = --accent-2/run, faint axis, hairline grid). They are
+                hardcoded hex mirroring the design-system tokens because
+                recharts writes SVG presentation attributes, which can't
+                resolve var(--token). */}
             <LineChart data={points} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
-              <CartesianGrid
-                stroke="rgba(255,255,255,0.06)"
-                strokeDasharray="3 3"
-                vertical={false}
-              />
+              <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="t"
                 type="number"
                 domain={["dataMin", "dataMax"]}
-                stroke="#565a63"
-                tick={{ fill: "#565a63", fontSize: 11 }}
+                stroke={CHART_AXIS}
+                tick={{ fill: CHART_AXIS, fontSize: 11 }}
                 tickFormatter={(v: number) =>
                   new Date(v).toLocaleDateString("en-US", {
                     month: "short",
@@ -117,8 +123,8 @@ export function ActivitiesCombinedChart({
                 }
               />
               <YAxis
-                stroke="#565a63"
-                tick={{ fill: "#565a63", fontSize: 11 }}
+                stroke={CHART_AXIS}
+                tick={{ fill: CHART_AXIS, fontSize: 11 }}
                 tickFormatter={formatYTick}
                 width={48}
               />
@@ -129,11 +135,11 @@ export function ActivitiesCombinedChart({
                 wrapperStyle={{ fontSize: "12px", paddingBottom: "4px" }}
               />
               <Tooltip
-                cursor={{ stroke: "#565a63", strokeWidth: 1 }}
+                cursor={{ stroke: CHART_CURSOR, strokeWidth: 1 }}
                 contentStyle={{
-                  backgroundColor: "#15171b",
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  borderRadius: "0.875rem",
+                  backgroundColor: CHART_TOOLTIP_BG,
+                  border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+                  borderRadius: CHART_TOOLTIP_RADIUS,
                   padding: "6px 10px",
                   fontSize: "12px",
                 }}
@@ -155,7 +161,7 @@ export function ActivitiesCombinedChart({
                 type="monotone"
                 dataKey="workout_minutes"
                 name="Lifting"
-                stroke="#9aa6d6"
+                stroke={CHART_LIFT_LINE}
                 strokeWidth={1}
                 dot={false}
                 activeDot={{ r: 3 }}
@@ -167,7 +173,7 @@ export function ActivitiesCombinedChart({
                 type="monotone"
                 dataKey="running_minutes"
                 name="Running"
-                stroke="#7fae9e"
+                stroke={CHART_RUN_LINE}
                 strokeWidth={1}
                 dot={false}
                 activeDot={{ r: 3 }}

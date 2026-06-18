@@ -1,8 +1,8 @@
 /**
- * Ghost-style button. When `active` is true (used by the Pantry and
- * Recipes tabs), the button paints a 2px underline that aligns with
- * the parent row's bottom border, so the active tab visually
- * "connects" to the separator below.
+ * Ghost-style button. When `active` is true (the Activities tab bar and
+ * the nutrition Pantry/Recipes tabs), the button paints a 2px accent
+ * underline that aligns with the parent row's bottom border, so the
+ * active tab visually "connects" to the separator below.
  */
 export function ToolbarButton({
   onClick,

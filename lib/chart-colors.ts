@@ -1,8 +1,9 @@
 /**
- * Chart palette for the activities trend charts. recharts renders SVG
- * presentation attributes, which can't resolve `var(--token)`, so these
- * hex values are hardcoded here to MIRROR the design-system tokens
- * (oura-calm-minimal). Keep them in sync with app/globals.css.
+ * Chart palette for the activities charts (overview, trend, and steps).
+ * recharts renders SVG presentation attributes, which can't resolve
+ * `var(--token)`, so these hex values are hardcoded here to MIRROR the
+ * design-system tokens (oura-calm-minimal). Keep them in sync with
+ * app/globals.css.
  */
 export const CHART_LIFT_LINE = "#9aa6d6"; // --accent / --discipline-lift
 export const CHART_RUN_LINE = "#7fae9e"; // --accent-2 / --discipline-run
@@ -13,4 +14,4 @@ export const CHART_TOOLTIP_BORDER = "rgba(255, 255, 255, 0.1)"; // --border-stro
 export const CHART_TOOLTIP_RADIUS = "0.875rem"; // --radius-card (14px)
 export const CHART_CURSOR = "#565a63"; // --faint
 export const CHART_STEPS_MET = "#86b39f"; // --success (day met/over goal)
-export const CHART_STEPS_UNDER = "#5b6168"; // muted neutral (day under goal)
+export const CHART_STEPS_UNDER = "#5b6168"; // muted neutral, intentionally not a token (day under goal)
