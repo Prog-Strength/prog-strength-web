@@ -71,9 +71,6 @@ export default function CalendarPage() {
   // The day whose digest panel is shown below the grid. Seeds to today so
   // the panel reads as the user's "now" on first paint.
   const [selected, setSelected] = useState<string>(() => localDateKey(new Date()));
-  // id of the activity whose digest banner should auto-expand (set when a
-  // pill is clicked); cleared whenever the selected day changes.
-  const [autoExpandId, setAutoExpandId] = useState<string | null>(null);
 
   // Exercise catalog fetches once — it's shared across all months.
   useEffect(() => {
@@ -145,10 +142,10 @@ export default function CalendarPage() {
   }, [loadWindow]);
 
   // Changing months re-anchors the selection to the first of the newly
-  // cursored month and clears any auto-expand: a digest left open for a
-  // day that's no longer in view would be confusing. We deliberately skip
-  // the very first run so the initial load keeps the today-seeded
-  // selection (re-anchoring on mount would snap "today" to the 1st).
+  // cursored month: a digest left open for a day that's no longer in view
+  // would be confusing. We deliberately skip the very first run so the
+  // initial load keeps the today-seeded selection (re-anchoring on mount
+  // would snap "today" to the 1st).
   const cursorMounted = useRef(false);
   useEffect(() => {
     if (!cursorMounted.current) {
@@ -156,7 +153,6 @@ export default function CalendarPage() {
       return;
     }
     setSelected(localDateKey(new Date(cursor.year, cursor.month, 1)));
-    setAutoExpandId(null);
   }, [cursor]);
 
   // The digest panel below the grid. Pill/cell clicks scroll it into view
@@ -165,15 +161,7 @@ export default function CalendarPage() {
 
   const selectDay = (key: string) => {
     setSelected(key);
-    setAutoExpandId(null);
     // defer so the digest has re-rendered for the new day before scrolling
-    requestAnimationFrame(() =>
-      digestRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
-    );
-  };
-  const selectDayAndExpand = (key: string, activityId: string) => {
-    setSelected(key);
-    setAutoExpandId(activityId);
     requestAnimationFrame(() =>
       digestRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
     );
@@ -212,6 +200,13 @@ export default function CalendarPage() {
   const closePlanning = () => {
     setPlanningOpen(false);
     setEditingPlan(null);
+  };
+
+  // A grid planned pill opens the read-only modal for that plan directly,
+  // selecting its day as a side effect (the modal is the detail surface).
+  const openPlannedForDay = (key: string, plan: PlannedWorkout) => {
+    setSelected(key);
+    openViewPlan(plan);
   };
 
   // Begin a live workout prefilled from a planned lift, carrying the plan id
@@ -538,9 +533,9 @@ export default function CalendarPage() {
                       isSelected={isSelected}
                       events={dayEvents}
                       onSelectDay={() => selectDay(key)}
-                      onSelectWorkout={(id) => selectDayAndExpand(key, id)}
-                      onSelectRun={(id) => selectDayAndExpand(key, id)}
-                      onSelectPlanned={(id) => selectDayAndExpand(key, id)}
+                      onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
+                      onNavigateRun={(id) => router.push(`/running/${id}`)}
+                      onOpenPlanned={(plan) => openPlannedForDay(key, plan)}
                     />
                   );
                 })}
@@ -561,7 +556,6 @@ export default function CalendarPage() {
               events={eventsByDate.get(selected) ?? []}
               steps={stepsByDate.get(isoDateKey(selectedDate)) ?? null}
               exerciseMap={exerciseMap}
-              autoExpandId={autoExpandId}
               onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
               onNavigateRun={(id) => router.push(`/running/${id}`)}
               onPlanWorkout={openNewPlan}

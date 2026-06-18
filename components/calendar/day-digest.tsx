@@ -18,7 +18,6 @@ export function DayDigest({
   events,
   steps,
   exerciseMap,
-  autoExpandId,
   onNavigateWorkout,
   onNavigateRun,
   onPlanWorkout,
@@ -30,7 +29,6 @@ export function DayDigest({
   events: CalendarEvent[]; // that day's events, already start-time sorted
   steps?: number | null; // that day's logged step count, if any
   exerciseMap: Map<string, Exercise>;
-  autoExpandId?: string | null; // id of the activity whose banner should default-open
   onNavigateWorkout: (workoutId: string) => void;
   onNavigateRun: (runId: string) => void;
   // Open the create-plan modal (seeded to this day) from the empty state.
@@ -86,28 +84,17 @@ export function DayDigest({
             .sort((a, b) => a.startMs - b.startMs)
             .map((ev) =>
               ev.kind === "completed-planned" ? (
-                // The collapsed banner is keyed on the LOGGED session id —
-                // that's the id the grid pill auto-expands with, and varying
-                // the key on the open/closed flag forces the remount the
-                // other banners rely on for `defaultOpen` to re-apply.
-                (() => {
-                  const loggedId =
-                    ev.logged.kind === "workout" ? ev.logged.workout.id : ev.logged.run.id;
-                  return (
-                    <CompletedPlannedBanner
-                      key={`cp-${ev.planned.id}-${loggedId === autoExpandId ? "open" : "closed"}`}
-                      planned={ev.planned}
-                      logged={ev.logged}
-                      exerciseMap={exerciseMap}
-                      defaultOpen={loggedId === autoExpandId}
-                      onNavigate={() =>
-                        ev.logged.kind === "workout"
-                          ? onNavigateWorkout(ev.logged.workout.id)
-                          : onNavigateRun(ev.logged.run.id)
-                      }
-                    />
-                  );
-                })()
+                <CompletedPlannedBanner
+                  key={`cp-${ev.planned.id}`}
+                  planned={ev.planned}
+                  logged={ev.logged}
+                  exerciseMap={exerciseMap}
+                  onNavigate={() =>
+                    ev.logged.kind === "workout"
+                      ? onNavigateWorkout(ev.logged.workout.id)
+                      : onNavigateRun(ev.logged.run.id)
+                  }
+                />
               ) : ev.kind === "planned" ? (
                 <PlannedBanner
                   key={`p-${ev.planned.id}`}
@@ -117,25 +104,17 @@ export function DayDigest({
                   onNavigateSession={onNavigateSession}
                 />
               ) : ev.kind === "workout" ? (
-                // The `key` deliberately encodes whether this banner is the
-                // auto-expand target. Banners hold their own open state
-                // seeded from `defaultOpen`, so when `autoExpandId` changes
-                // we need the banner to remount for `defaultOpen` to take
-                // effect again — varying the key on the open/closed flag
-                // forces that remount.
                 <WorkoutBanner
-                  key={`w-${ev.workout.id}-${ev.workout.id === autoExpandId ? "open" : "closed"}`}
+                  key={`w-${ev.workout.id}`}
                   workout={ev.workout}
                   exerciseMap={exerciseMap}
                   onNavigate={() => onNavigateWorkout(ev.workout.id)}
-                  defaultOpen={ev.workout.id === autoExpandId}
                 />
               ) : (
                 <RunBanner
-                  key={`r-${ev.run.id}-${ev.run.id === autoExpandId ? "open" : "closed"}`}
+                  key={`r-${ev.run.id}`}
                   run={ev.run}
                   onNavigate={() => onNavigateRun(ev.run.id)}
-                  defaultOpen={ev.run.id === autoExpandId}
                 />
               ),
             )}
