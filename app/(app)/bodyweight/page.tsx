@@ -2,17 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import {
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ReferenceLine,
-  ResponsiveContainer,
-  Scatter,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   createBodyweightEntry,
@@ -25,6 +14,7 @@ import {
   type BodyweightGoal,
 } from "@/lib/api";
 import { BodyweightActionSheet } from "@/components/bodyweight/bodyweight-action-sheet";
+import { TrendSection } from "./_components/trend-section";
 
 /**
  * Bodyweight — chart-first layout with the daily-average trend line as
@@ -45,13 +35,6 @@ import { BodyweightActionSheet } from "@/components/bodyweight/bodyweight-action
 
 const UNIT_PREFERENCE_KEY = "ps_bodyweight_unit";
 const PAGE_SIZE = 20;
-
-// Recharts series colors. Picked for clear hue contrast so the
-// scatter (raw readings) doesn't blur into the line (daily-avg
-// trend). Blue stays the "primary signal" reading for the trend,
-// amber is the "secondary detail" reading for the raw scatter.
-const COLOR_AVG = "#3b82f6"; // blue-500 — trend line
-const COLOR_RAW = "#fcd34d"; // amber-300 — raw readings scatter
 
 type RangeKey = "30" | "60" | "90" | "all";
 const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
@@ -287,9 +270,21 @@ export default function BodyweightPage() {
             </div>
           )}
 
-          <TimeRangeTabs value={range} onChange={setRange} />
+          <TimeRangeTabs
+            value={range}
+            onChange={setRange}
+            count={entriesInRange.length}
+            endingLabel={
+              entriesInRange.length > 0
+                ? new Date(entriesInRange[0].measured_at).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })
+                : null
+            }
+          />
 
-          <ChartCard
+          <TrendSection
             entries={entriesInRange}
             displayUnit={displayUnit}
             goal={hasGoal ? goal : null}
@@ -400,359 +395,45 @@ export default function BodyweightPage() {
 
 // --- Time range tabs ----------------------------------------------
 
-function TimeRangeTabs({ value, onChange }: { value: RangeKey; onChange: (v: RangeKey) => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
-      {RANGES.map((r) => {
-        const selected = r.key === value;
-        const stateClasses = selected
-          ? "bg-[var(--accent)] text-[var(--accent-fg)] shadow-[inset_0_1px_3px_rgba(0,0,0,0.45)] translate-y-px"
-          : "bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--background)]";
-        return (
-          <button
-            key={r.key}
-            type="button"
-            onClick={() => onChange(r.key)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${stateClasses}`}
-          >
-            {r.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// --- Chart card ----------------------------------------------------
-
-/**
- * Single card holding the chart, its legend, and the stat tiles. The
- * tiles sit inside the same `bg-[var(--surface)]` box so the visual
- * hierarchy reads as "the chart and its summary numbers are one
- * unit" rather than two adjacent rows.
- */
-function ChartCard({
-  entries,
-  displayUnit,
-  goal,
-  isMobile,
-}: {
-  entries: BodyweightEntry[];
-  displayUnit: "lb" | "kg";
-  goal: BodyweightGoal | null;
-  isMobile: boolean;
-}) {
-  const { rawPoints, avgPoints } = useMemo(() => {
-    const raw = entries.map((e) => ({
-      t: new Date(e.measured_at).getTime(),
-      weight: convertWeight(e.weight, e.unit, displayUnit),
-    }));
-    const byDay = new Map<number, number[]>();
-    for (const e of entries) {
-      const d = new Date(e.measured_at);
-      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-      const arr = byDay.get(dayStart) ?? [];
-      arr.push(convertWeight(e.weight, e.unit, displayUnit));
-      byDay.set(dayStart, arr);
-    }
-    const avg: { t: number; avg: number }[] = [];
-    for (const [dayStart, weights] of byDay) {
-      const dailyMean = weights.reduce((a, b) => a + b, 0) / weights.length;
-      avg.push({ t: dayStart + 12 * 60 * 60 * 1000, avg: dailyMean });
-    }
-    avg.sort((a, b) => a.t - b.t);
-    return { rawPoints: raw, avgPoints: avg };
-  }, [entries, displayUnit]);
-
-  const stats = useMemo(() => computeStats(entries, displayUnit), [entries, displayUnit]);
-
-  // Goal weight projected into the chart's display unit, so the y-axis
-  // domain and the goal-line ReferenceLine read off the same number.
-  // Null when no goal is set; the y-axis falls back to data-only bounds.
-  const goalInDisplayUnit =
-    goal && goal.weight > 0 ? convertWeight(goal.weight, goal.unit, displayUnit) : null;
-
-  if (entries.length === 0) {
-    return (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">
-        No readings in this range.
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:p-4">
-      <h3 className="text-base font-semibold tracking-tight">Bodyweight</h3>
-      <div className="h-[320px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          {/* Mobile shrinks right margin (the goal label moves inside
-              the plot area so it no longer needs gutter), and y-axis
-              tick width drops from 48 to 32. Together those buy ~32px
-              of canvas width back for the line graph itself. */}
-          <ComposedChart
-            margin={{
-              top: 12,
-              right: isMobile ? 8 : 16,
-              bottom: 8,
-              left: 0,
-            }}
-          >
-            <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
-            <XAxis
-              dataKey="t"
-              type="number"
-              domain={["dataMin", "dataMax"]}
-              stroke="#a1a1aa"
-              tick={{ fill: "#a1a1aa", fontSize: 11 }}
-              // Mobile uses a numeric date (6/4) instead of "Jun 4"
-              // so ticks don't collide on a narrow x-axis; minTickGap
-              // also prevents recharts from packing them in too tight.
-              minTickGap={isMobile ? 24 : 12}
-              tickFormatter={(v: number) => {
-                const d = new Date(v);
-                if (isMobile) {
-                  return `${d.getMonth() + 1}/${d.getDate()}`;
-                }
-                return d.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                });
-              }}
-            />
-            <YAxis
-              stroke="#a1a1aa"
-              tick={{ fill: "#a1a1aa", fontSize: 11 }}
-              // When a goal is set, force it into the visible domain so
-              // it can't sit off-axis. The ±2 padding lets the dashed
-              // goal-line and its label clear the chart's top/bottom edge.
-              domain={[
-                (dataMin: number) =>
-                  Math.floor(
-                    goalInDisplayUnit !== null
-                      ? Math.min(dataMin, goalInDisplayUnit) - 2
-                      : dataMin - 2,
-                  ),
-                (dataMax: number) =>
-                  Math.ceil(
-                    goalInDisplayUnit !== null
-                      ? Math.max(dataMax, goalInDisplayUnit) + 2
-                      : dataMax + 2,
-                  ),
-              ]}
-              width={isMobile ? 32 : 48}
-              tickFormatter={(v: number) => `${Math.round(v)}`}
-            />
-            <Tooltip
-              cursor={{ stroke: "#52525b", strokeWidth: 1 }}
-              contentStyle={{
-                backgroundColor: "#18181b",
-                border: "1px solid #3f3f46",
-                borderRadius: "0.375rem",
-                padding: "8px 10px",
-                fontSize: "12px",
-              }}
-              wrapperStyle={{ outline: "none" }}
-              labelFormatter={(label) => {
-                const v = typeof label === "number" ? label : Number(label);
-                return new Date(v).toLocaleDateString("en-US", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                });
-              }}
-              formatter={(value, name, item) => {
-                const v = typeof value === "number" ? value : Number(value);
-                // Distinguish series by dataKey, not name: in a
-                // ComposedChart where each series carries its own
-                // `data`, the Scatter's tooltip payload `name` arrives
-                // undefined (recharts 3.x reads it from the data point,
-                // which has no `name` field), so a `name === "weight"`
-                // check mislabels raw readings as "Daily avg". The
-                // dataKey is always present and reliable. Both branches
-                // run the value through formatNumber so neither series
-                // can leak a raw float (e.g. 184.20000000000002).
-                const dataKey = item?.dataKey;
-                const label = dataKey === "weight" ? "Reading" : "Daily avg";
-                return [`${formatNumber(v)} ${displayUnit}`, label];
-              }}
-            />
-            <Scatter
-              name="weight"
-              data={rawPoints}
-              dataKey="weight"
-              fill={COLOR_RAW}
-              isAnimationActive={false}
-            />
-            <Line
-              name="avg"
-              data={avgPoints}
-              type="monotone"
-              dataKey="avg"
-              stroke={COLOR_AVG}
-              strokeWidth={2}
-              dot={{ fill: COLOR_AVG, r: 3 }}
-              isAnimationActive={false}
-            />
-            {goalInDisplayUnit !== null && (
-              <ReferenceLine
-                y={goalInDisplayUnit}
-                stroke="#10b981"
-                strokeDasharray="6 4"
-                strokeWidth={1.5}
-                label={{
-                  // Mobile shows the value inside the top-right of the
-                  // plot area so the chart isn't forced to reserve right
-                  // gutter for "Goal 175 lb" text. Desktop keeps the
-                  // hanging-right label since there's room for it.
-                  value: isMobile
-                    ? `${formatNumber(goalInDisplayUnit)} ${displayUnit}`
-                    : `Goal ${formatNumber(goalInDisplayUnit)} ${displayUnit}`,
-                  position: isMobile ? "insideTopRight" : "right",
-                  fill: "#10b981",
-                  fontSize: 10,
-                }}
-              />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--muted)]">
-        <Legend color={COLOR_AVG} label={`Daily avg (${displayUnit})`} />
-        <Legend color={COLOR_RAW} label="Reading" scatter />
-        {goalInDisplayUnit !== null && <Legend color="#10b981" label="Goal" dashed />}
-      </div>
-
-      {/* Stat tiles wrapped inside the same card. Sits directly under
-          the chart + legend so the four numbers read as a summary of
-          the visualization above. Each tile carries a top accent strip
-          tinted to match its meaning (and the chart's own hues):
-          blue=avg, green=goal, slate=min, amber=max. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <AccentStatTile
-          tone="avg"
-          label="Average"
-          value={stats.avg !== null ? `${formatNumber(stats.avg)} ${displayUnit}` : "—"}
-          sublabel={
-            stats.delta !== null && stats.deltaPercent !== null
-              ? `${stats.delta >= 0 ? "+" : ""}${formatNumber(stats.delta)} ${displayUnit} (${
-                  stats.deltaPercent >= 0 ? "+" : ""
-                }${formatNumber(stats.deltaPercent)}%) over range`
-              : `${stats.count} reading${stats.count === 1 ? "" : "s"}`
-          }
-        />
-        <AccentStatTile
-          tone="goal"
-          empty={!goal}
-          label="Goal"
-          value={
-            goal
-              ? `${formatNumber(convertWeight(goal.weight, goal.unit, displayUnit))} ${displayUnit}`
-              : "— — —"
-          }
-          sublabel={
-            goal
-              ? stats.avg !== null
-                ? `${formatNumber(
-                    Math.abs(convertWeight(goal.weight, goal.unit, displayUnit) - stats.avg),
-                  )} ${displayUnit} to go`
-                : undefined
-              : "Not set"
-          }
-        />
-        <AccentStatTile
-          tone="min"
-          label="Min"
-          value={stats.min !== null ? `${formatNumber(stats.min.weight)} ${displayUnit}` : "—"}
-          sublabel={stats.min !== null ? formatShortDate(stats.min.date) : undefined}
-        />
-        <AccentStatTile
-          tone="max"
-          label="Max"
-          value={stats.max !== null ? `${formatNumber(stats.max.weight)} ${displayUnit}` : "—"}
-          sublabel={stats.max !== null ? formatShortDate(stats.max.date) : undefined}
-        />
-      </div>
-    </div>
-  );
-}
-
-type Tone = "avg" | "goal" | "min" | "max";
-
-// Stat tile with a colored top accent strip. Replaces the older flat
-// StatTile — the strip ties each summary number back to the chart's
-// own color language and gives the grid a touch of visual rhythm.
-function AccentStatTile({
-  tone,
-  label,
+function TimeRangeTabs({
   value,
-  sublabel,
-  empty,
+  onChange,
+  count,
+  endingLabel,
 }: {
-  tone: Tone;
-  label: string;
-  value: string;
-  sublabel?: string;
-  empty?: boolean;
-}) {
-  const stripColor: Record<Tone, string> = {
-    avg: "#3b82f6",
-    goal: "#10b981",
-    min: "#94a3b8",
-    max: "#f59e0b",
-  };
-  return (
-    <div className="relative overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 pt-3.5">
-      <span
-        aria-hidden
-        style={{ background: stripColor[tone] }}
-        className="absolute inset-x-0 top-0 h-[3px]"
-      />
-      <p
-        className={`text-xl font-semibold tracking-tight tabular-nums ${
-          empty ? "text-[var(--muted)] tracking-widest" : ""
-        }`}
-      >
-        {value}
-      </p>
-      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-        {label}
-      </p>
-      {sublabel && <p className="mt-0.5 text-[10px] text-[var(--muted)]">{sublabel}</p>}
-    </div>
-  );
-}
-
-function Legend({
-  color,
-  label,
-  scatter,
-  dashed,
-}: {
-  color: string;
-  label: string;
-  scatter?: boolean;
-  dashed?: boolean;
+  value: RangeKey;
+  onChange: (v: RangeKey) => void;
+  count: number;
+  endingLabel: string | null;
 }) {
   return (
-    <span className="inline-flex items-center gap-2">
-      {scatter ? (
-        <span
-          aria-hidden
-          className="inline-block h-2 w-2 rounded-full"
-          style={{ backgroundColor: color }}
-        />
-      ) : dashed ? (
-        <span
-          aria-hidden
-          className="inline-block w-5 border-t-2 border-dashed"
-          style={{ borderColor: color }}
-        />
-      ) : (
-        <span aria-hidden className="inline-block h-0.5 w-5" style={{ backgroundColor: color }} />
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {RANGES.map((r) => {
+          const selected = r.key === value;
+          // Quiet pills — the chart is the headline. Active = accent-soft
+          // fill + accent-line border + accent text, per the design system.
+          const stateClasses = selected
+            ? "bg-[var(--accent-soft)] border border-[var(--accent-line)] text-[var(--accent)]"
+            : "border border-transparent text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]";
+          return (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => onChange(r.key)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${stateClasses}`}
+            >
+              {r.label}
+            </button>
+          );
+        })}
+      </div>
+      {count > 0 && endingLabel !== null && (
+        <span className="text-xs text-[var(--muted)]">
+          {count} reading{count === 1 ? "" : "s"} · ending {endingLabel}
+        </span>
       )}
-      {label}
-    </span>
+    </div>
   );
 }
 
@@ -895,7 +576,7 @@ function TargetIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-4 w-4 text-emerald-500"
+      className="h-4 w-4 text-[var(--muted)]"
       aria-hidden="true"
     >
       <circle cx="12" cy="12" r="9" />
@@ -1769,8 +1450,6 @@ function BodyweightDeleteModal({
 
 // --- helpers ------------------------------------------------------
 
-const LB_PER_KG = 2.20462;
-
 /** Convert an ISO timestamp to a local "YYYY-MM-DDTHH:mm" string for a
  * <input type="datetime-local">. Uses local getters so the displayed
  * value matches the user's wall clock, mirroring the nutrition modal's
@@ -1785,84 +1464,10 @@ function toLocalDatetimeInput(iso: string): string {
   return `${yyyy}-${mo}-${dd}T${hh}:${mm}`;
 }
 
-function convertWeight(weight: number, from: "lb" | "kg", to: "lb" | "kg"): number {
-  if (from === to) return weight;
-  return from === "kg" ? weight * LB_PER_KG : weight / LB_PER_KG;
-}
-
-type Stats = {
-  count: number;
-  avg: number | null;
-  min: { weight: number; date: string } | null;
-  max: { weight: number; date: string } | null;
-  delta: number | null;
-  deltaPercent: number | null;
-};
-
-function computeStats(entries: BodyweightEntry[], displayUnit: "lb" | "kg"): Stats {
-  if (entries.length === 0) {
-    return {
-      count: 0,
-      avg: null,
-      min: null,
-      max: null,
-      delta: null,
-      deltaPercent: null,
-    };
-  }
-  const normalized = entries.map((e) => ({
-    weight: convertWeight(e.weight, e.unit, displayUnit),
-    measured_at: e.measured_at,
-  }));
-  const sum = normalized.reduce((a, b) => a + b.weight, 0);
-  const avg = sum / normalized.length;
-  const min = normalized.reduce((acc, w) => (w.weight < acc.weight ? w : acc), normalized[0]);
-  const max = normalized.reduce((acc, w) => (w.weight > acc.weight ? w : acc), normalized[0]);
-
-  const byDay = new Map<number, number[]>();
-  for (const w of normalized) {
-    const d = new Date(w.measured_at);
-    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    const arr = byDay.get(dayStart) ?? [];
-    arr.push(w.weight);
-    byDay.set(dayStart, arr);
-  }
-  const dayStartTimes = [...byDay.keys()].sort((a, b) => a - b);
-  let delta: number | null = null;
-  let deltaPercent: number | null = null;
-  if (dayStartTimes.length >= 2) {
-    const firstAvg = mean(byDay.get(dayStartTimes[0]) ?? []);
-    const lastAvg = mean(byDay.get(dayStartTimes[dayStartTimes.length - 1]) ?? []);
-    delta = lastAvg - firstAvg;
-    deltaPercent = firstAvg > 0 ? (delta / firstAvg) * 100 : null;
-  }
-
-  return {
-    count: entries.length,
-    avg,
-    min: { weight: min.weight, date: min.measured_at },
-    max: { weight: max.weight, date: max.measured_at },
-    delta,
-    deltaPercent,
-  };
-}
-
-function mean(xs: number[]): number {
-  if (xs.length === 0) return 0;
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
-}
-
 function formatNumber(v: number): string {
   if (!Number.isFinite(v)) return "—";
   const rounded = Math.round(v * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-}
-
-function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
 }
 
 function formatRowDate(iso: string): string {
