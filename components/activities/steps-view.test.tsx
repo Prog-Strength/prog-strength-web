@@ -186,3 +186,35 @@ describe("StepsView — keyset pagination", () => {
     );
   });
 });
+
+describe("StepsView — log edit/delete mutations", () => {
+  it("fires deleteStepsForDate and refetches when a row is deleted", async () => {
+    deleteStepsMock.mockResolvedValue(undefined);
+    render(<StepsView days={30} />);
+    // Two log rows render from the default mock (2026-06-10, 2026-06-11).
+    const deleteButtons = await screen.findAllByRole("button", { name: /delete steps/i });
+    expect(deleteButtons.length).toBeGreaterThan(0);
+
+    const callsBefore = listStepsMock.mock.calls.length;
+    fireEvent.click(deleteButtons[0]);
+
+    // The mutation fires for the clicked row's date…
+    await waitFor(() => expect(deleteStepsMock).toHaveBeenCalledWith("tok", "2026-06-10"));
+    // …and the view refetches (listSteps called again) to reflect the change.
+    await waitFor(() => expect(listStepsMock.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it("fires upsertStepsForDate when an existing row is edited and saved", async () => {
+    upsertStepsMock.mockResolvedValue(undefined);
+    render(<StepsView days={30} />);
+    const editButtons = await screen.findAllByRole("button", { name: /edit steps/i });
+    fireEvent.click(editButtons[0]); // edit the 2026-06-10 row
+
+    // The edit modal opens pre-filled; change the count and save.
+    const stepsInput = await screen.findByPlaceholderText("10000");
+    fireEvent.change(stepsInput, { target: { value: "9500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(upsertStepsMock).toHaveBeenCalledWith("tok", "2026-06-10", 9500));
+  });
+});
