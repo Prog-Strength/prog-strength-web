@@ -92,3 +92,38 @@ describe("PlannedBanner — completed (cross-day fallback)", () => {
     expect(screen.queryByRole("button", { name: "Unlink" })).not.toBeInTheDocument();
   });
 });
+
+describe("PlannedBanner — activity-type color (not status)", () => {
+  it("colors a planned run's rail with the run token, not the violet accent", () => {
+    const { container } = render(<PlannedBanner planned={makePlanned({ activity_kind: "run" })} />);
+    const rail = container.querySelector('span[aria-hidden="true"]') as HTMLElement;
+    expect(rail.style.backgroundColor).toContain("discipline-run-dot");
+    expect(rail.style.backgroundColor).not.toContain("accent");
+  });
+
+  it("colors a planned lift's rail with the lift token", () => {
+    const { container } = render(
+      <PlannedBanner planned={makePlanned({ activity_kind: "lift" })} />,
+    );
+    const rail = container.querySelector('span[aria-hidden="true"]') as HTMLElement;
+    expect(rail.style.backgroundColor).toContain("discipline-lift-dot");
+  });
+
+  it("keeps a completed plan's rail in its activity type, not emerald", () => {
+    const { container } = render(
+      <PlannedBanner planned={makePlanned({ activity_kind: "lift", status: "completed" })} />,
+    );
+    const rail = container.querySelector('span[aria-hidden="true"]') as HTMLElement;
+    expect(rail.style.backgroundColor).toContain("discipline-lift-dot");
+    expect(rail.style.backgroundColor).not.toContain("emerald");
+    expect(rail.className).not.toMatch(/emerald/);
+  });
+
+  it("mutes a skipped plan's rail", () => {
+    const { container } = render(
+      <PlannedBanner planned={makePlanned({ activity_kind: "run", status: "skipped" })} />,
+    );
+    const rail = container.querySelector('span[aria-hidden="true"]') as HTMLElement;
+    expect(rail.style.backgroundColor).toContain("muted");
+  });
+});

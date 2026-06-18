@@ -6,6 +6,7 @@ import { hasMeaningfulName } from "@/components/workout-details";
 import { RunDigest } from "@/components/calendar/run-digest";
 import { WorkoutDigest } from "@/components/calendar/workout-digest";
 import { PlannedAgenda, hasPlannedAgenda } from "@/components/calendar/planned-banner";
+import { activityColors, activityRingClass } from "@/lib/activity-colors";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import type { Exercise, PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 
@@ -68,9 +69,9 @@ export function CompletedPlannedBanner({
       })();
 
   const planHasAgenda = hasPlannedAgenda(planned);
-  const ringColor = isRun
-    ? "ring-[var(--discipline-run-dot)]"
-    : "ring-[var(--discipline-lift-dot)]";
+  const discipline = isRun ? "run" : "lift";
+  const c = activityColors(discipline);
+  const ring = activityRingClass(discipline);
 
   return (
     <div
@@ -82,20 +83,22 @@ export function CompletedPlannedBanner({
         <button
           type="button"
           onClick={onNavigate}
-          className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 ${ringColor} focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5`}
+          className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 ${ring} focus-visible:ring-inset md:gap-3 md:px-3 md:py-2.5`}
         >
-          {/* Emerald rail marks this as a completed/fulfilled session,
-              distinct from the accent/teal of a plain logged banner. */}
+          {/* The rail is the logged session's activity-type color — a
+              completed plan reads as the activity it was, with the check +
+              "Completed" badge (not green) marking that it closed out a plan. */}
           <span
             aria-hidden="true"
-            className="h-7 w-1 shrink-0 rounded-full bg-emerald-500 md:h-8 md:w-1.5"
+            className="h-7 w-1 shrink-0 rounded-full md:h-8 md:w-1.5"
+            style={{ backgroundColor: c.dot }}
           />
           <span className="flex min-w-0 flex-col">
             <span className="flex items-center gap-1.5">
               <span className="truncate text-[13px] font-medium text-[var(--foreground)] md:text-sm">
                 {title}
               </span>
-              <span className="shrink-0 rounded-full border border-emerald-500/50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-400">
+              <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-[var(--foreground)]">
                 Completed
               </span>
             </span>
@@ -110,7 +113,7 @@ export function CompletedPlannedBanner({
           aria-controls={digestId}
           aria-label={open ? "Collapse details" : "Expand details"}
           onClick={() => setOpen((o) => !o)}
-          className={`flex shrink-0 items-center justify-center px-2 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 ${ringColor} focus-visible:ring-inset md:px-3`}
+          className={`flex shrink-0 items-center justify-center px-2 text-[var(--muted)] transition hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 ${ring} focus-visible:ring-inset md:px-3`}
         >
           <svg
             viewBox="0 0 24 24"
@@ -178,7 +181,7 @@ function CheckGlyph() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className="shrink-0 text-emerald-500"
+      className="shrink-0 text-[var(--muted)]"
     >
       <path d="M20 6L9 17l-5-5" />
     </svg>
