@@ -20,4 +20,10 @@ export const config = {
   // address — override via the env var if you set up a dedicated
   // alias later.
   betaContactEmail: process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
+  // Gate for the throwaway Design Exploration route
+  // (/design-explore/activities-page). OFF unless explicitly enabled, so the
+  // mockup is unreachable in normal navigation and dead in production. Set
+  // NEXT_PUBLIC_DESIGN_EXPLORE=1 locally / on a preview deploy to view it.
+  // See dx/activities-page in prog-strength-docs.
+  designExploreEnabled: process.env.NEXT_PUBLIC_DESIGN_EXPLORE === "1",
 };
