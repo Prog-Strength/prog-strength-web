@@ -51,6 +51,7 @@ const LIFTS: PersonalRecord[] = [
     achieved_at: "2026-04-01T17:30:00Z",
     current_estimated_1rm: 320,
     estimated_1rm_unit: "lb",
+    recent_estimated_1rm_points: [305, 312, 320],
   },
   {
     exercise_id: "back-squat",
@@ -62,6 +63,7 @@ const LIFTS: PersonalRecord[] = [
     achieved_at: "2026-03-15T17:30:00Z",
     current_estimated_1rm: 410,
     estimated_1rm_unit: "lb",
+    recent_estimated_1rm_points: [405, 408, 410],
   },
 ];
 

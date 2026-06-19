@@ -178,6 +178,10 @@ export type PersonalRecord = {
   achieved_at: string | null;
   current_estimated_1rm: number | null;
   estimated_1rm_unit: "lb" | "kg" | null;
+  // Compact ascending (oldest→newest) estimated-1RM trend for the Lifts
+  // view spark. Nullable: an older API omits it and the spark just doesn't
+  // render. (Additive field — see SOW personal-records-lifts.)
+  recent_estimated_1rm_points: number[] | null;
 };
 
 /**
