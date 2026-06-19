@@ -109,6 +109,21 @@ describe("MuscleBodyMap", () => {
     expect(fillOf(container, "lower-back")).toBe(RAMP[3]);
   });
 
+  it("never leaves a region at the library's internal gray", () => {
+    // Guards the ALL_SLUGS workaround: every rendered region must be either a
+    // ramp stop or DEFAULT_FILL, never the library's hardcoded #3f3f3f. A future
+    // library version that adds an anatomical slug missing from ALL_SLUGS would
+    // surface here as a gray region rather than a silent visual inconsistency.
+    const { container } = render(
+      <MuscleBodyMap workout={workout([ex("squat", 0, 4)])} exercises={catalog} />,
+    );
+    const fills = Array.from(container.querySelectorAll("path[id]")).map((p) =>
+      p.getAttribute("fill"),
+    );
+    expect(fills.length).toBeGreaterThan(0);
+    expect(fills).not.toContain("#3f3f3f");
+  });
+
   it("captions the populated categories largest-first", () => {
     // 4 leg exercises + 1 core → Legs (quads+glutes+hamstrings+calves credited)
     // dominates Core. Caption mirrors the old strip's counts.

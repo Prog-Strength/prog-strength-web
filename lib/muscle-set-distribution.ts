@@ -88,7 +88,7 @@ export function setsByMuscleGroup(
   const data: MuscleGroupSetCount[] = [];
   for (const mg of MUSCLE_GROUPS) {
     const value = tallies.get(mg);
-    if (value) data.push({ muscleGroup: mg, value });
+    if (value && value > 0) data.push({ muscleGroup: mg, value });
   }
   return { data, hasData: data.length > 0 };
 }

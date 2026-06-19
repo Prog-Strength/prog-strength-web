@@ -131,7 +131,11 @@ function SetList({
         <li key={i} className="flex items-baseline gap-2 text-xs tabular-nums text-[var(--muted)]">
           <span className="w-4 shrink-0 text-right text-[var(--faint)]">{i + 1}</span>
           <span>{setReadout(s, perDumbbell)}</span>
-          {i === prIndex && <span className="text-[var(--warning)]">🏆</span>}
+          {i === prIndex && (
+            <span role="img" aria-label="Personal record" className="text-[var(--warning)]">
+              🏆
+            </span>
+          )}
         </li>
       ))}
     </ul>
