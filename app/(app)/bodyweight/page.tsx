@@ -20,7 +20,7 @@ import { TrendSection } from "./_components/trend-section";
 /**
  * Bodyweight — chart-first layout with the daily-average trend line as
  * the focal point. The log form lives behind a pencil-icon "Log"
- * button next to the entries table, matching the nutrition page's
+ * button above the reading timeline, matching the nutrition page's
  * "+ Quick Add" pattern so the page surface stays calm until the
  * user explicitly opts into logging.
  *
@@ -29,9 +29,10 @@ import { TrendSection } from "./_components/trend-section";
  *   - Chart card: graph at the top, stat tiles tucked inside the
  *     same box below the chart so the two are visually one unit
  *   - Pencil-Log toolbar + separator line
- *   - Paginated entries table
+ *   - Reading timeline-rail (days as nodes, paginated whole-day so a
+ *     day's readings never split across pages)
  *
- * See prog-strength-docs/sows/bodyweight-multi-per-day.md.
+ * See prog-strength-docs/sows/bodyweight-readings-table-timeline-rail.md.
  */
 
 const UNIT_PREFERENCE_KEY = "ps_bodyweight_unit";
@@ -71,9 +72,9 @@ export default function BodyweightPage() {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalBusy, setGoalBusy] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
-  // Mobile action sheet target. When set, tapping a row card on mobile
-  // opens BodyweightActionSheet, which then routes to the existing
-  // edit / delete modals. Desktop never sets this — the row's pencil
+  // Mobile action sheet target. When set, tapping a reading bead on
+  // mobile opens BodyweightActionSheet, which then routes to the existing
+  // edit / delete modals. Desktop never sets this — the bead's pencil
   // and trash icons fire onEdit / onDelete directly.
   const [actionTarget, setActionTarget] = useState<BodyweightEntry | null>(null);
 
