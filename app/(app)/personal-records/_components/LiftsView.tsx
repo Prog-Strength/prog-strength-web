@@ -16,7 +16,7 @@ import Link from "next/link";
 import type { PersonalRecord } from "@/lib/api";
 import { ProgressionChart } from "./ProgressionChart";
 import { Sparkline } from "./Sparkline";
-import { deriveReadiness, READY_THRESHOLD_PCT } from "./readiness";
+import { deriveReadiness, READY_THRESHOLD_PCT, type Readiness } from "./readiness";
 import { formatWeight, formatDate } from "./format";
 
 const DOT_GAP_CAP = 30;
@@ -67,6 +67,7 @@ export function LiftsView({
           <Tile
             key={r.exercise_id}
             record={r}
+            readiness={d}
             expanded={expandedId === r.exercise_id}
             onToggle={() => setExpandedId((cur) => (cur === r.exercise_id ? null : r.exercise_id))}
           />
@@ -78,19 +79,21 @@ export function LiftsView({
 
 function Tile({
   record,
+  readiness,
   expanded,
   onToggle,
 }: {
   record: PersonalRecord;
+  readiness: Readiness;
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const d = deriveReadiness(record);
-  const fresh = d.gapPct !== null && d.gapPct < READY_THRESHOLD_PCT;
-  const due = d.gapPct !== null && d.gapPct >= READY_THRESHOLD_PCT;
+  const gapPct = readiness.gapPct ?? 0;
+  const fresh = readiness.gapPct !== null && readiness.gapPct < READY_THRESHOLD_PCT;
+  const due = readiness.gapPct !== null && readiness.gapPct >= READY_THRESHOLD_PCT;
   const dotColor = fresh ? "var(--discipline-lift-dot)" : "var(--warning)";
   const dotOpacity = due
-    ? Math.max(DOT_MIN_OPACITY, Math.min(d.gapPct as number, DOT_GAP_CAP) / DOT_GAP_CAP)
+    ? Math.max(DOT_MIN_OPACITY, Math.min(gapPct, DOT_GAP_CAP) / DOT_GAP_CAP)
     : 1;
   const sparkColor = fresh ? "var(--discipline-lift-dot)" : "var(--warning)";
 
@@ -115,13 +118,13 @@ function Tile({
         <p className="text-xl font-semibold tabular-nums tracking-tight">
           {formatWeight(record.weight, record.unit)}
           <span className="ml-1 text-[11px] font-normal text-[var(--muted)]">
-            {d.isDumbbell ? "ea " : ""}× {record.reps}
+            {readiness.isDumbbell ? "ea " : ""}× {record.reps}
           </span>
         </p>
         <div className="flex items-center justify-between gap-1 text-[11px] tabular-nums">
-          {due && d.gap !== null ? (
+          {due && readiness.gap !== null ? (
             <span className="text-[var(--success)]">
-              +{Math.round(d.gap)}
+              +{Math.round(readiness.gap)}
               {record.current_estimated_1rm !== null && (
                 <span className="ml-1 text-[var(--faint)]">
                   est {Math.round(record.current_estimated_1rm)}
