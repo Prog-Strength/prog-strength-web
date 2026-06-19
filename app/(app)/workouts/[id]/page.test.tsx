@@ -207,12 +207,16 @@ describe("WorkoutDetailPage — canonical four-PR session", () => {
     expect(screen.getAllByText("superset").length).toBeGreaterThan(0);
   });
 
-  it("collapses the muscle analytics to one populated strip", async () => {
-    render(<WorkoutDetailPage />);
-    expect(await screen.findByText("What it trained")).toBeInTheDocument();
-    const strip = screen.getByText("What it trained").parentElement!;
-    expect(within(strip).getByText("Back")).toBeInTheDocument();
-    expect(within(strip).getByText("13")).toBeInTheDocument();
+  it("renders the muscle body-map and drops the old text strip", async () => {
+    const { container } = render(<WorkoutDetailPage />);
+    await screen.findByText("Four PRs, topped by 305 lb × 2 on Bench Press");
+    // the old "What it trained" strip heading is gone
+    expect(screen.queryByText("What it trained")).not.toBeInTheDocument();
+    // the body-map rendered anatomical paths (chest/back hit by this session)
+    expect(container.querySelector('path[id="chest"]')).not.toBeNull();
+    // its caption carries the category counts the strip used to show
+    const caption = screen.getByTestId("muscle-body-map-caption");
+    expect(caption).toHaveTextContent("Back");
   });
 
   it("preserves the edit affordances and wires them to the right modals", async () => {
@@ -266,14 +270,11 @@ describe("WorkoutDetailPage — zero-PR / no-note / open session", () => {
     expect(screen.queryByText("PRs")).not.toBeInTheDocument();
   });
 
-  it("shows only the populated muscle category", async () => {
+  it("shows only the worked categories in the body-map caption", async () => {
     render(<WorkoutDetailPage />);
-    const strip = (await screen.findByText("What it trained")).parentElement!;
-    expect(within(strip).getByText("Legs")).toBeInTheDocument();
-    // setsByCategory credits a category per mapped muscle group, so the
-    // 4 leg exercises (squat hits quads+glutes) tally to 15.
-    expect(within(strip).getByText("15")).toBeInTheDocument();
-    expect(within(strip).queryByText("Chest")).not.toBeInTheDocument();
+    const caption = await screen.findByTestId("muscle-body-map-caption");
+    expect(within(caption).getByText("Legs")).toBeInTheDocument();
+    expect(within(caption).queryByText("Chest")).not.toBeInTheDocument();
   });
 
   it("reads a flat scheme's first set as the top set", async () => {
@@ -286,5 +287,30 @@ describe("WorkoutDetailPage — zero-PR / no-note / open session", () => {
     render(<WorkoutDetailPage />);
     await screen.findByText("No reflection on this session.");
     expect(screen.queryByTestId("plan-banner")).not.toBeInTheDocument();
+  });
+});
+
+describe("WorkoutDetailPage — uncategorizable session drops the map", () => {
+  const UNCATEGORIZED: Workout = {
+    ...PLAIN,
+    id: "wkt-uncat",
+    exercises: [ex("mystery-lift", 1, [set(5, 100), set(5, 100)])],
+  };
+
+  beforeEach(() => {
+    // catalog entry whose muscle group maps to nothing
+    vi.mocked(listExercises).mockResolvedValue([
+      { id: "mystery-lift", name: "Mystery Lift", muscle_groups: ["unknown-thing"], equipment: [] },
+    ]);
+    vi.mocked(getWorkout).mockResolvedValue(UNCATEGORIZED);
+  });
+
+  it("renders no body-map and no caption when nothing maps", async () => {
+    const { container } = render(<WorkoutDetailPage />);
+    await screen.findByText("Mystery Lift");
+    expect(container.querySelector("path[id]")).toBeNull();
+    expect(screen.queryByTestId("muscle-body-map-caption")).not.toBeInTheDocument();
+    // the stat line still renders (full width)
+    expect(screen.getByText("Volume")).toBeInTheDocument();
   });
 });
