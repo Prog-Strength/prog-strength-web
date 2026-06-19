@@ -54,6 +54,39 @@ const DEFAULT_FILL = "#191c21";
 
 const TIER_COUNT = 4;
 
+// Every slug the library's front/back figures draw. We paint all of them
+// ourselves — worked regions on the ramp, everything else (untracked muscles,
+// and the non-muscle head/hair/hands/feet the silhouette keeps) at DEFAULT_FILL
+// — because the library's `defaultFill` prop is dead: each asset part embeds a
+// hardcoded `color: "#3f3f3f"` that wins over `defaultFill` in its fill chain.
+// Passing an explicit `color` is the only way to retone the whole silhouette to
+// a single near-black so unworked muscle and non-muscle regions read uniform.
+const ALL_SLUGS: Slug[] = [
+  "abs",
+  "adductors",
+  "ankles",
+  "biceps",
+  "calves",
+  "chest",
+  "deltoids",
+  "feet",
+  "forearm",
+  "gluteal",
+  "hair",
+  "hamstring",
+  "hands",
+  "head",
+  "knees",
+  "lower-back",
+  "neck",
+  "obliques",
+  "quadriceps",
+  "tibialis",
+  "trapezius",
+  "triceps",
+  "upper-back",
+];
+
 export function MuscleBodyMap({ workout, exercises }: { workout: Workout; exercises: Exercise[] }) {
   const { data, hasData } = setsByMuscleGroup(workout, exercises);
   if (!hasData) return null;
@@ -71,22 +104,13 @@ export function MuscleBodyMap({ workout, exercises }: { workout: Workout; exerci
     }
   }
 
-  // Pass ALL known slugs to the library. Worked slugs get an intensity tier
-  // (the library resolves those to colors[intensity - 1]). Unworked slugs get
-  // color: DEFAULT_FILL explicitly — this overrides the hardcoded per-slug
-  // color embedded in the library's asset data, which would otherwise take
-  // priority over the defaultFill prop and expose the library's internal gray.
-  const parts: ExtendedBodyPart[] = [];
-  for (const slugs of Object.values(GROUP_TO_SLUGS)) {
-    for (const slug of slugs) {
-      const tier = workedSlugs.get(slug);
-      if (tier !== undefined) {
-        parts.push({ slug, intensity: tier });
-      } else {
-        parts.push({ slug, color: DEFAULT_FILL });
-      }
-    }
-  }
+  // Worked slugs get an intensity tier (the library resolves those to
+  // colors[intensity - 1]); every other slug is painted DEFAULT_FILL so the
+  // whole silhouette reads as one near-black, with only the worked regions glowing.
+  const parts: ExtendedBodyPart[] = ALL_SLUGS.map((slug) => {
+    const tier = workedSlugs.get(slug);
+    return tier !== undefined ? { slug, intensity: tier } : { slug, color: DEFAULT_FILL };
+  });
 
   const categories = populatedCategories(workout, exercises);
 

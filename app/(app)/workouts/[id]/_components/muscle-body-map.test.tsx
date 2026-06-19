@@ -75,6 +75,10 @@ describe("MuscleBodyMap", () => {
     expect(fillOf(container, "gluteal")).toBe(RAMP[3]);
     // chest was never worked → default fill
     expect(fillOf(container, "chest")).toBe(DEFAULT_FILL);
+    // non-muscle / untracked regions read as the same near-black silhouette,
+    // not the library's internal gray — a uniform unworked body.
+    expect(fillOf(container, "head")).toBe(DEFAULT_FILL);
+    expect(fillOf(container, "hands")).toBe(DEFAULT_FILL);
   });
 
   it("buckets relative to the busiest region so the lightest worked region is tier 1", () => {
