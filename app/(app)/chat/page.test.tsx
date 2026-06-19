@@ -118,6 +118,10 @@ function profileCtx(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset the shared search-params stub between tests so a ?prompt= set by
+  // the hand-off tests doesn't leak into the others (and trigger auto-send).
+  searchParamsStub.delete("prompt");
+  searchParamsStub.delete("session");
   useProfileMock.mockReturnValue(profileCtx());
 });
 
@@ -314,5 +318,96 @@ describe("Chat — history pane toggle", () => {
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("Chat — dashboard ?prompt= hand-off", () => {
+  it("auto-sends the prompt once on a fresh chat and strips the param", async () => {
+    useUsageMock.mockReturnValue(snapshot({ capped: false }));
+    searchParamsStub.set("prompt", "hello");
+
+    // A 200 with no SSE events — enough to observe the /chat POST body
+    // without driving the full stream parser.
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      render(<ChatPage />);
+
+      // The auto-send fires once the new-session UUID is minted. Assert the
+      // /chat call carries the prompt text.
+      await waitFor(() => {
+        const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+        const chatCall = calls.find((c) => String(c[0]).endsWith("/chat"));
+        expect(chatCall).toBeTruthy();
+        const body = JSON.parse(chatCall![1].body as string);
+        // The user turn is the last message in the payload.
+        const last = body.messages[body.messages.length - 1];
+        expect(last.content).toBe("hello");
+      });
+
+      // The param is stripped via router.replace so a refresh/back doesn't
+      // re-send.
+      expect(routerStub.replace).toHaveBeenCalledWith("/chat");
+
+      // Exactly one /chat POST — no double-send.
+      const chatCalls = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).filter(
+        (c) => String(c[0]).endsWith("/chat"),
+      );
+      expect(chatCalls).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not auto-send when there is no ?prompt=", async () => {
+    useUsageMock.mockReturnValue(snapshot({ capped: false }));
+
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      render(<ChatPage />);
+
+      // Let the mount effect mint the session + settle.
+      const textarea = await screen.findByPlaceholderText("Message Prog Strength…");
+      await waitFor(() => expect(textarea).not.toBeDisabled());
+
+      const chatCalls = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).filter(
+        (c) => String(c[0]).endsWith("/chat"),
+      );
+      expect(chatCalls).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not double-send across a re-render", async () => {
+    useUsageMock.mockReturnValue(snapshot({ capped: false }));
+    searchParamsStub.set("prompt", "hello");
+
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const { rerender } = render(<ChatPage />);
+
+      await waitFor(() => {
+        const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+        expect(calls.some((c) => String(c[0]).endsWith("/chat"))).toBe(true);
+      });
+
+      // Force a re-render — the one-shot ref must keep the send from firing
+      // again.
+      rerender(<ChatPage />);
+      await new Promise((r) => setTimeout(r, 0));
+
+      const chatCalls = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).filter(
+        (c) => String(c[0]).endsWith("/chat"),
+      );
+      expect(chatCalls).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
