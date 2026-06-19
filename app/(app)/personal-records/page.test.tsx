@@ -157,22 +157,16 @@ describe("PersonalRecordsPage", () => {
   it("fires exactly one history query on expand and reuses the cache on re-expand", async () => {
     renderPage();
     await screen.findByText("Barbell Bench Press");
-
-    // Expand the first lift card. The chevron's accessible name is
-    // "Show progression" before expand.
-    const chevrons = screen.getAllByRole("button", { name: "Show progression" });
-    fireEvent.click(chevrons[0]);
-
+    fireEvent.click(screen.getByRole("button", { name: /Barbell Bench Press/ }));
     await waitFor(() => expect(getExerciseOneRMHistory).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: /Barbell Bench Press/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Barbell Bench Press/ }));
+    await waitFor(() => expect(getExerciseOneRMHistory).toHaveBeenCalledTimes(1));
+  });
 
-    // Collapse (chevron label flips to "Hide progression").
-    fireEvent.click(screen.getByRole("button", { name: "Hide progression" }));
-    // Re-expand: the cached series paints, no second network call.
-    fireEvent.click(screen.getAllByRole("button", { name: "Show progression" })[0]);
-
-    await waitFor(() => {
-      // Still exactly one call — the second expand read from cache.
-      expect(getExerciseOneRMHistory).toHaveBeenCalledTimes(1);
-    });
+  it("shows the readiness summary on lifts", async () => {
+    renderPage();
+    await screen.findByText("Barbell Bench Press");
+    expect(screen.getByText(/tested/)).toBeInTheDocument();
   });
 });

@@ -35,6 +35,7 @@ import { HeadlineExercisesModal } from "@/components/headline-exercises-modal";
 import { ViewSwitcher, type PRView } from "./_components/ViewSwitcher";
 import { LiftsView } from "./_components/LiftsView";
 import { RunningView } from "./_components/RunningView";
+import { summarizeReadiness } from "./_components/readiness";
 
 function parseView(raw: string | null): PRView {
   return raw === "running" ? "running" : "lifts";
@@ -74,6 +75,14 @@ export default function PersonalRecordsPage() {
     enabled: view === "running",
   });
 
+  // Readiness counts for the Lifts header chrome. `summarizeReadiness` is a
+  // plain function (not a hook), so computing it conditionally in render is
+  // fine; null on Running or before the lifts data arrives.
+  const liftsSummary =
+    view === "lifts" && liftsQuery.data && liftsQuery.data.length > 0
+      ? summarizeReadiness(liftsQuery.data)
+      : null;
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
@@ -97,6 +106,15 @@ export default function PersonalRecordsPage() {
             ? "Your heaviest set on each headline lift, alongside your current estimated 1RM for that exercise. A large gap is a cue to attempt a new max."
             : "Your fastest window over each standard distance, found across all your runs — including a fast segment inside a longer run."}
         </p>
+        {liftsSummary && (
+          <p className="text-xs tabular-nums text-[var(--muted)]">
+            <span className="text-[var(--foreground)]">{liftsSummary.due}</span> due ·{" "}
+            <span className="text-[var(--foreground)]">
+              {liftsSummary.tested}/{liftsSummary.total}
+            </span>{" "}
+            tested
+          </p>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
