@@ -160,7 +160,7 @@ function IntervalsTable({
           <Th cols={["Segment", "Dist", "Time", "Pace", "HR", "vs target"]} />
         </thead>
         <tbody>
-          {intervals.map((seg, i) => {
+          {intervals.map((seg) => {
             const work = seg.kind === "work";
             const showDelta =
               work &&
@@ -170,7 +170,7 @@ function IntervalsTable({
             const delta = showDelta ? seg.avgPaceSecPerUnit! - targetPaceSecPerUnit! : null;
             return (
               <tr
-                key={i}
+                key={seg.label}
                 className="border-t border-[var(--border)] odd:bg-[var(--surface)] even:bg-[var(--surface-2)]/40"
               >
                 <td className="px-3 py-2 text-left">
@@ -202,7 +202,7 @@ function IntervalsTable({
                   {delta == null ? (
                     <span className="text-[var(--faint)]">—</span>
                   ) : (
-                    <span style={{ color: delta <= 0 ? "var(--success)" : "var(--danger)" }}>
+                    <span style={{ color: delta < 0 ? "var(--success)" : "var(--danger)" }}>
                       {fmtPaceDelta(delta)}
                     </span>
                   )}

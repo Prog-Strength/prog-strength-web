@@ -2,9 +2,12 @@
  * Demoted supporting strip beneath the splits ledger: a hand-rolled winsorized
  * pace sparkline. Pure and prop-driven over the derivation's `paceStrip`.
  * Faster pace sits HIGHER (the scale is inverted) so a rising line never reads
- * as slowing down. The path breaks at null points — device dropouts are gaps,
- * not bridges — and a "dropout bridged" note appears only when some sample was
- * winsorized. With fewer than two plottable points it shows a muted placeholder.
+ * as slowing down. The path breaks at the dropout gap (null points start a fresh
+ * `M`, so the line is not drawn across the missing sample). The user-facing
+ * "dropout bridged" caption is the affordance that signals a winsorized/dropout
+ * sample was handled — removed from the plotted line — and appears only when some
+ * sample was affected. With fewer than two plottable points it shows a muted
+ * placeholder.
  *
  * Tokens only (design-system v0.4): discipline-run dot for the stroke, faint
  * text for captions, surface card with hairline border.
