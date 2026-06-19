@@ -245,7 +245,6 @@ describe("deriveRunningActivity — unit switching", () => {
 describe("parseTargetPace", () => {
   it("Step 10: parses a unit-qualified pace and converts to the active unit", () => {
     const text = "Workout: 8 × 400m @ 5K effort (~6:30/mi) with 200m jog recovery.";
-    expect(parseTargetPace(text, "mi")).toBeCloseTo(390, -0.5);
     expect(parseTargetPace(text, "mi")!).toBe(390);
     expect(parseTargetPace(text, "km")!).toBe(Math.round(390 / KM_PER_MILE));
   });

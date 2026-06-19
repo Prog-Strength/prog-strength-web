@@ -119,6 +119,9 @@ function buildSegments(trackpoints: RunningTrackpoint[], bucketMeters: number): 
       dDist,
       dTime,
       clean: isCleanPace(b.pace_sec_per_km),
+      // Split bucketing assumes reasonably dense sampling: a segment is keyed to
+      // one bucket by its start point, so a single very long segment lands wholly
+      // in its start bucket rather than being distributed across buckets.
       bucket: Math.floor(a.distance_meters / bucketMeters),
       hr: b.heart_rate_bpm,
       elevation: b.elevation_meters,
@@ -323,8 +326,8 @@ function coalesce(clean: Segment[], classes: Exclude<PaceClass, "neutral">[]): B
   return bouts;
 }
 
-/** Merge any sub-60 m bout into the previous bout (relabel to previous class)
- *  and re-coalesce — denoises pace jitter. */
+/** Fold any sub-60 m bout into the previous bout (adopting its class) in a
+ *  single forward pass — denoises pace jitter. */
 function denoise(bouts: Bout[]): Bout[] {
   if (bouts.length === 0) return bouts;
   const merged: Bout[] = [];
