@@ -20,4 +20,9 @@ export const config = {
   // address — override via the env var if you set up a dedicated
   // alias later.
   betaContactEmail: process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
+  // Gate for throwaway Design Exploration (DX) comparison routes under
+  // /design-explore/*. Off unless NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE === "true",
+  // so these mockup-only routes are dead (404) in production and never
+  // reachable via normal product navigation. Not set in the Vercel project.
+  enableDesignExplore: process.env.NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE === "true",
 };
