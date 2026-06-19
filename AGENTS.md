@@ -61,6 +61,15 @@ Data-flow rules that keep the app coherent:
   itself. Match the pattern of the page you're touching rather than introducing a new one.
 - **Runtime config is `NEXT_PUBLIC_*` only**, read through `lib/config.ts`. Never read
   `process.env` elsewhere, and never add a server-side secret — this bundle is fully public.
+  Parse env booleans with the `envFlag` helper in `lib/config.ts`, never a bare
+  `=== "1"` / `=== "true"` comparison — the helper accepts any truthy spelling so the
+  Vercel value and the code can't drift.
+- **Design Exploration (DX) routes are gated by exactly one flag.** Every throwaway
+  `/design-explore/*` comparison route is gated by `config.designExploreEnabled` (backed by the
+  single env var `NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE`): `if (!config.designExploreEnabled) notFound()`
+  at the top of the page. Reuse that field as-is — never add a per-surface flag or a second DX env
+  var. The var is unset in production (routes 404) and set truthy on a Vercel **preview** deploy to
+  review variants.
 
 ## Conventions
 
