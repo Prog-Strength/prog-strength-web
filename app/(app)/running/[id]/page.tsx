@@ -9,27 +9,26 @@ import {
   getPlannedWorkoutBySession,
   getRunningSession,
   renameRunningSession,
+  unlinkPlannedWorkout,
   type PlannedWorkout,
   type RunningSession,
 } from "@/lib/api";
-import { CompletesPlanBanner } from "@/components/completes-plan-banner";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
-import { StatTile } from "@/components/stat-tile";
+import { deriveRunningActivity, parseTargetPace } from "@/lib/running-splits";
 import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
-import { HeartRateChart, type ChartPoint } from "../_components/HeartRateChart";
-import { PaceChart } from "../_components/PaceChart";
-import { ElevationChart } from "../_components/ElevationChart";
-
-const METERS_PER_MILE = 1609.344;
-const KM_PER_MILE = METERS_PER_MILE / 1000;
+import { RunHeaderBand } from "./_components/RunHeaderBand";
+import { SplitsSpine } from "./_components/SplitsSpine";
+import { PaceStrip } from "./_components/PaceStrip";
 
 /**
  * Run detail. Header carries a back link, an inline-editable run name,
- * and a delete action. Below it, a 4×2 stat grid summarizes the run and
- * three synced recharts (HR + pace side by side, elevation full width)
- * plot the per-trackpoint series against distance in the active unit.
+ * and a delete action. Below it, a splits ledger: a compact summary band
+ * (with the linked plan's ✓ pill + Unlink and prescription context), the
+ * splits spine — a per-distance table with a miles↔intervals toggle gated on
+ * detected intervals — and a demoted winsorized pace strip. The body derives
+ * everything from the session's trackpoints via `deriveRunningActivity`.
  */
 export default function RunningDetailPage() {
   const router = useRouter();
@@ -43,6 +42,7 @@ export default function RunningDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
 
   const handleAuthError = useCallback(
     (err: unknown): boolean => {
@@ -84,29 +84,16 @@ export default function RunningDetailPage() {
       });
   }, [id, router, handleAuthError]);
 
-  // Build the distance-keyed chart series once per session/unit change.
-  const { hrData, paceData, elevData } = useMemo(() => {
-    const points = session?.trackpoints ?? [];
-    const toUnit = (meters: number) => (unit === "mi" ? meters / METERS_PER_MILE : meters / 1000);
-    const hr: ChartPoint[] = [];
-    const pace: ChartPoint[] = [];
-    const elev: ChartPoint[] = [];
-    for (const tp of points) {
-      const distance = toUnit(tp.distance_meters);
-      hr.push({ distance, value: tp.heart_rate_bpm });
-      pace.push({
-        distance,
-        value:
-          tp.pace_sec_per_km != null && tp.pace_sec_per_km > 0
-            ? unit === "mi"
-              ? tp.pace_sec_per_km * KM_PER_MILE
-              : tp.pace_sec_per_km
-            : null,
-      });
-      elev.push({ distance, value: tp.elevation_meters });
-    }
-    return { hrData: hr, paceData: pace, elevData: elev };
-  }, [session, unit]);
+  // Derive the splits ledger (splits, pace strip, detected intervals) from the
+  // session's trackpoints, the linked plan's run type, and the active unit.
+  const derivation = useMemo(
+    () => deriveRunningActivity(session?.trackpoints ?? [], completesPlan?.run_type ?? null, unit),
+    [session, completesPlan, unit],
+  );
+  const targetPace = useMemo(
+    () => parseTargetPace(completesPlan?.run_details ?? null, unit),
+    [completesPlan, unit],
+  );
 
   async function handleRename(name: string) {
     if (!session) return;
@@ -145,6 +132,25 @@ export default function RunningDetailPage() {
       if (handleAuthError(err)) return;
       toast.error(err instanceof Error ? err.message : "Delete failed");
       setConfirmingDelete(false);
+    }
+  }
+
+  async function handleUnlink() {
+    if (!completesPlan) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    setUnlinking(true);
+    try {
+      await unlinkPlannedWorkout(token, completesPlan.id);
+      setCompletesPlan(null);
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      toast.error(err instanceof Error ? err.message : "Unlink failed");
+    } finally {
+      setUnlinking(false);
     }
   }
 
@@ -217,60 +223,59 @@ export default function RunningDetailPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto flex max-w-4xl flex-col gap-6">
-          {completesPlan && (
-            <CompletesPlanBanner plan={completesPlan} onUnlinked={() => setCompletesPlan(null)} />
-          )}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatTile
-              value={`${formatDistance(session.distance_meters)} ${unitLabel}`}
-              label="Distance"
-            />
-            <StatTile
-              value={`${formatPace(session.avg_pace_sec_per_km)} /${unitLabel}`}
-              label="Avg Pace"
-            />
-            <StatTile
-              value={session.avg_heart_rate_bpm != null ? `${session.avg_heart_rate_bpm} bpm` : "—"}
-              label="Avg HR"
-            />
-            <StatTile
-              value={session.total_calories != null ? String(session.total_calories) : "—"}
-              label="Calories"
-            />
-            <StatTile value={formatDuration(session.duration_seconds)} label="Duration" />
-            <StatTile
-              value={
-                session.best_pace_sec_per_km != null
-                  ? `${formatPace(session.best_pace_sec_per_km)} /${unitLabel}`
-                  : "—"
-              }
-              label="Best Pace"
-            />
-            <StatTile
-              value={session.max_heart_rate_bpm != null ? `${session.max_heart_rate_bpm} bpm` : "—"}
-              label="Max HR"
-            />
-            <StatTile
-              value={
-                session.elevation_gain_meters != null
-                  ? `${session.elevation_gain_meters.toFixed(0)} m`
-                  : "—"
-              }
-              label="Elev Gain"
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <HeartRateChart
-              data={hrData}
-              syncId="run"
-              unitLabel={unitLabel}
-              avgHr={session.avg_heart_rate_bpm}
-            />
-            <PaceChart data={paceData} syncId="run" unitLabel={unitLabel} />
-          </div>
-          <ElevationChart data={elevData} syncId="run" unitLabel={unitLabel} />
+        <div className="mx-auto flex max-w-3xl flex-col gap-6">
+          <RunHeaderBand
+            cells={[
+              {
+                label: "Distance",
+                value: `${formatDistance(session.distance_meters)} ${unitLabel}`,
+              },
+              { label: "Time", value: formatDuration(session.duration_seconds) },
+              {
+                label: "Avg pace",
+                value: `${formatPace(session.avg_pace_sec_per_km)} /${unitLabel}`,
+              },
+              {
+                label: "Best",
+                value:
+                  session.best_pace_sec_per_km != null
+                    ? `${formatPace(session.best_pace_sec_per_km)} /${unitLabel}`
+                    : "—",
+              },
+              {
+                label: "Avg HR",
+                value: session.avg_heart_rate_bpm != null ? `${session.avg_heart_rate_bpm}` : "—",
+              },
+              {
+                label: "Max HR",
+                value: session.max_heart_rate_bpm != null ? `${session.max_heart_rate_bpm}` : "—",
+              },
+              {
+                label: "Calories",
+                value: session.total_calories != null ? String(session.total_calories) : "—",
+              },
+              {
+                label: "Elev",
+                value:
+                  session.elevation_gain_meters != null
+                    ? `${session.elevation_gain_meters.toFixed(0)} m`
+                    : "—",
+              },
+            ]}
+            planName={completesPlan?.name ?? (completesPlan ? "Planned run" : null)}
+            prescription={completesPlan?.run_details ?? null}
+            onUnlink={completesPlan ? handleUnlink : undefined}
+            unlinking={unlinking}
+          />
+          <SplitsSpine
+            splits={derivation.splits}
+            intervals={derivation.intervals}
+            unitLabel={unitLabel}
+            formatDistance={formatDistance}
+            hasTargetColumn={targetPace != null}
+            targetPaceSecPerUnit={targetPace}
+          />
+          <PaceStrip points={derivation.paceStrip} hasDropout={derivation.hasDropout} />
         </div>
       </div>
 
