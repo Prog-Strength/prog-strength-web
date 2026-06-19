@@ -14,12 +14,13 @@ import {
   type BodyweightGoal,
 } from "@/lib/api";
 import { BodyweightActionSheet } from "@/components/bodyweight/bodyweight-action-sheet";
+import { BodyweightReadingsTimeline } from "@/components/bodyweight/bodyweight-readings-timeline";
 import { TrendSection } from "./_components/trend-section";
 
 /**
  * Bodyweight — chart-first layout with the daily-average trend line as
  * the focal point. The log form lives behind a pencil-icon "Log"
- * button next to the entries table, matching the nutrition page's
+ * button above the reading timeline, matching the nutrition page's
  * "+ Quick Add" pattern so the page surface stays calm until the
  * user explicitly opts into logging.
  *
@@ -28,13 +29,13 @@ import { TrendSection } from "./_components/trend-section";
  *   - Chart card: graph at the top, stat tiles tucked inside the
  *     same box below the chart so the two are visually one unit
  *   - Pencil-Log toolbar + separator line
- *   - Paginated entries table
+ *   - Reading timeline-rail (days as nodes, paginated whole-day so a
+ *     day's readings never split across pages)
  *
- * See prog-strength-docs/sows/bodyweight-multi-per-day.md.
+ * See prog-strength-docs/sows/bodyweight-readings-table-timeline-rail.md.
  */
 
 const UNIT_PREFERENCE_KEY = "ps_bodyweight_unit";
-const PAGE_SIZE = 20;
 
 type RangeKey = "30" | "60" | "90" | "all";
 const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
@@ -66,15 +67,14 @@ export default function BodyweightPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30");
-  const [page, setPage] = useState(1);
   const [showLog, setShowLog] = useState(false);
   const [goal, setGoal] = useState<BodyweightGoal | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalBusy, setGoalBusy] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
-  // Mobile action sheet target. When set, tapping a row card on mobile
-  // opens BodyweightActionSheet, which then routes to the existing
-  // edit / delete modals. Desktop never sets this — the row's pencil
+  // Mobile action sheet target. When set, tapping a reading bead on
+  // mobile opens BodyweightActionSheet, which then routes to the existing
+  // edit / delete modals. Desktop never sets this — the bead's pencil
   // and trash icons fire onEdit / onDelete directly.
   const [actionTarget, setActionTarget] = useState<BodyweightEntry | null>(null);
 
@@ -139,16 +139,6 @@ export default function BodyweightPage() {
     const cutoffMs = Date.now() - rangeDef.days * 24 * 60 * 60 * 1000;
     return sorted.filter((e) => new Date(e.measured_at).getTime() >= cutoffMs);
   }, [entries, range]);
-
-  const totalPages = Math.max(1, Math.ceil(entriesInRange.length / PAGE_SIZE));
-  const pageEntries = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return entriesInRange.slice(start, start + PAGE_SIZE);
-  }, [entriesInRange, page]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [range]);
 
   // Returns a Promise so the modal can await + close itself on
   // success. Same pattern the nutrition page uses for QuickAddModal.
@@ -309,15 +299,12 @@ export default function BodyweightPage() {
               </p>
             )}
             {entries && entriesInRange.length > 0 && (
-              <BodyweightTable
-                entries={pageEntries}
+              <BodyweightReadingsTimeline
+                entries={entriesInRange}
+                displayUnit={displayUnit}
                 onEdit={(entry) => setEditingEntry(entry)}
                 onDelete={(entry) => setDeletingEntry(entry)}
-                onTapRow={(entry) => setActionTarget(entry)}
-                page={page}
-                totalPages={totalPages}
-                onPageChange={setPage}
-                totalCount={entriesInRange.length}
+                onTapReading={(entry) => setActionTarget(entry)}
               />
             )}
           </section>
@@ -482,61 +469,6 @@ function PencilIcon() {
   );
 }
 
-// Ghost icon button for the table's row actions. Two tones: muted
-// (edit) reads neutral until hover, danger (delete) stays red. Hover
-// adds a faint surface wash so the hit target is obvious without a
-// permanent border.
-function IconButton({
-  tone,
-  onClick,
-  disabled,
-  "aria-label": ariaLabel,
-  children,
-}: {
-  tone: "muted" | "danger";
-  onClick: () => void;
-  disabled?: boolean;
-  "aria-label": string;
-  children: React.ReactNode;
-}) {
-  const toneClass =
-    tone === "danger"
-      ? "text-[var(--danger)] hover:text-[var(--danger)]"
-      : "text-[var(--muted)] hover:text-[var(--foreground)]";
-  return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex items-center justify-center rounded p-1 transition hover:bg-white/5 disabled:opacity-50 ${toneClass}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4"
-      aria-hidden="true"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  );
-}
-
 // Right-justified twin of the Log button on the toolbar separator. A
 // plain (outline-free) button: a green target icon, the muted "Goal:"
 // label, then either an italic "Set goal weight" call-to-action when no
@@ -583,205 +515,6 @@ function TargetIcon() {
       <circle cx="12" cy="12" r="5" />
       <circle cx="12" cy="12" r="1" />
     </svg>
-  );
-}
-
-// --- Table --------------------------------------------------------
-
-function BodyweightTable({
-  entries,
-  onEdit,
-  onDelete,
-  onTapRow,
-  page,
-  totalPages,
-  onPageChange,
-  totalCount,
-}: {
-  entries: BodyweightEntry[];
-  onEdit: (entry: BodyweightEntry) => void;
-  onDelete: (entry: BodyweightEntry) => void;
-  onTapRow: (entry: BodyweightEntry) => void;
-  page: number;
-  totalPages: number;
-  onPageChange: (p: number) => void;
-  totalCount: number;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-      {/* Desktop: 4-column table. Pixel-identical to the pre-mobile
-          version — the only change is `hidden sm:table` to hide it
-          below the breakpoint. */}
-      <table className="hidden w-full text-sm sm:table">
-        <thead>
-          <tr className="border-b border-[var(--border)] text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            <th className="px-4 py-2 text-left">Date</th>
-            <th className="px-4 py-2 text-left">Time</th>
-            <th className="px-4 py-2 text-right">Weight</th>
-            <th className="px-4 py-2 text-right" aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => (
-            <tr key={e.id} className="border-b border-[var(--border)]/50 last:border-b-0">
-              <td className="px-4 py-2 tabular-nums">{formatRowDate(e.measured_at)}</td>
-              <td className="px-4 py-2 tabular-nums text-[var(--muted)]">
-                {formatRowTime(e.measured_at)}
-              </td>
-              <td className="px-4 py-2 text-right font-medium tabular-nums">
-                {formatNumber(e.weight)} <span className="text-[var(--muted)]">{e.unit}</span>
-              </td>
-              <td className="px-4 py-2 text-right">
-                <div className="inline-flex items-center gap-1">
-                  <IconButton aria-label="Edit reading" tone="muted" onClick={() => onEdit(e)}>
-                    <PencilIcon />
-                  </IconButton>
-                  <IconButton aria-label="Delete reading" tone="danger" onClick={() => onDelete(e)}>
-                    <TrashIcon />
-                  </IconButton>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/* Mobile: button-card per reading. Weight + unit lead, the
-          compact date/time stack sits on the right. The whole card is
-          the tap target — opens BodyweightActionSheet for Edit / Delete
-          (the action column couldn't survive on a phone viewport
-          without crowding the reading itself). */}
-      <ul className="flex flex-col divide-y divide-[var(--border)]/50 sm:hidden">
-        {entries.map((e) => (
-          <li key={e.id}>
-            <button
-              type="button"
-              onClick={() => onTapRow(e)}
-              className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition active:bg-white/5"
-              aria-label={`${formatNumber(e.weight)} ${e.unit} on ${formatMobileRowDate(
-                e.measured_at,
-              )} — tap to edit or delete`}
-            >
-              <span className="text-sm font-semibold tabular-nums">
-                {formatNumber(e.weight)} <span className="text-[var(--muted)]">{e.unit}</span>
-              </span>
-              <span className="flex flex-col items-end text-right tabular-nums">
-                <span className="text-xs">{formatMobileRowDate(e.measured_at)}</span>
-                <span className="text-[10px] text-[var(--muted)]">
-                  {formatRowTime(e.measured_at)}
-                </span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      {totalPages > 1 && (
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          onPageChange={onPageChange}
-          totalCount={totalCount}
-        />
-      )}
-    </div>
-  );
-}
-
-function Pagination({
-  page,
-  totalPages,
-  onPageChange,
-  totalCount,
-}: {
-  page: number;
-  totalPages: number;
-  onPageChange: (p: number) => void;
-  totalCount: number;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)] sm:px-4">
-      <p className="tabular-nums">
-        Page {page} of {totalPages} · {totalCount} total
-      </p>
-      <div className="flex items-center gap-1">
-        <PaginationBtn
-          glyph="«"
-          word="First"
-          ariaLabel="First page"
-          disabled={page === 1}
-          onClick={() => onPageChange(1)}
-        />
-        <PaginationBtn
-          glyph="‹"
-          word="Prev"
-          ariaLabel="Previous page"
-          disabled={page === 1}
-          onClick={() => onPageChange(page - 1)}
-        />
-        <PaginationBtn
-          glyph="›"
-          word="Next"
-          ariaLabel="Next page"
-          wordFirst
-          disabled={page === totalPages}
-          onClick={() => onPageChange(page + 1)}
-        />
-        <PaginationBtn
-          glyph="»"
-          word="Last"
-          ariaLabel="Last page"
-          wordFirst
-          disabled={page === totalPages}
-          onClick={() => onPageChange(totalPages)}
-        />
-      </div>
-    </div>
-  );
-}
-
-/**
- * Pagination button. On mobile shows just the chevron glyph; at sm:+
- * adds the word label ("« First", "Next ›") so the four-button row
- * doesn't overflow a phone-width footer. `wordFirst` puts the glyph
- * on the right for "Next" / "Last" so the arrow reads in the direction
- * of travel.
- */
-function PaginationBtn({
-  glyph,
-  word,
-  ariaLabel,
-  disabled,
-  onClick,
-  wordFirst,
-}: {
-  glyph: string;
-  word: string;
-  ariaLabel: string;
-  disabled?: boolean;
-  onClick: () => void;
-  wordFirst?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
-    >
-      {wordFirst ? (
-        <>
-          <span className="hidden sm:inline">{word} </span>
-          {glyph}
-        </>
-      ) : (
-        <>
-          {glyph}
-          <span className="hidden sm:inline"> {word}</span>
-        </>
-      )}
-    </button>
   );
 }
 
@@ -1476,17 +1209,6 @@ function formatRowDate(iso: string): string {
     month: "short",
     day: "numeric",
   });
-}
-
-/** Compact two-line-friendly date for the mobile card list:
- * `Wed Jun 4`. Drops the comma the desktop row uses ("Wed, Jun 4")
- * so the line wraps less awkwardly inside a narrow column. */
-function formatMobileRowDate(iso: string): string {
-  const d = new Date(iso);
-  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
-  const month = d.toLocaleDateString("en-US", { month: "short" });
-  const day = d.getDate();
-  return `${weekday} ${month} ${day}`;
 }
 
 function formatRowTime(iso: string): string {
