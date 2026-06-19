@@ -68,9 +68,9 @@ describe("LoginPage (landing)", () => {
     expect(screen.getAllByText(/no password to manage\./i)).toHaveLength(2);
   });
 
-  it("redirects an already-signed-in visitor to /chat instead of showing the landing", () => {
+  it("redirects an already-signed-in visitor to /dashboard instead of showing the landing", () => {
     isAuthenticatedMock.mockReturnValue(true);
     render(<LoginPage />);
-    expect(replaceMock).toHaveBeenCalledWith("/chat");
+    expect(replaceMock).toHaveBeenCalledWith("/dashboard");
   });
 });

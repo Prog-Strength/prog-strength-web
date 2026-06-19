@@ -31,7 +31,7 @@ export default function LoginPage() {
     // If the user is already logged in, don't make them re-OAuth — and
     // don't show them the marketing landing they don't need.
     if (isAuthenticated()) {
-      router.replace("/chat");
+      router.replace("/dashboard");
       return;
     }
     // window.location.origin is only available client-side; compute the

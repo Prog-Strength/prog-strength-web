@@ -3080,6 +3080,148 @@ export async function checkUsernameAvailable(token: string, username: string): P
   throw new Error(detail);
 }
 
+// --- Dashboard summary -------------------------------------------
+
+/**
+ * The dashboard's running widget. `current_week` carries this week's
+ * distance/run-count plus the week-over-week delta (null when there's no
+ * prior week to compare against). `recent_avg_pace_sec_per_km` and
+ * `latest_run` are nullable when the data is too sparse to compute.
+ * `weekly_distance_spark` is ~8 weekly distances (meters), oldest→newest.
+ * All distances are metric meters; convert at the display edge.
+ */
+export type DashboardRunning = {
+  current_week: {
+    distance_meters: number;
+    run_count: number;
+    delta_pct_vs_prior_week: number | null;
+  };
+  recent_avg_pace_sec_per_km: number | null;
+  latest_run: {
+    name: string | null;
+    distance_meters: number;
+    duration_seconds: number;
+    start_time: string;
+  } | null;
+  weekly_distance_spark: number[];
+};
+
+/**
+ * The dashboard's lifting widget. `current_week` carries this week's
+ * training volume/session/set/PR counts. `headline_estimated_1rm` is the
+ * user's standout estimated 1RM (nullable when none qualifies); its
+ * `value` is already in `unit`. `weekly_volume_spark` is weekly volume
+ * oldest→newest. Weights pass through in the user's stored `unit`.
+ */
+export type DashboardLifting = {
+  current_week: {
+    duration_seconds: number;
+    sessions: number;
+    sets: number;
+    prs: number;
+  };
+  headline_estimated_1rm: {
+    exercise_name: string;
+    value: number;
+    unit: "lb" | "kg";
+  } | null;
+  weekly_volume_spark: number[];
+  unit: "lb" | "kg";
+};
+
+/**
+ * The dashboard's steps widget. `goal` is nullable (no goal set).
+ * `daily_spark` is 7 daily counts, oldest→newest.
+ */
+export type DashboardSteps = {
+  avg: number;
+  today: number;
+  goal: number | null;
+  daily_spark: number[];
+};
+
+/** One day's (or goal's) macro totals for the dashboard nutrition widget. */
+export type DashboardMacros = {
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+};
+
+/**
+ * The dashboard's nutrition widget. `today` is the day's logged totals;
+ * `goals` is nullable (no macro goals set).
+ */
+export type DashboardNutrition = {
+  today: DashboardMacros;
+  goals: DashboardMacros | null;
+};
+
+/**
+ * The dashboard's bodyweight widget. `current` is the latest reading in
+ * `unit`. `rate_per_week` (lb/kg per week, signed) and `goal` are
+ * nullable. `trend_spark` is the recent trend, oldest→newest. Weights
+ * pass through in the user's stored `unit`.
+ */
+export type DashboardBodyweight = {
+  current: number;
+  unit: "lb" | "kg";
+  rate_per_week: number | null;
+  goal: {
+    weight: number;
+    unit: "lb" | "kg";
+  } | null;
+  trend_spark: number[];
+};
+
+/**
+ * The dashboard's streak widget. ALWAYS present (zeroed for a brand-new
+ * user). `week` is 7 booleans Mon→Sun marking which days had activity.
+ */
+export type DashboardStreak = {
+  weeks: number;
+  active_days_this_week: number;
+  week: boolean[];
+};
+
+/**
+ * GET /dashboard/summary response payload (the envelope's `data`). Each
+ * section is null when the user has no data for it (e.g. `running: null`
+ * with no logged runs); `streak` is always present. Distances are metric
+ * meters; weights are in the user's stored unit. Mirrors the API contract
+ * exactly (snake_case); the display adapter in lib/dashboard.ts converts
+ * toward the user's preferred units.
+ */
+export type DashboardSummary = {
+  running: DashboardRunning | null;
+  lifting: DashboardLifting | null;
+  steps: DashboardSteps | null;
+  nutrition: DashboardNutrition | null;
+  bodyweight: DashboardBodyweight | null;
+  streak: DashboardStreak;
+};
+
+/**
+ * GET /dashboard/summary?timezone=<IANA>. Returns the dashboard's
+ * single-shot summary across running, lifting, steps, nutrition,
+ * bodyweight, and the activity streak. `timezone` anchors the day/week
+ * windows on the user's local calendar; call sites pass
+ * `Intl.DateTimeFormat().resolvedOptions().timeZone`. Returns null when
+ * the envelope carries no payload (the page renders a global empty state).
+ */
+export async function getDashboardSummary(
+  token: string,
+  timezone: string,
+): Promise<DashboardSummary | null> {
+  const resp = await fetch(
+    `${config.apiUrl}/dashboard/summary?timezone=${encodeURIComponent(timezone)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return unwrap<DashboardSummary | null>(resp, null);
+}
+
 /**
  * Common envelope unwrapper. The API wraps every success response in
  * `{service, message, data}`; the caller only cares about `data`.

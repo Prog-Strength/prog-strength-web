@@ -7,9 +7,12 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 const clearTokenMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const useProfileMock = vi.hoisted(() => vi.fn());
+// Mutable so individual tests can drive the active-route highlighting
+// (the Sidebar reads usePathname()). Defaults to /chat.
+const pathnameRef = vi.hoisted(() => ({ current: "/chat" }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/chat",
+  usePathname: () => pathnameRef.current,
   useRouter: () => ({ replace: replaceMock, push: vi.fn() }),
 }));
 
@@ -49,6 +52,7 @@ function profileCtx(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  pathnameRef.current = "/chat";
   useProfileMock.mockReturnValue(profileCtx());
 });
 
@@ -101,9 +105,10 @@ describe("Sidebar — account anchor", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
   });
 
-  it("renders all 9 nav destinations", () => {
+  it("renders all 10 nav destinations including Dashboard", () => {
     render(<Sidebar />);
     for (const label of [
+      "Dashboard",
       "Chat",
       "Timeline",
       "Activities",
@@ -121,6 +126,26 @@ describe("Sidebar — account anchor", () => {
   it("marks the active route with aria-current", () => {
     render(<Sidebar />);
     expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("renders Dashboard as the first nav item, pointing at /dashboard", () => {
+    render(<Sidebar />);
+    const links = screen.getAllByRole("link");
+    // The brand lockup is also a Link (to /chat); the first NAV entry is
+    // the first link whose accessible name is a NAV label.
+    const dashboard = screen.getByRole("link", { name: "Dashboard" });
+    expect(dashboard).toHaveAttribute("href", "/dashboard");
+    // It precedes the Chat entry in DOM order (first nav destination).
+    const chat = screen.getByRole("link", { name: "Chat" });
+    expect(links.indexOf(dashboard)).toBeLessThan(links.indexOf(chat));
+  });
+
+  it("marks Dashboard active with aria-current on /dashboard", () => {
+    pathnameRef.current = "/dashboard";
+    render(<Sidebar />);
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
+    // Chat is no longer the active entry.
+    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
   });
 
   it("shows the user email as the account secondary line", () => {

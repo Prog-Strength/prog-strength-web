@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   checkUsernameAvailable,
+  getDashboardSummary,
   getExerciseOneRMHistory,
   getPlannedWorkoutBySession,
   getProfile,
@@ -532,6 +533,70 @@ describe("checkUsernameAvailable", () => {
   it("throws on an unexpected non-2xx (e.g. 500)", async () => {
     mockFetchError("boom");
     await expect(checkUsernameAvailable(TOKEN, "x")).rejects.toThrow("boom");
+  });
+});
+
+describe("getDashboardSummary", () => {
+  const summary = {
+    running: {
+      current_week: { distance_meters: 21214.5, run_count: 3, delta_pct_vs_prior_week: 9.0 },
+      recent_avg_pace_sec_per_km: 376.5,
+      latest_run: {
+        name: "Lunch Run",
+        distance_meters: 8449.0,
+        duration_seconds: 3184,
+        start_time: "2026-06-18T18:02:00Z",
+      },
+      weekly_distance_spark: [12000.0, 0.0, 18500.0, 21214.5],
+    },
+    lifting: {
+      current_week: { duration_seconds: 9780, sessions: 3, sets: 21, prs: 4 },
+      headline_estimated_1rm: {
+        exercise_name: "Barbell Bench Press",
+        value: 326.9,
+        unit: "lb",
+      },
+      weekly_volume_spark: [0.0, 14200.0, 18050.0],
+      unit: "lb",
+    },
+    steps: { avg: 9400, today: 14000, goal: 10000, daily_spark: [8200, 9100, 0, 11000] },
+    nutrition: {
+      today: { calories: 1840.0, protein_g: 150.0, carbs_g: 190.0, fat_g: 60.0 },
+      goals: { calories: 2100, protein_g: 180, carbs_g: 230, fat_g: 70 },
+    },
+    bodyweight: {
+      current: 182.4,
+      unit: "lb",
+      rate_per_week: -0.3,
+      goal: { weight: 178.0, unit: "lb" },
+      trend_spark: [184.1, 183.6, 182.9, 182.4],
+    },
+    streak: {
+      weeks: 25,
+      active_days_this_week: 3,
+      week: [true, false, true, false, true, false, false],
+    },
+  };
+
+  it("returns the parsed summary and sends the bearer header with the timezone", async () => {
+    const fetchMock = mockFetchOk(summary);
+
+    const result = await getDashboardSummary(TOKEN, "America/Denver");
+
+    expect(result).toEqual(summary);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/dashboard/summary?timezone=America%2FDenver`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("returns null when the envelope data is missing", async () => {
+    mockFetchOk(undefined);
+    expect(await getDashboardSummary(TOKEN, "America/Denver")).toBeNull();
+  });
+
+  it("rejects with the API error text on a non-ok response", async () => {
+    mockFetchError("boom");
+    await expect(getDashboardSummary(TOKEN, "America/Denver")).rejects.toThrow("boom");
   });
 });
 

@@ -22,6 +22,10 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
+  // Dashboard is the command-center landing: an at-a-glance overview of
+  // the day plus the command bar. Authenticated users land here, so it
+  // sits at the very top of the nav.
+  { href: "/dashboard", label: "Dashboard", icon: <DashboardIcon /> },
   // Chat history used to be a sibling entry here; it now lives as the
   // persistent conversation-list pane inside the chat page so the
   // sidebar has one fewer row.
@@ -316,6 +320,29 @@ function initials(name: string): string {
  * icon library) to keep the bundle small and the change focused. Sized
  * to 16x16 to fit the 20x20 hit area without crowding.
  */
+
+function DashboardIcon() {
+  // A 2×2 grid of rounded squares — the universal "dashboard / overview"
+  // glyph. Reads as a panel of tiles, distinct from the Chat bubble below.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
 
 function ChatIcon() {
   return (

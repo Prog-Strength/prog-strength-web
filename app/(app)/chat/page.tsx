@@ -77,6 +77,11 @@ export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlSessionId = searchParams.get("session");
+  // Dashboard command-bar hand-off: /chat?prompt=<text> on a fresh chat
+  // (no ?session=) seeds the composer with the prompt and auto-sends it
+  // once on mount, then strips the param so a refresh/back doesn't re-send.
+  // See the auto-send effect below.
+  const urlPrompt = searchParams.get("prompt");
   const toast = useToast();
   // Shared daily-AI-usage snapshot (settings + chat read one source).
   // When `capped`, the composer disables and a banner explains the reset.
@@ -172,6 +177,11 @@ export default function ChatPage() {
   // Guards the TTFA telemetry POST so we only report once per turn
   // even though audio_chunk N+1 also triggers a play() call.
   const firstAudioReportedRef = useRef<boolean>(false);
+  // Guards the dashboard ?prompt= auto-send so it fires exactly once,
+  // even across re-renders and React strict-mode's double-invoke. Set the
+  // first time the auto-send effect commits to seeding + sending the
+  // prompt; never reset for the life of the mounted page.
+  const promptHandledRef = useRef<boolean>(false);
 
   // Bootstrap the session on every mount. Two paths:
   //   - URL has ?session=<id>: GET to rehydrate (history + persisted
@@ -754,6 +764,52 @@ export default function ChatPage() {
     capped,
     refreshUsage,
   ]);
+
+  // Dashboard command-bar hand-off. When the URL carries ?prompt=<text>
+  // and this is a fresh chat (no ?session=), seed the composer with the
+  // prompt and auto-send it exactly once. Two-phase so we don't fire
+  // send() against a stale (empty) `input` closure:
+  //   1. On the first eligible render, mark handled, set `input`, and
+  //      strip the ?prompt= param (router.replace) so a refresh/back
+  //      doesn't re-send.
+  //   2. Once `input` reflects the prompt AND the page is ready to send
+  //      (session minted, not loading/streaming/capped), fire send() once.
+  // promptHandledRef guards phase 1 against strict-mode double-invoke; the
+  // separate phase-2 flag ensures send() runs a single time.
+  const promptSentRef = useRef<boolean>(false);
+  // Holds the prompt text across phase 1 → phase 2. We can't read
+  // `urlPrompt` in phase 2: phase 1's router.replace("/chat") strips the
+  // param, so on the next render searchParams no longer carries it.
+  const pendingPromptRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Phase 1: a fresh chat (no ?session=) carrying ?prompt= seeds the
+    // composer + strips the param, once. Resuming a ?session= conversation
+    // never auto-sends — that path is untouched. The setInput lands on a
+    // microtask (await tick) so React's no-sync-setState-in-effect lint
+    // stays satisfied, matching the mount effect's idiom above.
+    if (!promptHandledRef.current) {
+      if (!urlPrompt || urlSessionId) return;
+      promptHandledRef.current = true;
+      pendingPromptRef.current = urlPrompt;
+      const seed = urlPrompt;
+      void Promise.resolve().then(() => {
+        setInput(seed);
+        router.replace("/chat");
+      });
+      return;
+    }
+
+    // Phase 2: fire the existing send flow once, after the page is ready
+    // and the composer holds the captured prompt.
+    if (promptSentRef.current) return;
+    const pending = pendingPromptRef.current;
+    if (!pending) return;
+    if (!sessionId || loading || streaming || capped) return;
+    if (input.trim() !== pending.trim()) return;
+    promptSentRef.current = true;
+    pendingPromptRef.current = null;
+    void send();
+  }, [urlPrompt, urlSessionId, sessionId, loading, streaming, capped, input, router, send]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter inserts a newline. Standard chat UX.
