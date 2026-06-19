@@ -6,6 +6,13 @@
  * in the Vercel project's environment to the public hostnames.
  */
 
+// Parse a NEXT_PUBLIC_* flag as a boolean. Accepts any common truthy spelling
+// (1/true/yes/on, case-insensitive) so a flag set to "true" on Vercel and a
+// gate written against "1" in code can never silently disagree. Use this for
+// every env-driven boolean rather than comparing to a single literal.
+export const envFlag = (value: string | undefined): boolean =>
+  /^(1|true|yes|on)$/i.test((value ?? "").trim());
+
 export const config = {
   apiUrl: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080",
   agentUrl: process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8001",
@@ -20,4 +27,13 @@ export const config = {
   // address — override via the env var if you set up a dedicated
   // alias later.
   betaContactEmail: process.env.NEXT_PUBLIC_BETA_CONTACT_EMAIL ?? "jimmy.wallace145@gmail.com",
+  // THE single gate for every throwaway Design Exploration (DX) route under
+  // /design-explore/*. There is exactly one DX env var across all DX work:
+  // NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE. It is unset in production (so DX routes
+  // `notFound()` and are dead/unreachable) and set to a truthy value on a
+  // Vercel *preview* deploy when a reviewer wants to compare variants. Every DX
+  // route must reuse THIS field — never invent a per-surface flag or a second
+  // env var. Lives permanently on `main` so each `dx/*` branch reuses it
+  // verbatim instead of re-deriving the gate.
+  designExploreEnabled: envFlag(process.env.NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE),
 };
