@@ -203,8 +203,8 @@ describe("WorkoutDetailPage — canonical four-PR session", () => {
     expect(await screen.findByText("4 × · top 305 lb")).toBeInTheDocument();
     // dumbbell lift carries the per-dumbbell clarifier
     expect(screen.getByText("4 × · top 90 lb per dumbbell")).toBeInTheDocument();
-    // the ohp ↔ pulldown superset reads as one block with the tag
-    expect(screen.getAllByText("superset").length).toBeGreaterThan(0);
+    // the ohp ↔ pulldown superset reads as one block with a single tag
+    expect(screen.getAllByText("superset")).toHaveLength(1);
   });
 
   it("renders the muscle body-map and drops the old text strip", async () => {

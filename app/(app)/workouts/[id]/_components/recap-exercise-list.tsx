@@ -76,7 +76,9 @@ export function RecapExerciseList({
                       >
                         <ChevronIcon open={isOpen} />
                       </button>
-                      <span className="truncate text-sm text-[var(--foreground)]">{name}</span>
+                      <span className="min-w-0 truncate text-sm text-[var(--foreground)]">
+                        {name}
+                      </span>
                       <span className="text-xs tabular-nums text-[var(--muted)]">
                         {topSetReadout(we, catalogEntry)}
                       </span>
