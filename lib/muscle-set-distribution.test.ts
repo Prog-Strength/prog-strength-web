@@ -91,7 +91,7 @@ describe("setsByMuscleGroup", () => {
     expect(byGroup.back).toBeUndefined();
   });
 
-  it("is false-flagged and empty when no exercise resolves to a mappable group", () => {
+  it("ignores unknown muscle groups and exercises not in the catalog", () => {
     const w = workout([
       { exercise_id: "mystery", order: 0, sets: [{ reps: 1, weight: 0, unit: "lb" }] },
       { exercise_id: "not-in-catalog", order: 1, sets: [{ reps: 1, weight: 0, unit: "lb" }] },

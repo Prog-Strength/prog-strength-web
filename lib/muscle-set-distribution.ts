@@ -85,9 +85,10 @@ export function setsByMuscleGroup(
     }
   }
 
-  const data = MUSCLE_GROUPS.filter((mg) => tallies.has(mg)).map((mg) => ({
-    muscleGroup: mg,
-    value: tallies.get(mg) as number,
-  }));
+  const data: MuscleGroupSetCount[] = [];
+  for (const mg of MUSCLE_GROUPS) {
+    const value = tallies.get(mg);
+    if (value) data.push({ muscleGroup: mg, value });
+  }
   return { data, hasData: data.length > 0 };
 }

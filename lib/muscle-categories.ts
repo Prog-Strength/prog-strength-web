@@ -10,8 +10,7 @@ export type MuscleCategory = (typeof CATEGORIES)[number];
 /**
  * The catalog's 11 fine-grained muscle-group keys mapped to the 6 broad
  * categories. Exported so finer-grained consumers (the workout body-map) can
- * enumerate the canonical key set and a guard test can assert no catalog
- * muscle silently falls off a downstream mapping.
+ * enumerate the canonical key set without re-spelling it.
  */
 export const MAP: Record<string, MuscleCategory> = {
   chest: "Chest",
