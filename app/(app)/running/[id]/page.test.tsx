@@ -77,75 +77,15 @@ vi.mock("@/components/toast", () => ({
 
 import RunningDetailPage from "./page";
 
+import { intervalTrackpoints, synthesize } from "@/lib/test-fixtures/running-trackpoints";
+
 // --- trackpoint synthesis ---------------------------------------------------
-
-type SegmentSpec = {
-  meters: number;
-  paceSecPerKm: number;
-  hr?: number | null;
-  elevation?: number | null;
-  sampleMeters?: number;
-};
-
-/**
- * Synthesize a dense RunningTrackpoint stream from constant-pace segment
- * specs (mirrors the proven approach in lib/running-splits.test.ts) so the
- * page's derivation produces real splits and, for the interval fixture,
- * detects intervals.
- */
-function synthesize(specs: SegmentSpec[]): RunningTrackpoint[] {
-  const points: RunningTrackpoint[] = [];
-  let sequence = 0;
-  let distance = 0;
-  let elapsed = 0;
-
-  const push = (pace: number, hr: number | null, elevation: number | null) => {
-    points.push({
-      sequence,
-      elapsed_seconds: Math.round(elapsed),
-      distance_meters: Math.round(distance * 100) / 100,
-      heart_rate_bpm: hr,
-      pace_sec_per_km: pace,
-      elevation_meters: elevation,
-    });
-    sequence += 1;
-  };
-
-  const first = specs[0];
-  push(first.paceSecPerKm, first.hr ?? null, first.elevation ?? null);
-
-  for (const spec of specs) {
-    const step = spec.sampleMeters ?? 25;
-    const hr = spec.hr ?? null;
-    let covered = 0;
-    while (covered < spec.meters - 1e-6) {
-      const next = Math.min(step, spec.meters - covered);
-      covered += next;
-      distance += next;
-      elapsed += (next / 1000) * spec.paceSecPerKm;
-      push(spec.paceSecPerKm, hr, spec.elevation ?? null);
-    }
-  }
-
-  return points;
-}
 
 /** ~2.2 mi steady run — produces 3 mile splits, no interval structure. */
 function steadyTrackpoints(): RunningTrackpoint[] {
   return synthesize([
     { meters: 2.2 * METERS_PER_MILE, paceSecPerKm: 300, hr: 150, sampleMeters: 10 },
   ]);
-}
-
-/** 1 mi warm-up + 6×(400m fast / 200m recovery) + cool-down → detectable intervals. */
-function intervalTrackpoints(): RunningTrackpoint[] {
-  const specs: SegmentSpec[] = [{ meters: METERS_PER_MILE, paceSecPerKm: 360, hr: 130 }];
-  for (let i = 0; i < 6; i++) {
-    specs.push({ meters: 400, paceSecPerKm: 240, hr: 175 });
-    specs.push({ meters: 200, paceSecPerKm: 390, hr: 150 });
-  }
-  specs.push({ meters: 0.5 * METERS_PER_MILE, paceSecPerKm: 360, hr: 130 });
-  return synthesize(specs);
 }
 
 // --- fixtures ---------------------------------------------------------------
