@@ -198,9 +198,8 @@ function Bead({
   const value = `${formatNumber(reading.weight)} ${displayUnit}`;
   const time = formatBeadTime(reading.measured_at);
   // Render the figure and unit as adjacent-but-separate text nodes so the
-  // day-header average stays the single contiguous "N unit" match while the
-  // beads (which repeat the same figure, in two breakpoint variants) don't
-  // multiply it.
+  // day-header average stays the single contiguous "N unit" match while a
+  // bead's own figure doesn't collide with it.
   const figure = (
     <span className="text-sm text-[var(--foreground)] tabular-nums">
       {formatNumber(reading.weight)}
