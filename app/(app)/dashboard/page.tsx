@@ -78,9 +78,13 @@ export default function DashboardPage() {
       try {
         const me = await getMe(token);
         if (cancelled) return;
-        // OQ#5: anchor day/week windows on the profile's IANA timezone,
-        // falling back to the browser zone only if the profile is absent.
-        const tz = me.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+        // Anchor day/week windows on the BROWSER's IANA timezone — the same
+        // source the nutrition, chat, running, and activities surfaces use.
+        // The saved profile tz can be stale/wrong, which made the dashboard's
+        // "today" window disagree with the (correct) nutrition page and pull
+        // an adjacent day's nutrition entries; the browser zone is the user's
+        // actual wall clock.
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const summary: DashboardSummary | null = await getDashboardSummary(token, tz);
         if (cancelled) return;
         setData(adaptDashboard(summary, me));

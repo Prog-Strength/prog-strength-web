@@ -125,12 +125,31 @@ describe("DashboardPage — loading", () => {
 });
 
 describe("DashboardPage — full payload", () => {
-  it("fetches the summary with the profile timezone", async () => {
-    render(<DashboardPage />);
-    await waitFor(() => expect(getMe).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(getDashboardSummary).toHaveBeenCalledWith("test-token", "America/Denver"),
-    );
+  it("fetches the summary with the browser timezone, not the saved profile tz", async () => {
+    // Regression: the dashboard must anchor "today" on the browser zone (the
+    // source the nutrition/chat/running surfaces use), NOT the profile tz —
+    // a stale profile tz made the dashboard's nutrition day disagree with the
+    // (correct) nutrition page and pull an adjacent day's entries. Profile tz
+    // is Denver (above); force the browser zone to a different zone and assert
+    // the fetch uses the browser zone.
+    const realDTF = Intl.DateTimeFormat;
+    const spy = vi
+      .spyOn(Intl, "DateTimeFormat")
+      .mockImplementation((...args: ConstructorParameters<typeof Intl.DateTimeFormat>) => {
+        const inst = new realDTF(...args);
+        const realResolved = inst.resolvedOptions.bind(inst);
+        inst.resolvedOptions = () => ({ ...realResolved(), timeZone: "America/Chicago" });
+        return inst;
+      });
+    try {
+      render(<DashboardPage />);
+      await waitFor(() => expect(getMe).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(getDashboardSummary).toHaveBeenCalledWith("test-token", "America/Chicago"),
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("renders the KPI strip and all six mini-cards with headline values", async () => {
