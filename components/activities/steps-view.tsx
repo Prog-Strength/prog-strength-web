@@ -6,7 +6,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -23,7 +22,15 @@ import {
   type StepsEntry,
   type StepsGoal,
 } from "@/lib/api";
-import { StatTile } from "@/components/stat-tile";
+import {
+  buildAxis,
+  dayPct,
+  deriveStats,
+  isoDate,
+  parseLocalDate,
+  rangeSinceIso,
+  type Day,
+} from "@/lib/steps-stats";
 import {
   CHART_AXIS,
   CHART_GRID,
@@ -39,24 +46,30 @@ const PAGE_SIZE = 25;
 const MAX_STEPS = 200000;
 
 /**
- * Steps sub-view of the Activities page. Top → bottom:
- *   - Stat tiles (avg / total / best day / goal attainment) over the
- *     selected timeframe window.
- *   - Daily bar chart, one bar per day in the range. When a goal is
- *     set, days that met/over the goal read in the calm success tone and
- *     under-goal days in a muted neutral, against a dashed goal line;
- *     with no goal set every bar reads in the calm periwinkle accent.
- *   - A keyset-paginated log table (one row per day) with Log / Edit /
- *     Delete affordances and a "Set steps goal" control.
+ * Steps sub-view of the Activities page, built in the goal-ring-hero idiom:
+ * goal attainment is the hero. Top → bottom:
+ *   - A hero progress ring: the period average sits in its center, the ring
+ *     fills toward the goal in the periwinkle accent and clears to
+ *     success-green once at/over goal. With no goal it's a calm neutral track.
+ *   - A supporting Days-hit / Best / Total strip, so the average reads as the
+ *     headline rather than one of four equal tiles.
+ *   - A goal-relative bar chart: a muted base climbs to the goal line and a
+ *     success crest tops days that clear it; unlogged days are gaps (never
+ *     0-step bars). With no goal every bar reads in the calm accent.
+ *   - A keyset-paginated log table, each row carrying a per-day mini-ring +
+ *     goal-%, with Log / Edit / Delete affordances and a "Set steps goal"
+ *     control.
  *
- * The chart + tiles read the `days` window (range fetch); the log table
- * paginates independently of the window via keyset cursors. Both refetch
- * after any mutation so the view reflects the saved value immediately.
+ * The ring + strip + bars read the `days` window (range fetch); the log table
+ * paginates independently of the window via keyset cursors. Both refetch after
+ * any mutation so the view reflects the saved value immediately. Everything the
+ * view shows is derived client-side (`lib/steps-stats`) from the existing
+ * `listSteps` / `getStepsGoal` endpoints — there is no steps-specific backend.
  */
 export function StepsView({ days }: { days: number | null }) {
   const router = useRouter();
 
-  // Range-windowed entries powering the tiles + chart.
+  // Range-windowed entries powering the ring + strip + chart.
   const [rangeEntries, setRangeEntries] = useState<StepsEntry[] | null>(null);
   // Keyset-paginated entries powering the log table.
   const [logEntries, setLogEntries] = useState<StepsEntry[] | null>(null);
@@ -82,7 +95,7 @@ export function StepsView({ days }: { days: number | null }) {
     [router],
   );
 
-  // Range fetch (tiles + chart) + goal + first keyset page of the log
+  // Range fetch (ring + strip + chart) + goal + first keyset page of the log
   // table. Reused on mount, on `days` change, and after any mutation.
   const refetch = useCallback(() => {
     const token = getToken();
@@ -90,7 +103,7 @@ export function StepsView({ days }: { days: number | null }) {
       router.replace("/login");
       return;
     }
-    const since = days !== null ? isoDate(new Date(Date.now() - (days - 1) * DAY_MS)) : undefined;
+    const since = days !== null ? rangeSinceIso(days) : undefined;
     const until = days !== null ? isoDate(new Date()) : undefined;
     Promise.all([
       listSteps(token, { since, until }),
@@ -164,24 +177,27 @@ export function StepsView({ days }: { days: number | null }) {
     return putStepsGoal(token, { goal: value }).then((saved) => {
       setGoal(saved);
       setShowGoalModal(false);
+      refetch();
     });
   }
 
   const hasGoal = goal !== null && goal.goal > 0;
   const goalValue = hasGoal ? goal.goal : null;
 
-  const stats = useMemo(() => computeStats(rangeEntries ?? []), [rangeEntries]);
+  const stats = useMemo(
+    () => deriveStats(rangeEntries ?? [], days, goalValue ?? 0),
+    [rangeEntries, days, goalValue],
+  );
+  const axis = useMemo(
+    () => buildAxis(rangeEntries ?? [], days, goalValue ?? 0),
+    [rangeEntries, days, goalValue],
+  );
 
-  // Chart data oldest → newest so the bars read left-to-right in time.
-  const chartData = useMemo(() => {
-    const sorted = [...(rangeEntries ?? [])].sort((a, b) => a.date.localeCompare(b.date));
-    return sorted.map((e) => ({ date: e.date, steps: e.steps }));
-  }, [rangeEntries]);
-
-  const attainment =
-    goalValue && goalValue > 0 && stats.avg !== null
-      ? Math.round((stats.avg / goalValue) * 100)
-      : null;
+  const fullyEmpty =
+    rangeEntries !== null &&
+    rangeEntries.length === 0 &&
+    logEntries !== null &&
+    logEntries.length === 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -195,66 +211,50 @@ export function StepsView({ days }: { days: number | null }) {
         <p className="text-sm text-[var(--muted)]">Loading steps…</p>
       )}
 
-      {rangeEntries !== null && (
-        <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatTile
-              value={stats.avg !== null ? formatSteps(Math.round(stats.avg)) : "—"}
-              label="Avg daily steps"
+      {rangeEntries !== null &&
+        (fullyEmpty ? (
+          <EmptyRing onLog={() => setShowLog(true)} />
+        ) : (
+          <>
+            <HeroRing
+              avg={stats.avg}
+              attainmentPct={stats.attainmentPct}
+              hasGoal={hasGoal}
+              goal={goalValue}
+              daysHit={stats.daysHit}
+              daysLogged={stats.daysLogged}
+              best={stats.best}
+              total={stats.total}
             />
-            <StatTile value={formatSteps(stats.total)} label="Total steps" />
-            <StatTile
-              value={stats.best !== null ? formatSteps(stats.best.steps) : "—"}
-              label="Best day"
-              sub={stats.best !== null ? formatShortDate(stats.best.date) : undefined}
-            />
-            <StatTile
-              value={hasGoal ? formatSteps(goalValue as number) : "— — —"}
-              label="Goal"
-              sub={
-                hasGoal
-                  ? attainment !== null
-                    ? `${attainment}% of ${formatSteps(goalValue as number)}`
-                    : "Not enough data"
-                  : "Not set"
-              }
-              tone={
-                hasGoal && attainment !== null
-                  ? attainment >= 100
-                    ? "positive"
-                    : "neutral"
-                  : "neutral"
-              }
-            />
-          </div>
 
-          <ChartCard data={chartData} goal={goalValue} />
+            <RelativeBars axis={axis} goal={goalValue} />
 
-          <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
-              <ToolbarButton
-                onClick={() => setShowLog(true)}
-                icon={<PencilIcon />}
-                label="Log steps"
-              />
-              <GoalAffordance goal={goalValue} onClick={() => setShowGoalModal(true)} />
-            </div>
+            <section className="flex flex-col gap-3">
+              <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+                <ToolbarButton
+                  onClick={() => setShowLog(true)}
+                  icon={<PencilIcon />}
+                  label="Log steps"
+                />
+                <GoalAffordance goal={goalValue} onClick={() => setShowGoalModal(true)} />
+              </div>
 
-            {logEntries !== null && logEntries.length === 0 ? (
-              <EmptyState onLog={() => setShowLog(true)} />
-            ) : (
-              <StepsTable
-                entries={logEntries ?? []}
-                onEdit={(e) => setEditingEntry(e)}
-                onDelete={(date) => handleDelete(date)}
-                hasMore={nextBefore !== null}
-                loadingMore={loadingMore}
-                onLoadMore={loadMore}
-              />
-            )}
-          </section>
-        </>
-      )}
+              {logEntries !== null && logEntries.length === 0 ? (
+                <EmptyState onLog={() => setShowLog(true)} />
+              ) : (
+                <StepsTable
+                  entries={logEntries ?? []}
+                  goal={goalValue}
+                  onEdit={(e) => setEditingEntry(e)}
+                  onDelete={(date) => handleDelete(date)}
+                  hasMore={nextBefore !== null}
+                  loadingMore={loadingMore}
+                  onLoadMore={loadMore}
+                />
+              )}
+            </section>
+          </>
+        ))}
 
       {showLog && <StepsLogModal onSubmit={handleSave} onClose={() => setShowLog(false)} />}
 
@@ -277,16 +277,183 @@ export function StepsView({ days }: { days: number | null }) {
   );
 }
 
-// --- Chart card ----------------------------------------------------
+// --- Hero ring + supporting strip ----------------------------------
 
-function ChartCard({
-  data,
+function HeroRing({
+  avg,
+  attainmentPct,
+  hasGoal,
   goal,
+  daysHit,
+  daysLogged,
+  best,
+  total,
 }: {
-  data: { date: string; steps: number }[];
+  avg: number | null;
+  attainmentPct: number | null;
+  hasGoal: boolean;
   goal: number | null;
+  daysHit: number;
+  daysLogged: number;
+  best: { date: string; steps: number } | null;
+  total: number;
 }) {
-  if (data.length === 0) {
+  // No entries in the selected window (but data exists outside it): a calm
+  // neutral ring with a plain caption, no NaN%, no broken frame.
+  if (avg === null) {
+    return (
+      <div className="flex flex-col items-center gap-2 pt-2">
+        <Ring pct={null} center="—" cleared={false} />
+        <p className="text-center text-[13px] text-[var(--muted)]">No steps in this range</p>
+      </div>
+    );
+  }
+
+  const pct = hasGoal ? attainmentPct : null;
+  const cleared = pct !== null && pct >= 100;
+
+  return (
+    <div className="flex flex-col items-center gap-8">
+      <div className="flex flex-col items-center gap-2 pt-2">
+        <Ring pct={pct} center={formatSteps(Math.round(avg))} cleared={cleared} />
+        <p className="text-center text-[13px] text-[var(--muted)]">
+          {hasGoal && pct !== null ? (
+            <>
+              avg / day —{" "}
+              <span style={{ color: cleared ? "var(--success)" : "var(--accent)" }}>
+                {pct}% of {formatSteps(goal as number)} goal
+              </span>
+            </>
+          ) : (
+            <>avg / day — no goal set</>
+          )}
+        </p>
+      </div>
+
+      <div className="flex w-full max-w-sm items-stretch justify-center gap-px overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--border)] text-center">
+        <MiniStat
+          label="Days hit"
+          value={hasGoal ? `${daysHit}/${daysLogged}` : "—"}
+          tone={hasGoal ? "success" : "muted"}
+        />
+        <MiniStat label="Best" value={best ? fmtK(best.steps) : "—"} />
+        <MiniStat label="Total" value={fmtK(total)} />
+      </div>
+    </div>
+  );
+}
+
+/** The hero ring. The accent fills progress; it clears to success once at/over
+ * goal. No goal (pct null) ⇒ a calm neutral track with the value centered. */
+function Ring({ pct, center, cleared }: { pct: number | null; center: string; cleared: boolean }) {
+  const r = 52;
+  const c = 2 * Math.PI * r;
+  const frac = pct === null ? 0 : Math.min(pct, 100) / 100;
+  const stroke = cleared ? "var(--success)" : "var(--accent)";
+  return (
+    <div className="relative grid h-[148px] w-[148px] place-items-center sm:h-[180px] sm:w-[180px]">
+      <svg viewBox="0 0 128 128" className="h-full w-full -rotate-90" aria-hidden="true">
+        <circle cx="64" cy="64" r={r} fill="none" stroke="var(--surface-3)" strokeWidth="11" />
+        {pct !== null && (
+          <circle
+            cx="64"
+            cy="64"
+            r={r}
+            fill="none"
+            stroke={stroke}
+            strokeWidth="11"
+            strokeLinecap="round"
+            strokeDasharray={c}
+            strokeDashoffset={c * (1 - frac)}
+          />
+        )}
+      </svg>
+      <div className="absolute flex flex-col items-center">
+        <span
+          data-testid="hero-average"
+          className="text-[34px] font-semibold leading-none tracking-[-0.04em] tabular-nums sm:text-[42px]"
+        >
+          {center}
+        </span>
+        {pct !== null && (
+          <span
+            className="mt-1 text-[12px] font-semibold tabular-nums"
+            style={{ color: cleared ? "var(--success)" : "var(--accent)" }}
+          >
+            {pct}%
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiniRing({ pct, hit }: { pct: number | null; hit: boolean }) {
+  const r = 8;
+  const c = 2 * Math.PI * r;
+  const frac = pct === null ? 0 : Math.min(pct, 100) / 100;
+  return (
+    <svg viewBox="0 0 22 22" className="h-6 w-6 -rotate-90" aria-hidden="true">
+      <circle cx="11" cy="11" r={r} fill="none" stroke="var(--surface-3)" strokeWidth="3" />
+      {pct !== null && (
+        <circle
+          cx="11"
+          cy="11"
+          r={r}
+          fill="none"
+          stroke={hit ? "var(--success)" : "var(--accent)"}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - frac)}
+        />
+      )}
+    </svg>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "success" | "muted";
+}) {
+  const color =
+    tone === "success" ? "var(--success)" : tone === "muted" ? "var(--faint)" : "var(--foreground)";
+  return (
+    <div className="flex-1 bg-[var(--background)] px-3 py-3">
+      <div className="text-[16px] font-semibold tabular-nums" style={{ color }}>
+        {value}
+      </div>
+      <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--faint)]">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// --- Goal-relative bars --------------------------------------------
+
+type BarDatum = {
+  date: string;
+  base: number | null; // min(steps, goal) — the muted climb to the line
+  crest: number | null; // max(0, steps − goal) — the success topping
+  steps: number | null; // raw steps (no goal) / for the tooltip
+};
+
+/**
+ * Goal-relative daily bars. With a goal, each day is a stacked muted base
+ * (`min(steps, goal)`) plus a success crest (`max(0, steps − goal)`) read
+ * against the dashed goal line; unlogged days carry no value so recharts
+ * renders them as gaps, not 0-step bars. With no goal, every bar reads in the
+ * calm accent. The goal is forced into the Y domain so its line never clips and
+ * one big day can't flatten the rest.
+ */
+function RelativeBars({ axis, goal }: { axis: Day[]; goal: number | null }) {
+  if (axis.length === 0) {
     return (
       <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">
         No steps logged in this range.
@@ -294,11 +461,16 @@ function ChartCard({
     );
   }
 
-  // Day-by-day bar tone: with no goal the whole chart reads calm
-  // periwinkle; with a goal, met/over days read success and under days a
-  // muted neutral so attainment is visible at a glance against the line.
-  const barColor = (steps: number) =>
-    goal === null ? CHART_LIFT_LINE : steps >= goal ? CHART_STEPS_MET : CHART_STEPS_UNDER;
+  const data: BarDatum[] = axis.map((d) => {
+    if (d.steps === null) return { date: d.date, base: null, crest: null, steps: null };
+    if (goal === null) return { date: d.date, base: null, crest: null, steps: d.steps };
+    return {
+      date: d.date,
+      base: Math.min(d.steps, goal),
+      crest: Math.max(0, d.steps - goal),
+      steps: d.steps,
+    };
+  });
 
   return (
     <div className="flex flex-col gap-4 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-3 sm:p-4">
@@ -318,35 +490,43 @@ function ChartCard({
               stroke={CHART_AXIS}
               tick={{ fill: CHART_AXIS, fontSize: 11 }}
               width={48}
-              // Force the goal into the visible domain so its reference
-              // line never clips off-axis (mirrors the bodyweight fix).
+              // Force the goal into the visible domain so its reference line
+              // never clips off-axis (mirrors the bodyweight fix).
               domain={[
-                (dataMin: number) => Math.floor(goal !== null ? Math.min(dataMin, goal) : dataMin),
+                0,
                 (dataMax: number) => Math.ceil(goal !== null ? Math.max(dataMax, goal) : dataMax),
               ]}
               tickFormatter={(v: number) => formatSteps(Math.round(v))}
             />
             <Tooltip
               cursor={{ fill: "rgba(255,255,255,0.04)" }}
-              contentStyle={{
-                backgroundColor: CHART_TOOLTIP_BG,
-                border: `1px solid ${CHART_TOOLTIP_BORDER}`,
-                borderRadius: CHART_TOOLTIP_RADIUS,
-                padding: "8px 10px",
-                fontSize: "12px",
-              }}
               wrapperStyle={{ outline: "none" }}
-              labelFormatter={(label) => formatTooltipDate(String(label))}
-              formatter={(value) => {
-                const v = typeof value === "number" ? value : Number(value);
-                return [formatSteps(v), "Steps"];
-              }}
+              content={<BarsTooltip />}
             />
-            <Bar dataKey="steps" radius={[2, 2, 0, 0]} isAnimationActive={false}>
-              {data.map((d) => (
-                <Cell key={d.date} fill={barColor(d.steps)} />
-              ))}
-            </Bar>
+            {goal === null ? (
+              <Bar
+                dataKey="steps"
+                fill={CHART_LIFT_LINE}
+                radius={[2, 2, 0, 0]}
+                isAnimationActive={false}
+              />
+            ) : (
+              <>
+                <Bar
+                  dataKey="base"
+                  stackId="steps"
+                  fill={CHART_STEPS_UNDER}
+                  isAnimationActive={false}
+                />
+                <Bar
+                  dataKey="crest"
+                  stackId="steps"
+                  fill={CHART_STEPS_MET}
+                  radius={[2, 2, 0, 0]}
+                  isAnimationActive={false}
+                />
+              </>
+            )}
             {goal !== null && (
               <ReferenceLine
                 y={goal}
@@ -368,10 +548,41 @@ function ChartCard({
   );
 }
 
+/** Tooltip showing the day's total steps (the stacked base + crest summed), so
+ * the goal-relative split never reads as two separate numbers. */
+function BarsTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { payload?: BarDatum }[];
+  label?: string | number;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const datum = payload[0]?.payload;
+  if (!datum || datum.steps === null) return null;
+  return (
+    <div
+      style={{
+        backgroundColor: CHART_TOOLTIP_BG,
+        border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+        borderRadius: CHART_TOOLTIP_RADIUS,
+        padding: "8px 10px",
+        fontSize: "12px",
+      }}
+    >
+      <div className="text-[var(--muted)]">{formatTooltipDate(String(label))}</div>
+      <div className="font-semibold tabular-nums">{formatSteps(datum.steps)} steps</div>
+    </div>
+  );
+}
+
 // --- Table --------------------------------------------------------
 
 function StepsTable({
   entries,
+  goal,
   onEdit,
   onDelete,
   hasMore,
@@ -379,6 +590,7 @@ function StepsTable({
   onLoadMore,
 }: {
   entries: StepsEntry[];
+  goal: number | null;
   onEdit: (entry: StepsEntry) => void;
   onDelete: (date: string) => Promise<void>;
   hasMore: boolean;
@@ -386,45 +598,50 @@ function StepsTable({
   onLoadMore: () => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)]">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-[var(--border)] text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            <th className="px-4 py-2 text-left">Date</th>
-            <th className="px-4 py-2 text-right">Steps</th>
-            <th className="px-4 py-2 text-right" aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => (
-            <tr key={e.id} className="border-b border-[var(--border)]/50 last:border-b-0">
-              <td className="px-4 py-2 tabular-nums">{formatRowDate(e.date)}</td>
-              <td className="px-4 py-2 text-right font-medium tabular-nums">
-                {formatSteps(e.steps)}
-              </td>
-              <td className="px-4 py-2 text-right">
-                <div className="inline-flex items-center gap-1">
-                  <IconButton aria-label="Edit steps" tone="muted" onClick={() => onEdit(e)}>
-                    <PencilIcon />
-                  </IconButton>
-                  <IconButton
-                    aria-label="Delete steps"
-                    tone="danger"
-                    onClick={() => {
-                      void onDelete(e.date);
-                    }}
-                  >
-                    <TrashIcon />
-                  </IconButton>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-2">
+        {entries.map((e) => {
+          const pct = dayPct(e.steps, goal ?? 0);
+          const hit = goal !== null && e.steps >= goal;
+          return (
+            <li
+              key={e.id}
+              className="flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+            >
+              <MiniRing pct={pct} hit={hit} />
+              <span className="flex-1 text-[13px] text-[var(--muted)]">
+                {formatRowDate(e.date)}
+              </span>
+              <span className="text-[15px] font-semibold tabular-nums">{formatSteps(e.steps)}</span>
+              {pct !== null && (
+                <span
+                  className="w-11 text-right text-[12px] font-medium tabular-nums"
+                  style={{ color: hit ? "var(--success)" : "var(--muted)" }}
+                >
+                  {pct}%
+                </span>
+              )}
+              <div className="inline-flex items-center gap-1">
+                <IconButton aria-label="Edit steps" tone="muted" onClick={() => onEdit(e)}>
+                  <PencilIcon />
+                </IconButton>
+                <IconButton
+                  aria-label="Delete steps"
+                  tone="danger"
+                  onClick={() => {
+                    void onDelete(e.date);
+                  }}
+                >
+                  <TrashIcon />
+                </IconButton>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
 
       {hasMore && (
-        <div className="border-t border-[var(--border)] bg-[var(--background)] px-3 py-2 text-center">
+        <div className="pt-1 text-center">
           <button
             type="button"
             onClick={onLoadMore}
@@ -457,13 +674,38 @@ function EmptyState({ onLog }: { onLog: () => void }) {
   );
 }
 
+/** The empty / first-entry start state: a calm neutral ring with a coaching
+ * caption ("your ring fills as you log") and a Log-steps CTA — no broken chart
+ * frame. */
+function EmptyRing({ onLog }: { onLog: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-4 py-10 text-center">
+      <div className="grid h-[148px] w-[148px] place-items-center">
+        <svg viewBox="0 0 128 128" className="h-full w-full" aria-hidden="true">
+          <circle cx="64" cy="64" r="52" fill="none" stroke="var(--surface-3)" strokeWidth="11" />
+        </svg>
+      </div>
+      <p className="max-w-[34ch] text-sm text-[var(--muted)]">
+        No steps yet — your ring fills as you log days against your goal.
+      </p>
+      <button
+        type="button"
+        onClick={onLog}
+        className="inline-flex items-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-[13px] font-medium text-[var(--accent-fg)] hover:opacity-80"
+      >
+        <PencilIcon /> Log steps
+      </button>
+    </div>
+  );
+}
+
 // --- Log / Edit modal ---------------------------------------------
 
 /**
- * Modal to log or edit a day's steps. When `entry` is passed it
- * pre-fills that row's date + steps for editing; otherwise it defaults
- * to today with an empty count. Shares the bodyweight modal shell
- * (centered card, backdrop, escape-to-close, body scroll lock).
+ * Modal to log or edit a day's steps. When `entry` is passed it pre-fills that
+ * row's date + steps for editing; otherwise it defaults to today with an empty
+ * count. Shares the bodyweight modal shell (centered card, backdrop,
+ * escape-to-close, body scroll lock).
  */
 function StepsLogModal({
   entry,
@@ -875,46 +1117,15 @@ function TargetIcon() {
 
 // --- helpers ------------------------------------------------------
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-type StepsStats = {
-  avg: number | null;
-  total: number;
-  best: { date: string; steps: number } | null;
-};
-
-function computeStats(entries: StepsEntry[]): StepsStats {
-  if (entries.length === 0) return { avg: null, total: 0, best: null };
-  let total = 0;
-  let best = entries[0];
-  for (const e of entries) {
-    total += e.steps;
-    if (e.steps > best.steps) best = e;
-  }
-  return {
-    avg: total / entries.length,
-    total,
-    best: { date: best.date, steps: best.steps },
-  };
-}
-
-/** Local-time YYYY-MM-DD for a Date, matching the date-keyed log. */
-function isoDate(d: Date): string {
-  const yyyy = String(d.getFullYear()).padStart(4, "0");
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mo}-${dd}`;
-}
-
 function formatSteps(n: number): string {
   return n.toLocaleString();
 }
 
-// A YYYY-MM-DD string parsed as local time (not UTC), so the displayed
-// day matches the date key the user logged.
-function parseLocalDate(date: string): Date {
-  const [y, m, d] = date.split("-").map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1);
+/** Compact "9.4k" form for the tight supporting-stat chips. */
+function fmtK(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  const k = n / 1000;
+  return `${k % 1 === 0 ? k : k.toFixed(1)}k`;
 }
 
 function formatAxisDate(date: string): string {
@@ -928,13 +1139,6 @@ function formatTooltipDate(date: string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
-}
-
-function formatShortDate(date: string): string {
-  return parseLocalDate(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
   });
 }
 
