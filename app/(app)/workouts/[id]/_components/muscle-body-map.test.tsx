@@ -6,6 +6,10 @@ import type { Exercise, Workout, WorkoutExercise, WorkoutSet } from "@/lib/api";
 import { MAP } from "@/lib/muscle-categories";
 import { MuscleBodyMap, GROUP_TO_SLUGS } from "./muscle-body-map";
 
+// The SOW-pinned lift intensity ramp + near-black silhouette fill. Held as
+// literals here on purpose: the test guards that the component renders exactly
+// these design-system values, so a stray color change in the component fails
+// the test rather than silently following it.
 const RAMP = ["#39405a", "#5a6493", "#7d88c2", "#aab4dd"];
 const DEFAULT_FILL = "#191c21";
 
@@ -43,7 +47,9 @@ function workout(exercises: WorkoutExercise[]): Workout {
   };
 }
 
-// Helper: the fill of the first <path> the library rendered for a slug.
+// Helper: the fill of the first <path> the library rendered for a slug. Each
+// slug appears on only one of the front/back figures, so the first match is the
+// only match.
 function fillOf(container: HTMLElement, slug: string): string | null {
   return container.querySelector(`path[id="${slug}"]`)?.getAttribute("fill") ?? null;
 }

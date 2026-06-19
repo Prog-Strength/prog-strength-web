@@ -54,13 +54,17 @@ const DEFAULT_FILL = "#191c21";
 
 const TIER_COUNT = 4;
 
-// Every slug the library's front/back figures draw. We paint all of them
-// ourselves — worked regions on the ramp, everything else (untracked muscles,
-// and the non-muscle head/hair/hands/feet the silhouette keeps) at DEFAULT_FILL
-// — because the library's `defaultFill` prop is dead: each asset part embeds a
-// hardcoded `color: "#3f3f3f"` that wins over `defaultFill` in its fill chain.
-// Passing an explicit `color` is the only way to retone the whole silhouette to
-// a single near-black so unworked muscle and non-muscle regions read uniform.
+// Every slug the library's front/back figures draw (the full `Slug` union as of
+// v1.2.0). We paint all of them ourselves — worked regions on the ramp,
+// everything else (untracked muscles, and the non-muscle head/hair/hands/feet
+// the silhouette keeps) at DEFAULT_FILL — because the library's `defaultFill`
+// prop has no runtime effect here: each asset part embeds a hardcoded
+// `color: "#3f3f3f"` that wins over `defaultFill` in its fill chain. Passing an
+// explicit `color` is the only way to retone the whole silhouette to a single
+// near-black so unworked muscle and non-muscle regions read uniform.
+// To regenerate after a library upgrade, list the asset slugs with:
+//   grep -ho 'slug: "[^"]*"' node_modules/react-muscle-highlighter/dist/esm/assets/body{Front,Back}.js | sort -u
+// (any new slug omitted here would otherwise show the library's internal gray).
 const ALL_SLUGS: Slug[] = [
   "abs",
   "adductors",
