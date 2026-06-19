@@ -1,4 +1,4 @@
-import { parseStats } from "./statRow";
+import { parseStats } from "./parseStats";
 
 /**
  * The card's labeled big-value stat row: each metric from the API's

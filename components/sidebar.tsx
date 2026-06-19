@@ -31,18 +31,12 @@ const NAV: NavItem[] = [
   // reactions + comments. Slotted directly under Chat — both are
   // "what's happening" surfaces, distinct from the data-entry views below.
   { href: "/timeline", label: "Timeline", icon: <TimelineIcon /> },
-  // Search + Requests are the social-graph entries — finding people to follow
-  // and triaging incoming follow requests. They cluster with Timeline as the
-  // "social" surfaces, above the data-entry views.
-  { href: "/search", label: "Search", icon: <SearchIcon /> },
-  { href: "/requests", label: "Requests", icon: <RequestsIcon /> },
   // Workouts and Running used to be separate siblings; they're now
   // consolidated into one Activities entry with URL-backed sub-views
   // (/activities?view=workouts|running). The active-highlight logic is
   // unchanged — /activities?view=… has pathname /activities so the
   // entry lights up regardless of the active sub-view.
   { href: "/activities", label: "Activities", icon: <ActivityIcon /> },
-  { href: "/exercises", label: "Exercises", icon: <CatalogIcon /> },
   { href: "/calendar", label: "Calendar", icon: <CalendarIcon /> },
   // Pantry and Recipes live inside /nutrition as tabbed views, so the
   // sidebar surfaces only the parent entry.
@@ -52,8 +46,8 @@ const NAV: NavItem[] = [
   // food pair so the daily-tracking views cluster together.
   { href: "/bodyweight", label: "Bodyweight", icon: <ScaleIcon /> },
   // Progress = analysis layered on top of the logged data — slots
-  // after the raw-data views (Workouts/Calendar) and the reference
-  // catalog (Exercises) since it depends on all three conceptually.
+  // after the raw-data views (Activities/Calendar) since it depends
+  // on them conceptually.
   { href: "/progress", label: "Progress", icon: <TrendingUpIcon /> },
   // Personal Records sits at the end as the "trophy case" view —
   // built on top of every other source of data in the app.
@@ -367,50 +361,6 @@ function TimelineIcon() {
   );
 }
 
-function SearchIcon() {
-  // Magnifying glass — the universal "search" glyph. Used for the people
-  // search entry.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.3-4.3" />
-    </svg>
-  );
-}
-
-function RequestsIcon() {
-  // A person with a small "+" — reads as a follow / friend request. Anchors
-  // the requests inbox entry, distinct from the Chat bubble and Timeline rows.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M19 8v6" />
-      <path d="M22 11h-6" />
-    </svg>
-  );
-}
-
 function ActivityIcon() {
   // Pulse/heartbeat waveform — the universal "activity" glyph. Anchors
   // the consolidated Activities entry (Workouts + Running + Overview).
@@ -427,29 +377,6 @@ function ActivityIcon() {
       aria-hidden="true"
     >
       <polyline points="3 12 7 12 10 5 14 19 17 12 21 12" />
-    </svg>
-  );
-}
-
-function CatalogIcon() {
-  // A short stack of "book spines" — reads as a library/catalog at
-  // 16x16 better than a bulleted-list icon does, and visually distinct
-  // from the Workouts dumbbell and Calendar grid.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="4" width="4" height="16" rx="1" />
-      <rect x="10" y="7" width="4" height="13" rx="1" />
-      <rect x="17" y="4" width="4" height="16" rx="1" />
     </svg>
   );
 }

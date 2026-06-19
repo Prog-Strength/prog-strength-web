@@ -1,5 +1,5 @@
 /// <reference types="vitest/globals" />
-import { parseStats, type Stat } from "./statRow";
+import { parseStats, type Stat } from "./parseStats";
 
 describe("parseStats", () => {
   it("splits a compound metric on the middot into separate stats", () => {

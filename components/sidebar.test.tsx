@@ -101,15 +101,12 @@ describe("Sidebar — account anchor", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
   });
 
-  it("renders all 12 nav destinations", () => {
+  it("renders all 9 nav destinations", () => {
     render(<Sidebar />);
     for (const label of [
       "Chat",
       "Timeline",
-      "Search",
-      "Requests",
       "Activities",
-      "Exercises",
       "Calendar",
       "Nutrition",
       "Bodyweight",
