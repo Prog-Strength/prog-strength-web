@@ -2,7 +2,7 @@
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
-import type { Exercise, WorkoutExercise, WorkoutSet } from "@/lib/api";
+import type { Exercise, PersonalRecordEvent, WorkoutExercise, WorkoutSet } from "@/lib/api";
 import { RecapExerciseList } from "./recap-exercise-list";
 
 const catalog: Exercise[] = [
@@ -38,12 +38,33 @@ const ex = (
   superset_group: number | null = null,
 ): WorkoutExercise => ({ exercise_id, order, superset_group, sets });
 
+const noPrs: PersonalRecordEvent[] = [];
+
+const prEvent = (
+  exercise_id: string,
+  weight: number,
+  reps: number,
+  unit: WorkoutSet["unit"] = "lb",
+): PersonalRecordEvent => ({
+  id: `pr-${exercise_id}-${weight}x${reps}`,
+  exercise_id,
+  workout_id: "w",
+  weight,
+  reps,
+  unit,
+  previous_weight: null,
+  previous_reps: null,
+  previous_unit: null,
+  achieved_at: "2026-06-19T10:00:00.000Z",
+});
+
 describe("RecapExerciseList", () => {
   it("renders the top set of a ramp, not every bullet", () => {
     render(
       <RecapExerciseList
         exercises={[ex("bench", 1, [set(10, 185), set(10, 225), set(6, 275), set(2, 305)])]}
         exerciseMap={exerciseMap}
+        personalRecords={noPrs}
         onEditGroup={() => {}}
       />,
     );
@@ -61,6 +82,7 @@ describe("RecapExerciseList", () => {
           ex("pulldown", 6, [set(12, 130), set(8, 170)], 1),
         ]}
         exerciseMap={exerciseMap}
+        personalRecords={noPrs}
         onEditGroup={() => {}}
       />,
     );
@@ -78,6 +100,7 @@ describe("RecapExerciseList", () => {
       <RecapExerciseList
         exercises={[ex("incline-db", 1, [set(10, 70), set(7, 90)])]}
         exerciseMap={exerciseMap}
+        personalRecords={noPrs}
         onEditGroup={() => {}}
       />,
     );
@@ -89,6 +112,7 @@ describe("RecapExerciseList", () => {
       <RecapExerciseList
         exercises={[ex("plank", 1, [set(30, 0), set(45, 0)])]}
         exerciseMap={exerciseMap}
+        personalRecords={noPrs}
         onEditGroup={() => {}}
       />,
     );
@@ -100,6 +124,7 @@ describe("RecapExerciseList", () => {
       <RecapExerciseList
         exercises={[ex("bench", 1, [])]}
         exerciseMap={exerciseMap}
+        personalRecords={noPrs}
         onEditGroup={() => {}}
       />,
     );
@@ -112,6 +137,7 @@ describe("RecapExerciseList", () => {
       <RecapExerciseList
         exercises={[ex("mystery-lift", 1, [set(5, 100)])]}
         exerciseMap={exerciseMap}
+        personalRecords={noPrs}
         onEditGroup={() => {}}
       />,
     );
@@ -125,6 +151,7 @@ describe("RecapExerciseList", () => {
       <RecapExerciseList
         exercises={[ex("bench", 1, [set(2, 305)]), ex("pulldown", 2, [set(8, 170)])]}
         exerciseMap={exerciseMap}
+        personalRecords={noPrs}
         onEditGroup={onEditGroup}
       />,
     );
@@ -132,5 +159,134 @@ describe("RecapExerciseList", () => {
     expect(onEditGroup).toHaveBeenCalledTimes(1);
     expect(onEditGroup.mock.calls[0][0][0].exercise_id).toBe("pulldown");
     expect(onEditGroup.mock.calls[0][1]).toBe(1);
+  });
+});
+
+describe("RecapExerciseList — expand to sets", () => {
+  it("toggles the per-set detail open and closed via the chevron", () => {
+    render(
+      <RecapExerciseList
+        exercises={[ex("bench", 1, [set(8, 135), set(5, 225), set(4, 315)])]}
+        exerciseMap={exerciseMap}
+        personalRecords={noPrs}
+        onEditGroup={() => {}}
+      />,
+    );
+    // collapsed by default — warm-up loads not shown
+    expect(screen.queryByText("8 × 135 lb")).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /show sets for Barbell Bench Press/i });
+    fireEvent.click(toggle);
+    expect(screen.getByText("8 × 135 lb")).toBeInTheDocument();
+    expect(screen.getByText("5 × 225 lb")).toBeInTheDocument();
+    expect(screen.getByText("4 × 315 lb")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // collapse again
+    fireEvent.click(screen.getByRole("button", { name: /hide sets for Barbell Bench Press/i }));
+    expect(screen.queryByText("8 × 135 lb")).not.toBeInTheDocument();
+  });
+
+  it("reads bodyweight sets as reps and appends the per-dumbbell clarifier", () => {
+    render(
+      <RecapExerciseList
+        exercises={[ex("plank", 1, [set(30, 0), set(45, 0)]), ex("incline-db", 2, [set(10, 70)])]}
+        exerciseMap={exerciseMap}
+        personalRecords={noPrs}
+        onEditGroup={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /show sets for Plank/i }));
+    expect(screen.getByText("30 reps")).toBeInTheDocument();
+    expect(screen.getByText("45 reps")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /show sets for Incline Dumbbell Bench Press/i }),
+    );
+    expect(screen.getByText("10 × 70 lb per dumbbell")).toBeInTheDocument();
+  });
+
+  it("marks the PR set with a trophy and no other set", () => {
+    render(
+      <RecapExerciseList
+        exercises={[ex("bench", 1, [set(8, 135), set(5, 225), set(4, 315)])]}
+        exerciseMap={exerciseMap}
+        personalRecords={[prEvent("bench", 315, 4)]}
+        onEditGroup={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /show sets for Barbell Bench Press/i }));
+    const trophies = screen.getAllByText("🏆");
+    expect(trophies).toHaveLength(1);
+    // the trophy sits on the 315×4 row
+    const prRow = screen.getByText("4 × 315 lb").closest("li")!;
+    expect(within(prRow).getByText("🏆")).toBeInTheDocument();
+  });
+
+  it("marks nothing when no set matches the PR (unit mismatch / reconstruction gap)", () => {
+    render(
+      <RecapExerciseList
+        exercises={[ex("bench", 1, [set(8, 135), set(4, 315)])]}
+        exerciseMap={exerciseMap}
+        // PR weight present but reps differ → no client match
+        personalRecords={[prEvent("bench", 315, 2)]}
+        onEditGroup={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /show sets for Barbell Bench Press/i }));
+    expect(screen.queryByText("🏆")).not.toBeInTheDocument();
+  });
+
+  it("resolves a PR tie to the top set", () => {
+    // two sets tie 225×5; the top set (heaviest, ties→reps) is index of the
+    // first 225×5 here since both equal — topSetIndex returns the first.
+    render(
+      <RecapExerciseList
+        exercises={[ex("bench", 1, [set(5, 225), set(5, 225)])]}
+        exerciseMap={exerciseMap}
+        personalRecords={[prEvent("bench", 225, 5)]}
+        onEditGroup={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /show sets for Barbell Bench Press/i }));
+    const trophies = screen.getAllByText("🏆");
+    expect(trophies).toHaveLength(1);
+    const rows = screen.getAllByText("5 × 225 lb").map((n) => n.closest("li")!);
+    // trophy on the first (top) row only
+    expect(within(rows[0]).queryByText("🏆")).toBeInTheDocument();
+    expect(within(rows[1]).queryByText("🏆")).not.toBeInTheDocument();
+  });
+
+  it("expands each exercise of a superset independently", () => {
+    render(
+      <RecapExerciseList
+        exercises={[
+          ex("ohp", 5, [set(12, 45), set(8, 60)], 1),
+          ex("pulldown", 6, [set(12, 130), set(8, 170)], 1),
+        ]}
+        exerciseMap={exerciseMap}
+        personalRecords={noPrs}
+        onEditGroup={() => {}}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /show sets for Seated Dumbbell Shoulder Press/i }),
+    );
+    expect(screen.getByText("12 × 45 lb")).toBeInTheDocument();
+    // pulldown stays collapsed
+    expect(screen.queryByText("12 × 130 lb")).not.toBeInTheDocument();
+    // still one superset block with one tag
+    expect(screen.getAllByText("superset")).toHaveLength(1);
+  });
+
+  it("keeps the edit pencil firing onEditGroup, distinct from the chevron", () => {
+    const onEditGroup = vi.fn();
+    render(
+      <RecapExerciseList
+        exercises={[ex("bench", 1, [set(2, 305)])]}
+        exerciseMap={exerciseMap}
+        personalRecords={noPrs}
+        onEditGroup={onEditGroup}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Edit exercise"));
+    expect(onEditGroup).toHaveBeenCalledTimes(1);
   });
 });

@@ -19,8 +19,9 @@ import { hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutDetailsEditModal } from "@/components/workout-details-edit-modal";
 import { ExerciseEditModal, newExerciseGroup } from "@/components/exercise-edit-modal";
 import { predominantUnit, workoutVolume } from "@/lib/workout-volume";
-import { formatRecapDate, leadHeadline, populatedCategories, prSubhead } from "@/lib/workout-recap";
+import { formatRecapDate, leadHeadline, prSubhead } from "@/lib/workout-recap";
 import { RecapExerciseList } from "./_components/recap-exercise-list";
+import { MuscleBodyMap } from "./_components/muscle-body-map";
 
 /**
  * Single-workout detail route — the one-stop record of a logged session,
@@ -172,9 +173,12 @@ export default function WorkoutDetailPage() {
 
               <Reflection notes={workout.notes} />
 
-              <StatLine workout={workout} />
-
-              <WhatItTrained workout={workout} exercises={exercises} />
+              <div className="flex flex-col gap-8 md:flex-row md:items-center md:gap-12">
+                <MuscleBodyMap workout={workout} exercises={exercises} />
+                <div className="md:flex-1">
+                  <StatLine workout={workout} />
+                </div>
+              </div>
 
               <section className="space-y-1">
                 <div className="mb-3 flex items-center justify-between">
@@ -194,6 +198,7 @@ export default function WorkoutDetailPage() {
                 <RecapExerciseList
                   exercises={workout.exercises}
                   exerciseMap={exerciseMap}
+                  personalRecords={workout.personal_records_set}
                   onEditGroup={(group) => setGroupEdit({ group, mode: "edit" })}
                 />
               </section>
@@ -291,33 +296,6 @@ function StatLine({ workout }: { workout: Workout }) {
         </div>
       ))}
     </dl>
-  );
-}
-
-/**
- * "What it trained" — the two redundant muscle analytics (radar + bars)
- * collapse to a single quiet strip of the populated categories, largest first.
- * The degenerate near-empty radar is gone; an uncategorizable session simply
- * drops the strip rather than rendering an empty chart.
- */
-function WhatItTrained({ workout, exercises }: { workout: Workout; exercises: Exercise[] }) {
-  const trained = populatedCategories(workout, exercises);
-  if (trained.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--faint)]">
-        What it trained
-      </p>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--muted)]">
-        {trained.map((m, i) => (
-          <span key={m.category}>
-            <span className="text-[var(--foreground)]">{m.category}</span>
-            <span className="text-[var(--faint)]"> {m.value}</span>
-            {i < trained.length - 1 && <span className="px-1.5 text-[var(--faint)]">·</span>}
-          </span>
-        ))}
-      </div>
-    </div>
   );
 }
 

@@ -7,7 +7,12 @@
 export const CATEGORIES = ["Chest", "Back", "Shoulders", "Arms", "Legs", "Core"] as const;
 export type MuscleCategory = (typeof CATEGORIES)[number];
 
-const MAP: Record<string, MuscleCategory> = {
+/**
+ * The catalog's 11 fine-grained muscle-group keys mapped to the 6 broad
+ * categories. Exported so finer-grained consumers (the workout body-map) can
+ * enumerate the canonical key set without re-spelling it.
+ */
+export const MAP: Record<string, MuscleCategory> = {
   chest: "Chest",
   back: "Back",
   shoulders: "Shoulders",

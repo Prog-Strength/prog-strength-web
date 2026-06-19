@@ -61,6 +61,13 @@
   --discipline-lift-bg: #1b1f2e;
   --discipline-lift-fg: #aab4dd;
   --discipline-lift-dot: #9aa6d6;
+  /* Lift intensity ramp — dim → bright steel-blue, the canonical encoding of
+     graded muscle intensity (the workout body-map shades worked regions by
+     set volume along it). Tier 4 == --discipline-lift-fg. */
+  --discipline-lift-1: #39405a;
+  --discipline-lift-2: #5a6493;
+  --discipline-lift-3: #7d88c2;
+  --discipline-lift-4: #aab4dd;
   --discipline-mobility-bg: #182622;
   --discipline-mobility-fg: #8fc4b6;
   --discipline-mobility-dot: #6fae9b;
@@ -102,6 +109,10 @@
   --color-discipline-lift-bg: var(--discipline-lift-bg);
   --color-discipline-lift-fg: var(--discipline-lift-fg);
   --color-discipline-lift-dot: var(--discipline-lift-dot);
+  --color-discipline-lift-1: var(--discipline-lift-1);
+  --color-discipline-lift-2: var(--discipline-lift-2);
+  --color-discipline-lift-3: var(--discipline-lift-3);
+  --color-discipline-lift-4: var(--discipline-lift-4);
   --color-discipline-mobility-bg: var(--discipline-mobility-bg);
   --color-discipline-mobility-fg: var(--discipline-mobility-fg);
   --color-discipline-mobility-dot: var(--discipline-mobility-dot);
