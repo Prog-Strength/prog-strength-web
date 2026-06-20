@@ -9,21 +9,26 @@
  * URL-backed via `?view=lifts|running` so it survives reload and is
  * linkable; an invalid/missing value falls back to Lifts.
  *
+ * Both views share one layout: a ranked `PRLedger` (master) beside a pinned
+ * `PRDetail` (detail) in a two-column split that stacks below `md`.
+ *
  * Lifts:
- *   - Each card shows the heaviest set on a curated headline lift (weight +
- *     reps + date) alongside the current recency-weighted estimated 1RM.
- *     The gap between the two is the "ready for a max?" signal.
+ *   - The ledger ranks every headline lift most-due first (largest est-vs-PR
+ *     gap); the detail pane pins the selected lift's est-1RM trend against a
+ *     dashed logged-PR line. The gap is the "ready for a max?" signal.
  *   - The "Customize" button (headline-lift selection modal) lives here.
  *
  * Running:
- *   - Each card shows the best time at a standard distance, pace, and the
- *     activity that set it. The distance set is fixed in backend Go, so
- *     there's nothing to customize — the Customize button is hidden here.
+ *   - The ledger lists every standard distance (5k first, then covered, then
+ *     uncovered); the detail pane pins the selected distance's max-effort
+ *     estimate with its confidence band. The distance set is fixed in backend
+ *     Go, so there's nothing to customize — the Customize button is hidden.
  *
- * Both views expose a per-card expandable progression chart. Data fetching
- * is TanStack Query, one query per view, lazy via `enabled` so switching
- * tabs doesn't refetch the inactive side and the active side caches across
- * switches.
+ * Ledger data is TanStack Query, one query per view, lazy via `enabled` so
+ * switching tabs doesn't refetch the inactive side and the active side caches
+ * across switches; the detail series is a separate lazy-per-selection query.
+ * Selection is local state, defaulting to the most-due lift / `5k` and kept
+ * independent per tab so a tab switch preserves each side's choice.
  */
 
 import { useState } from "react";
@@ -33,9 +38,15 @@ import { getToken } from "@/lib/auth";
 import { listPersonalRecords, listRunningBestEfforts } from "@/lib/api";
 import { HeadlineExercisesModal } from "@/components/headline-exercises-modal";
 import { ViewSwitcher, type PRView } from "./_components/ViewSwitcher";
-import { LiftsView } from "./_components/LiftsView";
-import { RunningView } from "./_components/RunningView";
-import { summarizeReadiness } from "./_components/readiness";
+import { PRLedger } from "./_components/PRLedger";
+import { PRDetail } from "./_components/PRDetail";
+import {
+  summarizeReadiness,
+  liftsByReadiness,
+  deriveReadiness,
+  STANDARD_DISTANCES,
+  type RunningLedgerItem,
+} from "./_components/readiness";
 
 function parseView(raw: string | null): PRView {
   return raw === "running" ? "running" : "lifts";
@@ -46,6 +57,12 @@ export default function PersonalRecordsPage() {
   const searchParams = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const [customizeOpen, setCustomizeOpen] = useState(false);
+
+  // Selection is independent per tab so switching tabs preserves each side's
+  // choice. Lifts default to the most-due tested lift (derived below);
+  // running defaults to 5k (the always-projectable distance).
+  const [selLift, setSelLift] = useState<string | null>(null);
+  const [selRun, setSelRun] = useState<string>("5k");
 
   // One query per view, lazy via `enabled` so the inactive view is never
   // fetched and a quick back-and-forth reuses the cached snapshot.
@@ -83,6 +100,26 @@ export default function PersonalRecordsPage() {
       ? summarizeReadiness(liftsQuery.data)
       : null;
 
+  // Running ledger rows: all 6 standard distances merged with best efforts.
+  const runItems: RunningLedgerItem[] = STANDARD_DISTANCES.map((d) => ({
+    key: d.key,
+    label: d.label,
+    best: runningQuery.data?.find((e) => e.distance_key === d.key) ?? null,
+  }));
+
+  // Default lift selection = most-due tested lift, DERIVED in render (not via
+  // a set-state effect, to avoid the set-state-in-effect lint rule). Once the
+  // user picks a row, `selLift` overrides.
+  const rankedLifts = liftsQuery.data ? liftsByReadiness(liftsQuery.data) : [];
+  const firstTested = rankedLifts.find((r) => deriveReadiness(r).hasPR) ?? null;
+  const effectiveSelLift = selLift ?? firstTested?.exercise_id ?? null;
+  const selLiftRecord = liftsQuery.data?.find((r) => r.exercise_id === effectiveSelLift) ?? null;
+
+  // Active-view query state for the ledger.
+  const activeQuery = view === "lifts" ? liftsQuery : runningQuery;
+  const ledgerState = activeQuery.isPending ? "pending" : activeQuery.isError ? "error" : "ready";
+  const errorMessage = activeQuery.error instanceof Error ? activeQuery.error.message : null;
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
@@ -118,20 +155,28 @@ export default function PersonalRecordsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-4xl">
-          {view === "lifts" ? (
-            <LiftsView
-              records={liftsQuery.data}
-              isPending={liftsQuery.isPending}
-              error={liftsQuery.error}
+        <div className="mx-auto max-w-5xl">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-[260px_1fr]">
+            <PRLedger
+              view={view}
+              lifts={view === "lifts" ? liftsQuery.data : undefined}
+              running={view === "running" ? runItems : undefined}
+              state={ledgerState}
+              errorMessage={errorMessage}
+              selectedId={view === "lifts" ? effectiveSelLift : selRun}
+              onSelect={view === "lifts" ? setSelLift : setSelRun}
             />
-          ) : (
-            <RunningView
-              bestEfforts={runningQuery.data}
-              isPending={runningQuery.isPending}
-              error={runningQuery.error}
+            <PRDetail
+              view={view}
+              liftRecord={view === "lifts" ? selLiftRecord : null}
+              distanceKey={view === "running" ? selRun : null}
+              distanceLabel={
+                view === "running"
+                  ? (STANDARD_DISTANCES.find((d) => d.key === selRun)?.label ?? null)
+                  : null
+              }
             />
-          )}
+          </div>
         </div>
       </div>
 

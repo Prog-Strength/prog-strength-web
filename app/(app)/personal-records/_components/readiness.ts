@@ -5,7 +5,7 @@
  * defined once. React-free; `now` is injectable so the staleness math is
  * deterministic in tests (production passes a real `new Date()`).
  */
-import type { PersonalRecord } from "@/lib/api";
+import type { PersonalRecord, RunningBestEffort } from "@/lib/api";
 
 /** Gap (%) at or above which a lift is "due" for a new max attempt. This
  * is the shipped 5% rule — kept as the summary's "due" definition; tile
@@ -66,4 +66,66 @@ export function summarizeReadiness(
     if (d.ready) due += 1;
   }
   return { due, tested, total: records.length };
+}
+
+/** The fixed v1 running distance set, shortest first — matches the API's
+ * `distance_key`/`distance_label`. Owned here (moved off the retired
+ * RunningView) so the ledger, detail, and default-selection logic share one
+ * source. The same list also lives in progress/running's `distances.ts` for
+ * a different route — that copy is intentionally separate. */
+export const STANDARD_DISTANCES: { key: string; label: string }[] = [
+  { key: "1mi", label: "1 Mile" },
+  { key: "2mi", label: "2 Mile" },
+  { key: "5k", label: "5K" },
+  { key: "10k", label: "10K" },
+  { key: "half_marathon", label: "Half Marathon" },
+  { key: "marathon", label: "Marathon" },
+];
+
+/**
+ * Lifts ranked "most due first": tested lifts by descending est-vs-PR gap,
+ * then untested lifts (no PR) last in their original (stable) order. Returns
+ * a new array; the input is not mutated.
+ */
+export function liftsByReadiness(
+  records: PersonalRecord[],
+  now: Date = new Date(),
+): PersonalRecord[] {
+  return records
+    .map((record, index) => ({ record, index, d: deriveReadiness(record, now) }))
+    .sort((a, b) => {
+      if (a.d.hasPR !== b.d.hasPR) return a.d.hasPR ? -1 : 1;
+      if (a.d.hasPR) {
+        const gapA = a.d.gap ?? 0;
+        const gapB = b.d.gap ?? 0;
+        if (gapA !== gapB) return gapB - gapA;
+      }
+      return a.index - b.index;
+    })
+    .map((x) => x.record);
+}
+
+/** One running-ledger row: a standard distance plus the user's best effort at
+ * it (null when never covered). */
+export type RunningLedgerItem = {
+  key: string;
+  label: string;
+  best: RunningBestEffort | null;
+};
+
+/**
+ * Running rows ranked: `5k` (the default, always-projected distance) first,
+ * then covered distances, then uncovered — stable within each rank. Returns a
+ * new array; the input is not mutated.
+ */
+export function runningByReadiness(items: RunningLedgerItem[]): RunningLedgerItem[] {
+  const rank = (it: RunningLedgerItem): number => {
+    if (it.key === "5k") return 0;
+    if (it.best !== null) return 1;
+    return 2;
+  };
+  return items
+    .map((it, index) => ({ it, index }))
+    .sort((a, b) => rank(a.it) - rank(b.it) || a.index - b.index)
+    .map((x) => x.it);
 }
