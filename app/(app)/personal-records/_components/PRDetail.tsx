@@ -58,9 +58,10 @@ function LiftDetail({ liftRecord }: { liftRecord: PersonalRecord }) {
   const d = deriveReadiness(liftRecord);
 
   const query = useQuery({
-    queryKey: ["pr-history", "lifts", liftRecord.exercise_id],
+    queryKey: ["pr-history-detail", "lifts", liftRecord.exercise_id],
     queryFn: () => getExerciseOneRMHistory(getToken() ?? "", liftRecord.exercise_id),
     enabled: d.hasPR,
+    staleTime: 60_000,
   });
 
   if (!d.hasPR) {

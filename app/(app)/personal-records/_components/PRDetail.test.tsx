@@ -24,6 +24,8 @@ vi.mock("@/lib/api", async (orig) => ({
 }));
 
 import { PRDetail } from "./PRDetail";
+import { humanizeConfidence } from "@/app/(app)/progress/running/[distanceKey]/_components/format";
+import { formatDuration } from "@/lib/format";
 
 const HISTORY: ExerciseOneRMHistory = {
   exercise_id: "Bench",
@@ -113,6 +115,18 @@ describe("PRDetail lift", () => {
     wrap(<PRDetail view="lifts" liftRecord={untested} distanceKey={null} distanceLabel={null} />);
     expect(screen.getByText(/Log a heavy set/)).toBeInTheDocument();
   });
+  it("renders the est-1RM figure as — when the current estimate is null", async () => {
+    // hasPR is true (workout_id + weight set), so the pane + query render, but
+    // current_estimated_1rm is null → the figure renders "—" synchronously.
+    vi.mocked((await import("@/lib/api")).getExerciseOneRMHistory).mockResolvedValueOnce({
+      ...HISTORY,
+      points: [],
+    });
+    const noEstimate: PersonalRecord = { ...due, current_estimated_1rm: null };
+    wrap(<PRDetail view="lifts" liftRecord={noEstimate} distanceKey={null} distanceLabel={null} />);
+    // The 3xl headline figure should be the em-dash placeholder.
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
 });
 
 describe("PRDetail run", () => {
@@ -120,6 +134,17 @@ describe("PRDetail run", () => {
     wrap(<PRDetail view="running" liftRecord={null} distanceKey="5k" distanceLabel="5K" />);
     expect(await screen.findByText(/Race-like/)).toBeInTheDocument(); // attempt chip
     expect(screen.getByText(/in reach/)).toBeInTheDocument(); // 1170 < 1184
+    // estimate headline figure: formatDuration(1170) === "19:30"
+    expect(formatDuration(1170)).toBe("19:30");
+    expect(await screen.findByText(/19:30/)).toBeInTheDocument();
+    // confidence label humanizeConfidence("high") === "High"
+    expect(humanizeConfidence("high")).toBe("High");
+    expect(screen.getByText(/High/)).toBeInTheDocument();
+    // band: formatDuration(1150)–formatDuration(1200) === "19:10"–"20:00",
+    // joined by the en-dash (U+2013) the subline renders; tolerate hyphen too.
+    expect(formatDuration(1150)).toBe("19:10");
+    expect(formatDuration(1200)).toBe("20:00");
+    expect(screen.getByText(/19:10[–-]20:00/)).toBeInTheDocument();
   });
   it("shows the insufficient state when there is no estimate", async () => {
     vi.mocked((await import("@/lib/api")).getRunningMaxEffort).mockResolvedValueOnce({
