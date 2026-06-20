@@ -76,6 +76,35 @@ describe("PRLedger lifts", () => {
     expect(screen.getByText("Squat").closest("button")).toHaveAttribute("aria-current", "true");
   });
 
+  it("colors status dots by readiness: warning when due, discipline when fresh, faint when untested", () => {
+    wrap(
+      <PRLedger view="lifts" lifts={lifts} state="ready" selectedId="Squat" onSelect={() => {}} />,
+    );
+    const dotOf = (name: string) =>
+      screen.getByText(name).closest("button")!.querySelector("span.rounded-full") as HTMLElement;
+    expect(dotOf("Squat").style.backgroundColor).toBe("var(--warning)");
+    expect(dotOf("Bench").style.backgroundColor).toBe("var(--discipline-lift-dot)");
+    expect(dotOf("Deadlift").style.backgroundColor).toBe("var(--faint)");
+  });
+
+  it("applies accent selection chrome only to the selected row", () => {
+    wrap(
+      <PRLedger view="lifts" lifts={lifts} state="ready" selectedId="Squat" onSelect={() => {}} />,
+    );
+    const squat = screen.getByText("Squat").closest("button")!;
+    const bench = screen.getByText("Bench").closest("button")!;
+    expect(squat.className).toContain("border-[var(--accent)]");
+    expect(squat.className).toContain("bg-[var(--accent-soft)]");
+    expect(bench.className).not.toContain("bg-[var(--accent-soft)]");
+  });
+
+  it("shows the +gap cue on a due lift", () => {
+    wrap(
+      <PRLedger view="lifts" lifts={lifts} state="ready" selectedId="Squat" onSelect={() => {}} />,
+    );
+    expect(screen.getByText("+60")).toBeInTheDocument();
+  });
+
   it("shows the empty state when there are no lifts", () => {
     wrap(<PRLedger view="lifts" lifts={[]} state="ready" selectedId={null} onSelect={() => {}} />);
     expect(screen.getByText("No headline lifts configured.")).toBeInTheDocument();
