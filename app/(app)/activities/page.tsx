@@ -11,6 +11,7 @@ import { WorkoutsView } from "@/components/activities/workouts-view";
 import { RunningView } from "@/components/activities/running-view";
 import { StepsView } from "@/components/activities/steps-view";
 import { ToolbarButton } from "@/components/toolbar-button";
+import { WorkoutTCXUploadModal } from "@/components/workout-tcx-upload-modal";
 
 type View = "overview" | "workouts" | "running" | "steps";
 type Timeframe = "7d" | "30d" | "90d" | "all";
@@ -80,6 +81,9 @@ function ActivitiesPageInner() {
   // Owned here because the Upload TCX *button* lives in the toolbar; the
   // modal itself lives in RunningView, which closes via the callback.
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  // The Workouts-view "Log from TCX" action: mint an empty workout from a
+  // Garmin strength TCX, then land on its detail page to add exercises.
+  const [logFromTcxOpen, setLogFromTcxOpen] = useState(false);
 
   // The Workouts view-specific action also lives in the toolbar (left
   // group) for parity with Upload TCX, so both sub-views surface their
@@ -133,11 +137,18 @@ function ActivitiesPageInner() {
           <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
             <div className="flex items-center gap-3 sm:gap-5">
               {view === "workouts" && (
-                <ToolbarButton
-                  onClick={startOrResumeWorkout}
-                  icon={<PlayIcon />}
-                  label={session ? "Resume workout" : "Start live workout"}
-                />
+                <>
+                  <ToolbarButton
+                    onClick={startOrResumeWorkout}
+                    icon={<PlayIcon />}
+                    label={session ? "Resume workout" : "Start live workout"}
+                  />
+                  <ToolbarButton
+                    onClick={() => setLogFromTcxOpen(true)}
+                    icon={<UploadIcon />}
+                    label="Log from TCX"
+                  />
+                </>
               )}
               {view === "running" && (
                 <ToolbarButton
@@ -193,6 +204,14 @@ function ActivitiesPageInner() {
           {view === "steps" && <StepsView days={days} />}
         </div>
       </div>
+
+      {logFromTcxOpen && (
+        <WorkoutTCXUploadModal
+          mode="create"
+          onClose={() => setLogFromTcxOpen(false)}
+          onUploaded={(workout) => router.push(`/workouts/${workout.id}`)}
+        />
+      )}
     </main>
   );
 }

@@ -44,6 +44,23 @@ vi.mock("@/lib/api", async (orig) => ({
   deleteWorkout: vi.fn(async () => {}),
 }));
 
+// Recharts renders nothing useful in jsdom; the HeartRateEffortCard's chart is
+// stubbed so the card's tiles/title still assert cleanly.
+vi.mock("recharts", () => {
+  const passthrough = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
+  const noop = () => null;
+  return {
+    ResponsiveContainer: passthrough,
+    LineChart: passthrough,
+    Line: noop,
+    CartesianGrid: noop,
+    XAxis: noop,
+    YAxis: noop,
+    Tooltip: noop,
+    ReferenceLine: noop,
+  };
+});
+
 import { deleteWorkout, getPlannedWorkoutBySession, getWorkout, listExercises } from "@/lib/api";
 import WorkoutDetailPage from "./page";
 
@@ -147,6 +164,50 @@ const PLAIN: Workout = {
     ex("calf", 4, [set(15, 180), set(15, 180), set(15, 180)]),
   ],
   personal_records_set: [],
+};
+
+// A workout enriched with a Garmin TCX: carries activity_id + enrichment
+// (with HR trackpoints, as on the detail load).
+const ENRICHED: Workout = {
+  ...CANONICAL,
+  id: "wkt-canonical",
+  activity_id: "act-123",
+  enrichment: {
+    source_activity_id: "strength-1",
+    start_time: "2026-05-11T17:30:00Z",
+    duration_seconds: 4800,
+    avg_heart_rate_bpm: 142,
+    max_heart_rate_bpm: 168,
+    total_calories: 512,
+    trackpoints: [
+      { sequence: 0, elapsed_seconds: 0, heart_rate_bpm: 110 },
+      { sequence: 1, elapsed_seconds: 60, heart_rate_bpm: 150 },
+    ],
+  },
+};
+
+// An empty workout created from a TCX before any exercise is added.
+const EMPTY_FROM_TCX: Workout = {
+  id: "wkt-canonical",
+  user_id: "u-1",
+  name: "Workout - May 11",
+  performed_at: "2026-05-11T17:30:00Z",
+  ended_at: "2026-05-11T18:50:00Z",
+  notes: "",
+  created_at: "2026-05-11T18:50:00Z",
+  updated_at: "2026-05-11T18:50:00Z",
+  exercises: [],
+  personal_records_set: [],
+  activity_id: "act-123",
+  enrichment: {
+    source_activity_id: "strength-1",
+    start_time: "2026-05-11T17:30:00Z",
+    duration_seconds: 4800,
+    avg_heart_rate_bpm: 142,
+    max_heart_rate_bpm: 168,
+    total_calories: 512,
+    trackpoints: [{ sequence: 0, elapsed_seconds: 0, heart_rate_bpm: 110 }],
+  },
 };
 
 function pr(
@@ -312,5 +373,42 @@ describe("WorkoutDetailPage — uncategorizable session drops the map", () => {
     expect(screen.queryByTestId("muscle-body-map-caption")).not.toBeInTheDocument();
     // the stat line still renders (full width)
     expect(screen.getByText("Volume")).toBeInTheDocument();
+  });
+});
+
+describe("WorkoutDetailPage — Garmin TCX enrichment", () => {
+  it("renders the Heart rate & effort card and the ♥ indicator when enrichment is present", async () => {
+    vi.mocked(getWorkout).mockResolvedValue(ENRICHED);
+    render(<WorkoutDetailPage />);
+    expect(await screen.findByText("Heart rate & effort")).toBeInTheDocument();
+    // The four stat tiles carry the enrichment values.
+    expect(screen.getByText("142")).toBeInTheDocument(); // Avg HR
+    expect(screen.getByText("168")).toBeInTheDocument(); // Max HR
+    expect(screen.getByText("512")).toBeInTheDocument(); // Calories
+    expect(screen.getByText("Active time")).toBeInTheDocument();
+    // The subtitle gains the quiet "from Garmin" indicator.
+    expect(screen.getByText(/from Garmin/)).toBeInTheDocument();
+    // The header action flips to Detach.
+    expect(screen.getByText("Detach TCX")).toBeInTheDocument();
+  });
+
+  it("omits the card and shows Attach TCX when there is no enrichment", async () => {
+    vi.mocked(getWorkout).mockResolvedValue(CANONICAL);
+    render(<WorkoutDetailPage />);
+    await screen.findByText("Four PRs, topped by 305 lb × 2 on Bench Press");
+    expect(screen.queryByText("Heart rate & effort")).not.toBeInTheDocument();
+    expect(screen.queryByText(/from Garmin/)).not.toBeInTheDocument();
+    expect(screen.getByText("Attach TCX")).toBeInTheDocument();
+  });
+
+  it("renders the empty-exercise state with the card for a workout created from a TCX", async () => {
+    vi.mocked(getWorkout).mockResolvedValue(EMPTY_FROM_TCX);
+    render(<WorkoutDetailPage />);
+    // The card renders even with zero exercises.
+    expect(await screen.findByText("Heart rate & effort")).toBeInTheDocument();
+    // The empty-exercise affordance is present and the Exercises tile reads 0.
+    expect(screen.getByText("+ Add exercise")).toBeInTheDocument();
+    const exercisesTile = screen.getByText("Exercises").closest("div");
+    expect(exercisesTile).toHaveTextContent("0");
   });
 });

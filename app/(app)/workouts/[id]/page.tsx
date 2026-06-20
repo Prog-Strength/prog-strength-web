@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   deleteWorkout,
+  detachWorkoutTCX,
   getPlannedWorkoutBySession,
   getWorkout,
   listExercises,
@@ -18,10 +19,12 @@ import { CompletesPlanBanner } from "@/components/completes-plan-banner";
 import { hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutDetailsEditModal } from "@/components/workout-details-edit-modal";
 import { ExerciseEditModal, newExerciseGroup } from "@/components/exercise-edit-modal";
+import { WorkoutTCXUploadModal } from "@/components/workout-tcx-upload-modal";
 import { predominantUnit, workoutVolume } from "@/lib/workout-volume";
 import { formatRecapDate, leadHeadline, prSubhead } from "@/lib/workout-recap";
 import { RecapExerciseList } from "./_components/recap-exercise-list";
 import { MuscleBodyMap } from "./_components/muscle-body-map";
+import { HeartRateEffortCard } from "./_components/HeartRateEffortCard";
 
 /**
  * Single-workout detail route — the one-stop record of a logged session,
@@ -59,6 +62,11 @@ export default function WorkoutDetailPage() {
   const [editingDetails, setEditingDetails] = useState(false);
   const [groupEdit, setGroupEdit] = useState<GroupEdit | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // TCX enrichment: the attach upload modal, and the detach confirm + in-flight
+  // state.
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [confirmDetach, setConfirmDetach] = useState(false);
+  const [detaching, setDetaching] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -113,6 +121,29 @@ export default function WorkoutDetailPage() {
     }
   };
 
+  const handleDetach = async () => {
+    if (!workout) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    setDetaching(true);
+    try {
+      await detachWorkoutTCX(token, workout.id);
+      // Re-fetch so activity_id and enrichment clear (the card disappears).
+      const updated = await getWorkout(token, workout.id);
+      setWorkout(updated);
+      setConfirmDetach(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Detach failed");
+      // Close the confirm modal so its overlay doesn't hide the error banner.
+      setConfirmDetach(false);
+    } finally {
+      setDetaching(false);
+    }
+  };
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-3 border-b border-[var(--border)] px-6 py-4">
@@ -126,8 +157,28 @@ export default function WorkoutDetailPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             {/* The big name is intentionally demoted to a small subtitle —
                 the hero is the editorial headline in the column below. */}
-            <p className="text-xs text-[var(--muted)]">{headerSubtitle(workout)}</p>
+            <p className="text-xs text-[var(--muted)]">
+              {headerSubtitle(workout)}
+              {workout.activity_id && <span className="text-[var(--muted)]"> · ♥ from Garmin</span>}
+            </p>
             <div className="flex shrink-0 gap-2">
+              {workout.activity_id ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDetach(true)}
+                  className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+                >
+                  Detach TCX
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAttachOpen(true)}
+                  className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+                >
+                  Attach TCX
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setEditingDetails(true)}
@@ -180,6 +231,8 @@ export default function WorkoutDetailPage() {
                 </div>
               </div>
 
+              {workout.enrichment && <HeartRateEffortCard enrichment={workout.enrichment} />}
+
               <section className="space-y-1">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--faint)]">
@@ -225,7 +278,79 @@ export default function WorkoutDetailPage() {
           onSaved={handleSaved}
         />
       )}
+
+      {workout && attachOpen && (
+        <WorkoutTCXUploadModal
+          mode="attach"
+          workoutId={workout.id}
+          onClose={() => setAttachOpen(false)}
+          onUploaded={(updated) => setWorkout(updated)}
+        />
+      )}
+
+      {workout && confirmDetach && (
+        <DetachConfirmModal
+          busy={detaching}
+          onCancel={() => !detaching && setConfirmDetach(false)}
+          onConfirm={handleDetach}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * A small confirm dialog for detaching a TCX. Detach discards the workout's
+ * heart-rate & effort enrichment (the activity is soft-deleted), so it's worth
+ * a confirmation step rather than a one-click action.
+ */
+function DetachConfirmModal({
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="detach-tcx-title"
+    >
+      <div className="absolute inset-0 bg-black/60" onClick={onCancel} aria-hidden="true" />
+      <div className="relative flex w-full max-w-sm flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-5 shadow-xl">
+        <div className="space-y-1">
+          <h2 id="detach-tcx-title" className="text-base font-semibold">
+            Detach TCX?
+          </h2>
+          <p className="text-sm text-[var(--muted)]">
+            This removes the heart rate &amp; effort data from this workout. Your exercises and sets
+            are kept.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 text-sm text-[var(--muted)] transition hover:text-[var(--foreground)] disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="rounded-full border border-[var(--danger)]/35 px-4 py-1.5 text-sm text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-50"
+          >
+            {busy ? "Detaching…" : "Detach"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
