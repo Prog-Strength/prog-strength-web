@@ -1,5 +1,11 @@
 /// <reference types="vitest/globals" />
 import { deriveReadiness, summarizeReadiness, READY_THRESHOLD_PCT } from "./readiness";
+import {
+  liftsByReadiness,
+  runningByReadiness,
+  STANDARD_DISTANCES,
+  type RunningLedgerItem,
+} from "./readiness";
 import type { PersonalRecord } from "@/lib/api";
 
 const base: PersonalRecord = {
@@ -88,5 +94,70 @@ describe("summarizeReadiness", () => {
       { ...base, exercise_id: "b", workout_id: null, weight: null, current_estimated_1rm: null },
     ];
     expect(summarizeReadiness(records, NOW)).toEqual({ due: 1, tested: 2, total: 3 });
+  });
+});
+
+describe("liftsByReadiness", () => {
+  const mk = (id: string, weight: number | null, est: number | null): PersonalRecord => ({
+    ...base,
+    exercise_id: id,
+    exercise_name: id,
+    workout_id: weight === null ? null : "wk",
+    weight,
+    current_estimated_1rm: est,
+  });
+
+  it("orders tested lifts by descending gap (most over PR first)", () => {
+    const out = liftsByReadiness([mk("a", 300, 305), mk("b", 300, 360), mk("c", 300, 330)], NOW);
+    expect(out.map((r) => r.exercise_id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("sinks untested lifts to the bottom in stable name order", () => {
+    const out = liftsByReadiness(
+      [mk("z", null, null), mk("a", 300, 330), mk("y", null, null)],
+      NOW,
+    );
+    expect(out.map((r) => r.exercise_id)).toEqual(["a", "z", "y"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [mk("a", 300, 305), mk("b", 300, 360)];
+    const copy = [...input];
+    liftsByReadiness(input, NOW);
+    expect(input).toEqual(copy);
+  });
+});
+
+describe("runningByReadiness", () => {
+  const item = (key: string, covered: boolean): RunningLedgerItem => ({
+    key,
+    label: key,
+    best: covered
+      ? {
+          distance_key: key,
+          distance_label: key,
+          distance_meters: 1,
+          duration_seconds: 600,
+          pace_sec_per_km: 120,
+          activity_id: "a",
+          activity_start_time: "2026-01-01T00:00:00Z",
+        }
+      : null,
+  });
+
+  it("ranks 5k first, then covered distances, then uncovered — stable within a rank", () => {
+    const out = runningByReadiness([
+      item("1mi", false),
+      item("5k", false),
+      item("10k", true),
+      item("2mi", true),
+      item("marathon", false),
+    ]);
+    expect(out.map((r) => r.key)).toEqual(["5k", "10k", "2mi", "1mi", "marathon"]);
+  });
+
+  it("includes one row per standard distance the caller passes", () => {
+    const items = STANDARD_DISTANCES.map((d) => item(d.key, false));
+    expect(runningByReadiness(items)).toHaveLength(6);
   });
 });
