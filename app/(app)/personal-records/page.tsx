@@ -9,21 +9,26 @@
  * URL-backed via `?view=lifts|running` so it survives reload and is
  * linkable; an invalid/missing value falls back to Lifts.
  *
+ * Both views share one layout: a ranked `PRLedger` (master) beside a pinned
+ * `PRDetail` (detail) in a two-column split that stacks below `md`.
+ *
  * Lifts:
- *   - Each card shows the heaviest set on a curated headline lift (weight +
- *     reps + date) alongside the current recency-weighted estimated 1RM.
- *     The gap between the two is the "ready for a max?" signal.
+ *   - The ledger ranks every headline lift most-due first (largest est-vs-PR
+ *     gap); the detail pane pins the selected lift's est-1RM trend against a
+ *     dashed logged-PR line. The gap is the "ready for a max?" signal.
  *   - The "Customize" button (headline-lift selection modal) lives here.
  *
  * Running:
- *   - Each card shows the best time at a standard distance, pace, and the
- *     activity that set it. The distance set is fixed in backend Go, so
- *     there's nothing to customize — the Customize button is hidden here.
+ *   - The ledger lists every standard distance (5k first, then covered, then
+ *     uncovered); the detail pane pins the selected distance's max-effort
+ *     estimate with its confidence band. The distance set is fixed in backend
+ *     Go, so there's nothing to customize — the Customize button is hidden.
  *
- * Both views expose a per-card expandable progression chart. Data fetching
- * is TanStack Query, one query per view, lazy via `enabled` so switching
- * tabs doesn't refetch the inactive side and the active side caches across
- * switches.
+ * Ledger data is TanStack Query, one query per view, lazy via `enabled` so
+ * switching tabs doesn't refetch the inactive side and the active side caches
+ * across switches; the detail series is a separate lazy-per-selection query.
+ * Selection is local state, defaulting to the most-due lift / `5k` and kept
+ * independent per tab so a tab switch preserves each side's choice.
  */
 
 import { useState } from "react";

@@ -11,9 +11,10 @@
  *              `lowerIsFasterNote` so the downward-good slope doesn't read as
  *              a regression.
  *
- * The one capability beyond the two source charts (ProgressionChart +
- * EstimateChart) is a dashed horizontal ReferenceLine at the logged PR/best,
- * with the Y domain widened to always include it so the line is visible.
+ * The one capability beyond the original per-card progression / estimate
+ * charts it was distilled from is a dashed horizontal ReferenceLine at the
+ * logged PR/best, with the Y domain widened to always include it so the line
+ * is visible.
  *
  * This component renders no title — the detail panes own their headings.
  */

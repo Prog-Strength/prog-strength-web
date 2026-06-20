@@ -14,7 +14,7 @@
  *
  * Y is time, formatted m:ss; lower is faster, so a "lower is faster" note
  * sits under the title. Loading / empty / single-point states mirror the
- * personal-records ProgressionChart.
+ * personal-records FeaturedEstimateChart.
  */
 
 import {
@@ -177,7 +177,7 @@ export function EstimateChart({
 
 /**
  * A single history point can't draw a line, so render the one value plus a
- * muted "not enough data yet" note — mirrors the ProgressionChart state.
+ * muted "not enough data yet" note — mirrors the FeaturedEstimateChart state.
  */
 function SinglePoint({ datum }: { datum: BandDatum }) {
   return (
