@@ -54,6 +54,29 @@ export type PersonalRecordEvent = {
   achieved_at: string;
 };
 
+/** One downsampled point on a workout's heart-rate-over-elapsed-time chart. */
+export type WorkoutHRTrackpoint = {
+  sequence: number;
+  elapsed_seconds: number;
+  heart_rate_bpm: number | null;
+};
+
+/**
+ * The optional Garmin-TCX enrichment layer on a workout: heart rate, calories,
+ * and (on the single-workout detail load only) the downsampled HR trackpoints.
+ * Null/absent when the workout has no TCX attached (`activity_id` is null).
+ * `trackpoints` is present only on the detail response, omitted on lists.
+ */
+export type WorkoutEnrichment = {
+  source_activity_id: string;
+  start_time: string; // RFC3339
+  duration_seconds: number;
+  avg_heart_rate_bpm: number | null;
+  max_heart_rate_bpm: number | null;
+  total_calories: number | null;
+  trackpoints?: WorkoutHRTrackpoint[];
+};
+
 /** A logged training session. */
 export type Workout = {
   id: string;
@@ -69,6 +92,13 @@ export type Workout = {
   // responses (empty array when no PRs); the field is non-optional so
   // UIs can iterate without a null check.
   personal_records_set: PersonalRecordEvent[];
+  // The linked activity holding this workout's TCX enrichment, or null when no
+  // TCX is attached. A non-null value is the "has TCX" signal. The API always
+  // includes it; optional here so existing Workout fixtures need not restate it.
+  activity_id?: string | null;
+  // Heart-rate / effort enrichment from the linked TCX. Null when activity_id
+  // is null; carries `trackpoints` only on the single-workout detail load.
+  enrichment?: WorkoutEnrichment | null;
 };
 
 /** A catalog entry — the canonical definition of an exercise. */
@@ -1846,6 +1876,139 @@ export async function importRunningTcx(token: string, file: File): Promise<Runni
     throw new Error("API did not return the imported activity");
   }
   return created;
+}
+
+// --- Workout TCX enrichment --------------------------------------
+//
+// The inverse of the run import: a strength workout's exercises are the
+// record, and a Garmin "Strength Training" TCX adds an optional heart-rate /
+// effort layer. Three operations — create a workout from a TCX, attach a TCX
+// to an existing workout, detach it — all return the enriched Workout (the
+// detail shape, with enrichment.trackpoints) except detach (204, no body).
+
+/**
+ * Thrown when an uploaded TCX is already in the user's log (409
+ * `duplicate_activity`). `existingKind`/`existingId` point at where it lives —
+ * a "run" (a running activity) or a "workout" — so the modal can link to it.
+ */
+export class DuplicateActivityError extends Error {
+  existingKind: "run" | "workout";
+  existingId: string;
+  constructor(message: string, existingKind: "run" | "workout", existingId: string) {
+    super(message);
+    this.name = "DuplicateActivityError";
+    this.existingKind = existingKind;
+    this.existingId = existingId;
+  }
+}
+
+/**
+ * Thrown when attaching a second TCX to a workout that already has one (409
+ * `workout_tcx_exists`). The user must detach the existing file first.
+ */
+export class WorkoutTcxExistsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkoutTcxExistsError";
+  }
+}
+
+/**
+ * Shared handling for the workout-TCX upload responses: translate the typed
+ * 409s and the 413 cap into precise errors, then unwrap the enriched Workout.
+ * Detach uses a separate path (it returns 204 with no body).
+ */
+async function unwrapWorkoutTcxResponse(resp: Response): Promise<Workout> {
+  if (resp.status === 409) {
+    let body: {
+      error?: string;
+      code?: string;
+      existing?: { kind?: "run" | "workout"; id?: string };
+    } = {};
+    try {
+      body = await resp.json();
+    } catch {
+      // fall through to defaults
+    }
+    if (body.code === "workout_tcx_exists") {
+      throw new WorkoutTcxExistsError(
+        body.error || "This workout already has a file attached — detach it first.",
+      );
+    }
+    throw new DuplicateActivityError(
+      body.error || "This file is already in your log.",
+      body.existing?.kind === "workout" ? "workout" : "run",
+      body.existing?.id ?? "",
+    );
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 413) {
+      throw new Error("File is too large (max 10 MB).");
+    }
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+
+  const workout = await unwrap<Workout | null>(resp, null);
+  if (!workout) {
+    throw new Error("API did not return the workout");
+  }
+  return workout;
+}
+
+/**
+ * Create a new, empty workout from a Garmin strength TCX (the "Log from TCX"
+ * path). The TCX seeds performed_at/ended_at and the enrichment; the user adds
+ * exercises afterward on the returned workout's detail page.
+ */
+export async function createWorkoutFromTCX(token: string, file: File): Promise<Workout> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch(`${config.apiUrl}/workouts/imports`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  return unwrapWorkoutTcxResponse(resp);
+}
+
+/** Attach a TCX to an existing workout. Does not change the workout's times. */
+export async function attachWorkoutTCX(
+  token: string,
+  workoutId: string,
+  file: File,
+): Promise<Workout> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(workoutId)}/tcx`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  return unwrapWorkoutTcxResponse(resp);
+}
+
+/** Detach a workout's TCX (clears the link, soft-deletes the activity). */
+export async function detachWorkoutTCX(token: string, workoutId: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(workoutId)}/tcx`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok && resp.status !== 204) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
 }
 
 // --- Running best efforts + progression history ------------------
