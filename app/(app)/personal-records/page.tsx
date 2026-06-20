@@ -33,9 +33,15 @@ import { getToken } from "@/lib/auth";
 import { listPersonalRecords, listRunningBestEfforts } from "@/lib/api";
 import { HeadlineExercisesModal } from "@/components/headline-exercises-modal";
 import { ViewSwitcher, type PRView } from "./_components/ViewSwitcher";
-import { LiftsView } from "./_components/LiftsView";
-import { RunningView } from "./_components/RunningView";
-import { summarizeReadiness } from "./_components/readiness";
+import { PRLedger } from "./_components/PRLedger";
+import { PRDetail } from "./_components/PRDetail";
+import {
+  summarizeReadiness,
+  liftsByReadiness,
+  deriveReadiness,
+  STANDARD_DISTANCES,
+  type RunningLedgerItem,
+} from "./_components/readiness";
 
 function parseView(raw: string | null): PRView {
   return raw === "running" ? "running" : "lifts";
@@ -46,6 +52,12 @@ export default function PersonalRecordsPage() {
   const searchParams = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const [customizeOpen, setCustomizeOpen] = useState(false);
+
+  // Selection is independent per tab so switching tabs preserves each side's
+  // choice. Lifts default to the most-due tested lift (derived below);
+  // running defaults to 5k (the always-projectable distance).
+  const [selLift, setSelLift] = useState<string | null>(null);
+  const [selRun, setSelRun] = useState<string>("5k");
 
   // One query per view, lazy via `enabled` so the inactive view is never
   // fetched and a quick back-and-forth reuses the cached snapshot.
@@ -83,6 +95,26 @@ export default function PersonalRecordsPage() {
       ? summarizeReadiness(liftsQuery.data)
       : null;
 
+  // Running ledger rows: all 6 standard distances merged with best efforts.
+  const runItems: RunningLedgerItem[] = STANDARD_DISTANCES.map((d) => ({
+    key: d.key,
+    label: d.label,
+    best: runningQuery.data?.find((e) => e.distance_key === d.key) ?? null,
+  }));
+
+  // Default lift selection = most-due tested lift, DERIVED in render (not via
+  // a set-state effect, to avoid the set-state-in-effect lint rule). Once the
+  // user picks a row, `selLift` overrides.
+  const rankedLifts = liftsQuery.data ? liftsByReadiness(liftsQuery.data) : [];
+  const firstTested = rankedLifts.find((r) => deriveReadiness(r).hasPR) ?? null;
+  const effectiveSelLift = selLift ?? firstTested?.exercise_id ?? null;
+  const selLiftRecord = liftsQuery.data?.find((r) => r.exercise_id === effectiveSelLift) ?? null;
+
+  // Active-view query state for the ledger.
+  const activeQuery = view === "lifts" ? liftsQuery : runningQuery;
+  const ledgerState = activeQuery.isPending ? "pending" : activeQuery.isError ? "error" : "ready";
+  const errorMessage = activeQuery.error instanceof Error ? activeQuery.error.message : null;
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
@@ -118,20 +150,28 @@ export default function PersonalRecordsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-4xl">
-          {view === "lifts" ? (
-            <LiftsView
-              records={liftsQuery.data}
-              isPending={liftsQuery.isPending}
-              error={liftsQuery.error}
+        <div className="mx-auto max-w-5xl">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-[260px_1fr]">
+            <PRLedger
+              view={view}
+              lifts={view === "lifts" ? liftsQuery.data : undefined}
+              running={view === "running" ? runItems : undefined}
+              state={ledgerState}
+              errorMessage={errorMessage}
+              selectedId={view === "lifts" ? effectiveSelLift : selRun}
+              onSelect={view === "lifts" ? setSelLift : setSelRun}
             />
-          ) : (
-            <RunningView
-              bestEfforts={runningQuery.data}
-              isPending={runningQuery.isPending}
-              error={runningQuery.error}
+            <PRDetail
+              view={view}
+              liftRecord={view === "lifts" ? selLiftRecord : null}
+              distanceKey={view === "running" ? selRun : null}
+              distanceLabel={
+                view === "running"
+                  ? (STANDARD_DISTANCES.find((d) => d.key === selRun)?.label ?? null)
+                  : null
+              }
             />
-          )}
+          </div>
         </div>
       </div>
 
