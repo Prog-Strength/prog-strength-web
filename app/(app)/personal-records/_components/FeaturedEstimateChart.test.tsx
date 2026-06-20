@@ -77,6 +77,40 @@ describe("FeaturedEstimateChart", () => {
     expect(container.querySelector('[aria-hidden="true"]')).toBeTruthy();
   });
 
+  it("emphasizes only the latest point with a warning dot", () => {
+    const { container } = render(
+      <FeaturedEstimateChart data={series} referenceValue={305} referenceLabel="r" formatY={fmt} />,
+    );
+    const warningDots = Array.from(container.querySelectorAll("circle")).filter(
+      (c) => c.getAttribute("fill") === "var(--warning)",
+    );
+    expect(warningDots).toHaveLength(1);
+  });
+
+  it("widens the Y domain to keep the reference line visible", () => {
+    const { container } = render(
+      <FeaturedEstimateChart
+        data={series}
+        referenceValue={500}
+        referenceLabel="logged PR 500"
+        formatY={fmt}
+      />,
+    );
+    expect(screen.getByText("logged PR 500")).toBeInTheDocument();
+    // recharts only mounts a ReferenceLine when its `y` falls inside the Y
+    // domain, so a line at referenceValue=500 (well above the ~320 data max)
+    // can only render if the domain was widened to include it. Under the jsdom
+    // mock the YAxis tick *text* nodes never materialize, so we assert on the
+    // reference line element itself: it exists and its y sits inside the
+    // plotting area (top margin 8 .. chart bottom 206) rather than being
+    // dropped entirely.
+    const refLine = container.querySelector(".recharts-reference-line-line");
+    expect(refLine).not.toBeNull();
+    const y1 = Number(refLine?.getAttribute("y1"));
+    expect(y1).toBeGreaterThanOrEqual(8);
+    expect(y1).toBeLessThanOrEqual(206);
+  });
+
   it("renders a band area layer when hasBand is set", () => {
     const band: FeaturedPoint[] = series.map((p) => ({
       ...p,
