@@ -1,20 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import { deleteWorkout, listExercises, listWorkouts, type Exercise, type Workout } from "@/lib/api";
 import { WorkoutModal } from "@/components/workout-modal";
-import { WorkoutDetailsBody, hasMeaningfulName } from "@/components/workout-details";
+import { hasMeaningfulName } from "@/components/workout-details";
 import { WorkoutsAnalytics } from "@/components/workouts-analytics";
 import { workoutVolume } from "@/lib/workout-volume";
 
 /**
  * Workouts sub-view of the Activities page. Lists the user's sessions
  * for the selected timeframe (driven by the shell's `days` prop), with
- * client-side pagination over a single fetch. Each row has three
+ * client-side pagination over a single fetch. The view is a pure
+ * aggregate list — per-workout details (exercises, sets, muscle
+ * groups) live on the workout detail page. Each row has three
  * interactions:
- *   - Click the body to expand an in-place readonly details panel.
+ *   - Click the body to navigate to /workouts/{id} (detail page).
  *   - Click the pencil to open the edit modal.
  *   - Click the trash to delete after confirmation.
  *
@@ -47,9 +50,6 @@ export function WorkoutsView({
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Workout | null>(null);
-  // Tracks which rows have their readonly details panel open. Click on
-  // the row body toggles; click on the pencil opens the edit modal.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   // Catalog only needs to load once — it's not user-scoped.
@@ -106,16 +106,6 @@ export function WorkoutsView({
     () => (visibleWorkouts ? groupByWeek(visibleWorkouts) : null),
     [visibleWorkouts],
   );
-
-  const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
-
-  const toggleExpanded = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const handleSaved = (updated: Workout) =>
     setWorkouts((ws) => (ws ? ws.map((w) => (w.id === updated.id ? updated : w)) : ws));
@@ -181,11 +171,8 @@ export function WorkoutsView({
                   <WorkoutRow
                     key={w.id}
                     workout={w}
-                    expanded={expanded.has(w.id)}
-                    onToggleExpanded={() => toggleExpanded(w.id)}
                     onEdit={() => setEditing(w)}
                     onDelete={() => handleDelete(w)}
-                    exerciseMap={exerciseMap}
                     displayUnit={displayUnit}
                   />
                 ))}
@@ -283,37 +270,30 @@ function EmptyState() {
 
 function WorkoutRow({
   workout,
-  expanded,
-  onToggleExpanded,
   onEdit,
   onDelete,
-  exerciseMap,
   displayUnit,
 }: {
   workout: Workout;
-  expanded: boolean;
-  onToggleExpanded: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  exerciseMap: Map<string, Exercise>;
   displayUnit: "lb" | "kg";
 }) {
   const named = hasMeaningfulName(workout.name);
   return (
     <li className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-      {/* Two sibling buttons in the header so the expand-vs-edit
-          interaction is unambiguous. Nesting the pencil inside the
-          row button would trip "buttons can't nest" and stop click
-          events propagating. min-w-0 on flex children lets `truncate`
-          actually clip when names/notes are long. */}
+      {/* The row body is a link to the detail page; the pencil and
+          trash are sibling buttons so the navigate-vs-edit-vs-delete
+          interactions stay unambiguous. Anchor + buttons as siblings
+          (not nested) keeps each hit target independent. min-w-0 on
+          flex children lets `truncate` actually clip when names/notes
+          are long. */}
       <div className="flex items-stretch">
-        <button
-          type="button"
-          onClick={onToggleExpanded}
-          aria-expanded={expanded}
+        <Link
+          href={`/workouts/${workout.id}`}
           className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
         >
-          <ChevronIcon expanded={expanded} />
+          <ChevronIcon />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="flex items-center gap-1.5 truncate text-sm font-medium">
               <span className="truncate">
@@ -347,7 +327,7 @@ function WorkoutRow({
               <p className="truncate text-xs text-[var(--muted)]">{workout.notes}</p>
             )}
           </div>
-        </button>
+        </Link>
         <button
           type="button"
           onClick={onEdit}
@@ -367,17 +347,13 @@ function WorkoutRow({
           <TrashIcon />
         </button>
       </div>
-
-      {expanded && (
-        <div className="border-t border-[var(--border)] px-4 py-3">
-          <WorkoutDetailsBody workout={workout} exerciseMap={exerciseMap} />
-        </div>
-      )}
     </li>
   );
 }
 
-function ChevronIcon({ expanded }: { expanded: boolean }) {
+// Static right-pointing chevron signalling the row navigates to the
+// workout detail page (iOS-style "disclosure" affordance).
+function ChevronIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -388,7 +364,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`shrink-0 text-[var(--muted)] transition-transform ${expanded ? "rotate-90" : ""}`}
+      className="shrink-0 text-[var(--muted)]"
       aria-hidden="true"
     >
       <path d="M9 18l6-6-6-6" />
