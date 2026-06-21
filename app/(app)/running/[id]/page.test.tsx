@@ -108,6 +108,66 @@ function runningSession(trackpoints: RunningTrackpoint[]): RunningSession {
     elevation_gain_meters: 30,
     created_at: "2026-06-18T13:30:00Z",
     trackpoints,
+    heart_rate_zones: {
+      model: "percent_max_hr",
+      max_hr_reference_bpm: 191,
+      reference_source: "p99_recent_runs",
+      reference_confidence: "calibrated",
+      calibrating: false,
+      total_hr_seconds: 1500,
+      zones: [
+        {
+          zone: 1,
+          name: "Recovery",
+          lower_pct: 0.0,
+          upper_pct: 0.6,
+          min_bpm: 0,
+          max_bpm: 114,
+          time_seconds: 120,
+          time_pct: 0.08,
+        },
+        {
+          zone: 2,
+          name: "Aerobic",
+          lower_pct: 0.6,
+          upper_pct: 0.7,
+          min_bpm: 115,
+          max_bpm: 133,
+          time_seconds: 480,
+          time_pct: 0.32,
+        },
+        {
+          zone: 3,
+          name: "Tempo",
+          lower_pct: 0.7,
+          upper_pct: 0.8,
+          min_bpm: 134,
+          max_bpm: 152,
+          time_seconds: 360,
+          time_pct: 0.24,
+        },
+        {
+          zone: 4,
+          name: "Threshold",
+          lower_pct: 0.8,
+          upper_pct: 0.9,
+          min_bpm: 153,
+          max_bpm: 171,
+          time_seconds: 330,
+          time_pct: 0.22,
+        },
+        {
+          zone: 5,
+          name: "VO2max",
+          lower_pct: 0.9,
+          upper_pct: 1.0,
+          min_bpm: 172,
+          max_bpm: 191,
+          time_seconds: 210,
+          time_pct: 0.14,
+        },
+      ],
+    },
   };
 }
 
@@ -197,6 +257,30 @@ describe("RunningDetailPage — splits ledger", () => {
     // The intervals table surfaces warm-up + numbered reps.
     expect(await screen.findByText("Warm-up")).toBeInTheDocument();
     expect(screen.getByText("Rep 1")).toBeInTheDocument();
+  });
+});
+
+describe("RunningDetailPage — heart-rate zones", () => {
+  it("renders the zones widget from the session's heart_rate_zones block", async () => {
+    render(<RunningDetailPage />);
+
+    expect(await screen.findByText("Heart rate zones")).toBeInTheDocument();
+    // A legend row per zone, with bpm ranges.
+    expect(screen.getByText("Recovery")).toBeInTheDocument();
+    expect(screen.getByText("VO2max")).toBeInTheDocument();
+    expect(screen.getByText(/172[–-]191 bpm/)).toBeInTheDocument();
+  });
+
+  it("omits the widget when the run has no heart_rate_zones block", async () => {
+    const noZones = runningSession(steadyTrackpoints());
+    delete noZones.heart_rate_zones;
+    getRunningSessionMock.mockResolvedValue(noZones);
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.queryByText("Heart rate zones")).not.toBeInTheDocument();
   });
 });
 
