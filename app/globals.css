@@ -68,6 +68,15 @@
   --discipline-lift-2: #5a6493;
   --discipline-lift-3: #7d88c2;
   --discipline-lift-4: #aab4dd;
+  /* Heart-rate zone ramp — a periwinkle single-hue ramp (light → saturated
+     across Z1→Z5) anchored on the accent. Encodes the five percent-of-max-HR
+     training zones on the running detail page's time-in-zone bar; in-system
+     with the v0.4 palette rather than the cliché green→red. Z5 == --accent. */
+  --zone-1: #444a66;
+  --zone-2: #5a6188;
+  --zone-3: #717aa8;
+  --zone-4: #8893c5;
+  --zone-5: #9aa6d6;
   --discipline-mobility-bg: #182622;
   --discipline-mobility-fg: #8fc4b6;
   --discipline-mobility-dot: #6fae9b;
@@ -113,6 +122,11 @@
   --color-discipline-lift-2: var(--discipline-lift-2);
   --color-discipline-lift-3: var(--discipline-lift-3);
   --color-discipline-lift-4: var(--discipline-lift-4);
+  --color-zone-1: var(--zone-1);
+  --color-zone-2: var(--zone-2);
+  --color-zone-3: var(--zone-3);
+  --color-zone-4: var(--zone-4);
+  --color-zone-5: var(--zone-5);
   --color-discipline-mobility-bg: var(--discipline-mobility-bg);
   --color-discipline-mobility-fg: var(--discipline-mobility-fg);
   --color-discipline-mobility-dot: var(--discipline-mobility-dot);

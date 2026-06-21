@@ -28,3 +28,13 @@ export function formatDuration(seconds: number): string {
   }
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+/**
+ * Format a 0..1 fraction as a whole-number percent, em-dash for
+ * non-finite. Used by the running heart-rate-zones widget for each
+ * zone's time-in-zone share.
+ */
+export function formatPercent(fraction: number): string {
+  if (!Number.isFinite(fraction)) return "—";
+  return `${Math.round(fraction * 100)}%`;
+}
