@@ -32,10 +32,9 @@ vi.mock("@/components/workout-modal", () => ({
   WorkoutModal: () => <div data-testid="workout-modal" />,
 }));
 
-// The view imports BOTH WorkoutDetailsBody and hasMeaningfulName from
-// this module, so the mock must provide a working hasMeaningfulName.
+// The view imports hasMeaningfulName from this module, so the mock
+// must provide a working implementation.
 vi.mock("@/components/workout-details", () => ({
-  WorkoutDetailsBody: () => <div data-testid="workout-details-body" />,
   hasMeaningfulName: (name?: string) => !!name && name.trim().length > 0,
 }));
 
@@ -87,6 +86,18 @@ describe("WorkoutsView — PR trophy badge", () => {
     const badge = await screen.findByTitle("This workout set a new personal record");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveAttribute("aria-label", "This workout set a new personal record");
+  });
+});
+
+describe("WorkoutsView — row navigation", () => {
+  it("links each row to its workout detail page", async () => {
+    listWorkoutsMock.mockResolvedValue({
+      items: [workoutFixture({ id: "828782f8", name: "Leg day" })],
+    });
+    render(<WorkoutsView days={30} displayUnit="lb" />);
+
+    const link = await screen.findByRole("link", { name: /Leg day/ });
+    expect(link).toHaveAttribute("href", "/workouts/828782f8");
   });
 });
 
