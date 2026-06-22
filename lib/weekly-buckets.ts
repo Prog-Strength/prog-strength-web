@@ -42,6 +42,7 @@ function addDays(d: Date, n: number): Date {
  * @param getTimestamp maps an item to the Date it falls on
  * @param factory      builds a fresh zero-filled accumulator for a week
  * @param accumulate   folds one item into its week bucket (mutates the bucket)
+ * @param now          "today" (defaults to the real clock); inject for tests
  */
 export function buildWeeklyBuckets<T, B>({
   items,
@@ -49,14 +50,17 @@ export function buildWeeklyBuckets<T, B>({
   getTimestamp,
   factory,
   accumulate,
+  now = new Date(),
 }: {
   items: T[];
   days: number | null;
   getTimestamp: (item: T) => Date;
   factory: () => B;
   accumulate: (bucket: WeekBucket<B>, item: T) => void;
+  /** "Today" — injectable so derivations and their tests pin a deterministic
+   * window edge. Defaults to the real wall clock for existing callers. */
+  now?: Date;
 }): WeekBucket<B>[] {
-  const now = new Date();
   const since =
     days !== null
       ? new Date(now.getTime() - days * 24 * 60 * 60 * 1000)

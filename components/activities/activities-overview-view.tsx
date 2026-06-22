@@ -10,45 +10,50 @@ import {
   listWorkouts,
   type RunningSession,
   type StepsEntry,
-  type StepsGoal,
   type Workout,
 } from "@/lib/api";
-import { StatTile } from "@/components/stat-tile";
 import { ActivitiesCombinedChart } from "@/components/activities/activities-combined-chart";
-import { formatHours } from "@/lib/chart-format";
-import { formatDistanceValue } from "@/lib/distance-unit-context";
-import { workoutVolume } from "@/lib/workout-volume";
+import {
+  EffortReadout,
+  Instrument,
+  MileageBars,
+  PaceSparkline,
+  SplitDonut,
+  StepsBars,
+} from "@/components/activities/overview/instruments";
+import { deriveOverviewStats, formatHm } from "@/lib/activities-overview-stats";
+import { formatPaceValue } from "@/lib/distance-unit-context";
+import { isoDate, parseLocalDate, rangeSinceIso } from "@/lib/steps-stats";
 
 // Workouts cap at the API's hard limit of 100; when hit the combined
 // chart surfaces a truncation note. Running uses /activities range mode
 // instead (uncapped server-side), so no equivalent SESSIONS_LIMIT here.
 const WORKOUTS_LIMIT = 100;
+const KM_PER_MILE = 1.609344;
 
 /**
- * Overview sub-view — the Activities page's default. A digest of the
- * selected window: two stat-tile rows bracketing a combined weekly
- * activity chart (lifting minutes vs running minutes). Single-modality
- * drill-down belongs on the dedicated Workouts / Running tabs, so this
- * is deliberately a digest rather than its own dashboard.
+ * Overview sub-view — the Activities page's default. The instrument-panel
+ * composition (DX `instrument-panel`, Strava "your stats"): a compact KPI
+ * row over a tight grid of small framed charts — graphs first, numbers
+ * second. It answers "how's my training going?" across all modalities
+ * before a user drills into the Workouts / Running / Steps tabs.
  *
- * Owns its own parallel fetches (workouts + running sessions), refetched
- * on mount and on `days` change. All aggregates are computed client-side
- * over the fetched window.
+ * Owns its own parallel fetches (workouts + running sessions + steps +
+ * steps goal), refetched on mount and on `days` change. Every number and
+ * series is derived client-side over the fetched window by
+ * `deriveOverviewStats`; no aggregation endpoint is assumed.
  */
 export function ActivitiesOverviewView({
   days,
-  displayUnit,
   distanceUnit,
 }: {
   days: number | null;
-  displayUnit: "lb" | "kg";
   distanceUnit: "mi" | "km";
 }) {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [sessions, setSessions] = useState<RunningSession[] | null>(null);
   const [steps, setSteps] = useState<StepsEntry[] | null>(null);
-  const [stepsGoal, setStepsGoal] = useState<StepsGoal | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Parallel fetch on mount + on `days` change. since/until derive from
@@ -60,36 +65,38 @@ export function ActivitiesOverviewView({
       router.replace("/login");
       return;
     }
-    const since =
-      days !== null ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString() : undefined;
-    const until = days !== null ? new Date().toISOString() : undefined;
-    // Steps are date-keyed (YYYY-MM-DD), so its range window uses the
-    // calendar-day form rather than full ISO timestamps.
-    const stepsSince =
-      days !== null ? isoDate(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000)) : undefined;
+    // One calendar-day-aligned window for every fetch, so the workout/run
+    // window matches the steps window and the derivation's `days`-calendar-day
+    // span exactly (no out-of-window rows leaking into the KPI rollups).
+    // `rangeSinceIso` is the same inclusive-start helper the Steps tab uses.
+    const stepsSince = days !== null ? rangeSinceIso(days) : undefined;
     const stepsUntil = days !== null ? isoDate(new Date()) : undefined;
+    // Workouts/running filter on RFC3339 timestamps: anchor `since` to local
+    // midnight of that same inclusive start day.
+    const since = stepsSince ? parseLocalDate(stepsSince).toISOString() : undefined;
+    const until = days !== null ? new Date().toISOString() : undefined;
 
     // Reset to the loading state so a window change shows "Loading…"
     // rather than stale aggregates from the prior window.
     setWorkouts(null);
     setSessions(null);
     setSteps(null);
-    setStepsGoal(null);
     // /activities forbids mixing since/until with limit/before, and the
     // range form is uncapped server-side, so the running fetch omits
-    // `limit` and trusts the window to bound the result.
+    // `limit` and trusts the window to bound the result. The steps-goal
+    // fetch is kept to preserve the tab's load orchestration even though
+    // the instrument panel no longer surfaces a goal-% readout.
     Promise.all([
       listWorkouts(token, { since, limit: WORKOUTS_LIMIT }),
       listRunningSessions(token, { since, until }),
       listSteps(token, { since: stepsSince, until: stepsUntil }),
       getStepsGoal(token),
     ])
-      .then(([wp, sp, stp, sg]) => {
+      .then(([wp, sp, stp]) => {
         setError(null);
         setWorkouts(wp.items);
         setSessions(sp.activities);
         setSteps(stp.steps);
-        setStepsGoal(sg);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -102,74 +109,32 @@ export function ActivitiesOverviewView({
       });
   }, [router, days]);
 
-  // All aggregates are memoized on the two fetched arrays so re-renders
-  // (e.g. from the chart's own state) don't recompute the sums.
-  const stats = useMemo(() => {
-    const ws = workouts ?? [];
-    const ss = sessions ?? [];
-
-    // Completed workouts only: skip in-progress (no ended_at) and any
-    // non-positive span. ms → minutes.
-    let totalWorkoutMinutes = 0;
-    for (const w of ws) {
-      if (!w.ended_at) continue;
-      const ms = new Date(w.ended_at).getTime() - new Date(w.performed_at).getTime();
-      if (ms > 0) totalWorkoutMinutes += ms / 60000;
-    }
-
-    let totalRunningMinutes = 0;
-    let totalMileageMeters = 0;
-    for (const s of ss) {
-      totalRunningMinutes += s.duration_seconds / 60;
-      totalMileageMeters += s.distance_meters;
-    }
-
-    const totalMinutes = totalWorkoutMinutes + totalRunningMinutes;
-    const workoutCount = ws.length;
-    const runCount = ss.length;
-    const totalSessions = workoutCount + runCount;
-
-    let totalVolume = 0;
-    let prCount = 0;
-    for (const w of ws) {
-      totalVolume += workoutVolume(w, displayUnit);
-      prCount += w.personal_records_set.length;
-    }
-
-    const avgSessionMinutes = totalSessions ? totalMinutes / totalSessions : 0;
-
-    return {
-      totalMinutes,
-      workoutCount,
-      runCount,
-      totalSessions,
-      totalVolume,
-      totalMileageMeters,
-      prCount,
-      avgSessionMinutes,
-    };
-  }, [workouts, sessions, displayUnit]);
-
-  // Steps digest: avg daily steps over the window + goal attainment.
-  // Rendered only when step history exists in the window.
-  const stepsStats = useMemo(() => {
-    const arr = steps ?? [];
-    if (arr.length === 0) return { count: 0, avg: 0, attainment: null as number | null };
-    const total = arr.reduce((a, e) => a + e.steps, 0);
-    const avg = total / arr.length;
-    const goal = stepsGoal?.goal ?? 0;
-    const attainment = goal > 0 ? Math.round((avg / goal) * 100) : null;
-    return { count: arr.length, avg, attainment };
-  }, [steps, stepsGoal]);
+  // The whole instrument panel derives from one rollup over the fetched
+  // window. Memoized on the fetched arrays so chart-local re-renders don't
+  // recompute; "today" is a real Date taken at derivation time.
+  const stats = useMemo(
+    () => deriveOverviewStats({ workouts, sessions, steps, days, now: new Date() }),
+    [workouts, sessions, steps, days],
+  );
 
   // All fetches resolve together (Promise.all), so any being null means
-  // the digest is still loading.
+  // the panel is still loading.
   const loading = workouts === null || sessions === null || steps === null;
   // Only workouts can truncate — running uses range mode (uncapped).
   const truncated = (workouts?.length ?? 0) >= WORKOUTS_LIMIT;
 
+  // Avg run pace is derived in sec/mi; honor the active unit on display.
+  const avgPaceLabel = formatPaceValue(
+    stats.avgRunPaceSecPerMi == null ? null : stats.avgRunPaceSecPerMi / KM_PER_MILE,
+    distanceUnit,
+  );
+  const paceUnit = distanceUnit === "mi" ? "/mi" : "/km";
+  // No runs at all → no pace/mileage instruments (don't leave empty frames).
+  const hasRuns = stats.headline.runCount > 0;
+  const hasSteps = stats.stepsSeries.length > 0;
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       {error && (
         <div className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
           {error}
@@ -180,82 +145,108 @@ export function ActivitiesOverviewView({
 
       {!error && !loading && (
         <>
-          {/* Hero row — the "how active was I?" headline. */}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatTile value={formatHours(stats.totalMinutes)} label="Total time" />
-            <StatTile value={String(stats.totalSessions)} label="Total sessions" />
-            <StatTile value={String(stats.workoutCount)} label="Workouts" />
-            <StatTile value={String(stats.runCount)} label="Runs" />
-          </div>
-
-          {/* Combined weekly activity chart — chrome-less; the card
-              border + label live here on the view. */}
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-              Weekly activity
-            </p>
-            <ActivitiesCombinedChart
-              workouts={workouts}
-              sessions={sessions}
-              days={days}
-              truncated={truncated}
-              fetchLimit={WORKOUTS_LIMIT}
+          {/* Minimal KPI row — the headline numbers demoted to a compact
+              strip so the charts lead. The accent appears exactly once: the
+              consistency (days-active + streak) readout. */}
+          <div className="grid grid-cols-2 gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 sm:grid-cols-4">
+            <Kpi label="Total time" value={formatHm(stats.headline.totalActiveSeconds)} />
+            <Kpi
+              label="Sessions"
+              value={String(stats.headline.sessionCount)}
+              sub={`${stats.headline.workoutCount} workouts · ${stats.headline.runCount} runs`}
             />
-          </section>
-
-          {/* Secondary row — the supporting totals. */}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatTile
-              value={`${stats.totalVolume.toLocaleString(undefined, {
-                maximumFractionDigits: 0,
-              })} ${displayUnit}`}
-              label="Total volume"
-            />
-            <StatTile
-              value={`${formatDistanceValue(stats.totalMileageMeters, distanceUnit)} ${distanceUnit}`}
-              label="Total mileage"
-            />
-            <StatTile value={String(stats.prCount)} label="PRs" />
-            <StatTile
-              value={stats.totalSessions ? formatHours(stats.avgSessionMinutes) : "—"}
-              label="Avg session"
+            <Kpi label="Avg run pace" value={avgPaceLabel} sub={paceUnit} />
+            <Kpi
+              label="Days active"
+              value={`${stats.consistency.daysActive} / ${stats.consistency.totalDays}`}
+              sub={
+                stats.consistency.currentStreak > 0
+                  ? `${stats.consistency.currentStreak}-day streak`
+                  : `longest ${stats.consistency.longestStreak}d`
+              }
+              accent
             />
           </div>
 
-          {/* Steps digest — only when step history exists in the window.
-              Two tiles: avg daily steps + goal attainment. */}
-          {stepsStats.count > 0 && (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <StatTile
-                value={Math.round(stepsStats.avg).toLocaleString()}
-                label="Avg daily steps"
+          {/* The grid of small framed instruments — charts as the hero. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Carried-over dual Lifting/Running weekly line (recharts). */}
+            <Instrument title="Weekly activity" sub="lift / run" className="lg:col-span-2">
+              <ActivitiesCombinedChart
+                workouts={workouts}
+                sessions={sessions}
+                days={days}
+                truncated={truncated}
+                fetchLimit={WORKOUTS_LIMIT}
               />
-              <StatTile
-                value={stepsStats.attainment !== null ? `${stepsStats.attainment}%` : "—"}
-                label="Steps goal"
-                sub={
-                  stepsGoal && stepsGoal.goal > 0
-                    ? `of ${stepsGoal.goal.toLocaleString()}`
-                    : "No goal set"
-                }
-                tone={
-                  stepsStats.attainment !== null && stepsStats.attainment >= 100
-                    ? "positive"
-                    : "neutral"
-                }
-              />
-            </div>
-          )}
+            </Instrument>
+
+            <Instrument title="Time split" sub="lift vs run">
+              <SplitDonut split={stats.disciplineSplit} />
+            </Instrument>
+
+            {hasRuns && (
+              <Instrument title="Avg pace" sub={`per week · ${paceUnit}`}>
+                <PaceSparkline
+                  weekly={stats.weekly}
+                  bestPaceSecPerMi={stats.bestPaceSecPerMi}
+                  distanceUnit={distanceUnit}
+                />
+              </Instrument>
+            )}
+
+            {hasRuns && (
+              <Instrument title="Mileage" sub={`per week · ${distanceUnit}`}>
+                <MileageBars weekly={stats.weekly} distanceUnit={distanceUnit} />
+              </Instrument>
+            )}
+
+            {hasRuns && (
+              <Instrument title="Effort" sub="HR · elevation">
+                <EffortReadout effort={stats.effort} distanceUnit={distanceUnit} />
+              </Instrument>
+            )}
+
+            {/* Steps instrument is hidden entirely when the window has no
+                step entries (today's view already gates on this). */}
+            {hasSteps && (
+              <Instrument title="Daily steps" sub="trend">
+                <StepsBars series={stats.stepsSeries} />
+              </Instrument>
+            )}
+          </div>
         </>
       )}
     </div>
   );
 }
 
-/** Local-time YYYY-MM-DD for a Date, matching the date-keyed steps log. */
-function isoDate(d: Date): string {
-  const yyyy = String(d.getFullYear()).padStart(4, "0");
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mo}-${dd}`;
+/** One compact KPI in the headline strip. The accent is reserved for the
+ * single emphasised readout (the consistency value). */
+function Kpi({
+  label,
+  value,
+  sub,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div>
+      <p
+        className={`text-lg font-semibold tabular-nums tracking-[-0.03em] ${
+          accent ? "text-[var(--accent)]" : "text-[var(--foreground)]"
+        }`}
+      >
+        {value}
+      </p>
+      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)]">
+        {label}
+      </p>
+      {sub && <p className="mt-0.5 text-[11px] tabular-nums text-[var(--muted)]">{sub}</p>}
+    </div>
+  );
 }
