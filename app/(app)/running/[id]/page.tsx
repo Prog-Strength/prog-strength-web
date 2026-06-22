@@ -21,6 +21,7 @@ import { formatStartDateTime, runFallbackName } from "../_components/RunListRow"
 import { RunHeaderBand } from "./_components/RunHeaderBand";
 import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceStrip } from "./_components/PaceStrip";
+import { HeartRateZones } from "./_components/HeartRateZones";
 
 /**
  * Run detail. Header carries a back link, an inline-editable run name,
@@ -276,6 +277,7 @@ export default function RunningDetailPage() {
             targetPaceSecPerUnit={targetPace}
           />
           <PaceStrip points={derivation.paceStrip} hasDropout={derivation.hasDropout} />
+          <HeartRateZones zones={session.heart_rate_zones} />
         </div>
       </div>
 

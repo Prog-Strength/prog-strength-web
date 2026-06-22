@@ -1637,6 +1637,42 @@ export type IngestSource = "manual_tcx" | "garmin_api";
  * `avg_pace_sec_per_km` is nullable: pace is meaningful only for running
  * activities; cycling/walking rows return null.
  */
+/**
+ * One percent-of-max-HR zone in a run's heart-rate-zone breakdown.
+ * `lower_pct`/`upper_pct` are the zone's boundary fractions of the
+ * reference max HR; `min_bpm`/`max_bpm` are those boundaries resolved to
+ * bpm; `time_seconds`/`time_pct` are the time spent in the zone (the
+ * percentages sum to 1.0 over the HR-covered portion of the run).
+ */
+export type HeartRateZone = {
+  zone: number;
+  name: string;
+  lower_pct: number;
+  upper_pct: number;
+  min_bpm: number;
+  max_bpm: number;
+  time_seconds: number;
+  time_pct: number;
+};
+
+/**
+ * The additive `heart_rate_zones` block on the running detail response —
+ * a five-zone time-in-zone breakdown the backend computes against an
+ * estimated reference max HR. `reference_confidence` degrades from
+ * "estimated" (cold start) through "calibrating" to "calibrated"; the
+ * widget shows a "calibrating" banner until the estimate is trusted.
+ * Absent on the response when the run carries no per-point heart rate.
+ */
+export type HeartRateZones = {
+  model: string;
+  max_hr_reference_bpm: number;
+  reference_source: string;
+  reference_confidence: "estimated" | "calibrating" | "calibrated";
+  calibrating: boolean;
+  total_hr_seconds: number;
+  zones: HeartRateZone[];
+};
+
 export type RunningSession = {
   id: string;
   activity_type: ActivityType;
@@ -1655,6 +1691,8 @@ export type RunningSession = {
   created_at: string;
   // Present only on the detail GET; absent in list responses.
   trackpoints?: RunningTrackpoint[];
+  // Backend-computed time-in-zone breakdown; absent when the run has no HR.
+  heart_rate_zones?: HeartRateZones;
 };
 
 /** One sampled point along an activity's track, ordered by `sequence`. */
