@@ -187,11 +187,7 @@ function ActivitiesPageInner() {
           </div>
 
           {view === "overview" && (
-            <ActivitiesOverviewView
-              days={days}
-              displayUnit={displayUnit}
-              distanceUnit={distanceUnit}
-            />
+            <ActivitiesOverviewView days={days} distanceUnit={distanceUnit} />
           )}
           {view === "workouts" && <WorkoutsView days={days} displayUnit={displayUnit} />}
           {view === "running" && (
