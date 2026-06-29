@@ -20,7 +20,7 @@ import { deriveRunningActivity, parseTargetPace } from "@/lib/running-splits";
 import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
 import { RunHeaderBand } from "./_components/RunHeaderBand";
 import { SplitsSpine } from "./_components/SplitsSpine";
-import { PaceStrip } from "./_components/PaceStrip";
+import { PaceRecap } from "./_components/PaceRecap";
 import { HeartRateZones } from "./_components/HeartRateZones";
 
 /**
@@ -28,7 +28,7 @@ import { HeartRateZones } from "./_components/HeartRateZones";
  * and a delete action. Below it, a splits ledger: a compact summary band
  * (with the linked plan's ✓ pill + Unlink and prescription context), the
  * splits spine — a per-distance table with a miles↔intervals toggle gated on
- * detected intervals — and a demoted winsorized pace strip. The body derives
+ * detected intervals — and a hero winsorized pace recap. The body derives
  * everything from the session's trackpoints via `deriveRunningActivity`.
  */
 export default function RunningDetailPage() {
@@ -85,7 +85,7 @@ export default function RunningDetailPage() {
       });
   }, [id, router, handleAuthError]);
 
-  // Derive the splits ledger (splits, pace strip, detected intervals) from the
+  // Derive the splits ledger (splits, pace recap, detected intervals) from the
   // session's trackpoints, the linked plan's run type, and the active unit.
   const derivation = useMemo(
     () => deriveRunningActivity(session?.trackpoints ?? [], completesPlan?.run_type ?? null, unit),
@@ -276,7 +276,7 @@ export default function RunningDetailPage() {
             hasTargetColumn={targetPace != null}
             targetPaceSecPerUnit={targetPace}
           />
-          <PaceStrip points={derivation.paceStrip} hasDropout={derivation.hasDropout} />
+          <PaceRecap points={derivation.paceStrip} hasDropout={derivation.hasDropout} unit={unit} />
           <HeartRateZones zones={session.heart_rate_zones} />
         </div>
       </div>
