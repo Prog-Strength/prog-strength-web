@@ -72,7 +72,7 @@ function zones(overrides: Partial<HRZones> = {}): HRZones {
 }
 
 describe("HeartRateZones", () => {
-  it("renders a legend row per zone for a calibrated fixture, with no calibrating banner", () => {
+  it("renders one bar row per zone with name, bpm range, time, and percent", () => {
     render(<HeartRateZones zones={zones()} />);
 
     for (const name of ["Recovery", "Aerobic", "Tempo", "Threshold", "VO2max"]) {
@@ -82,7 +82,87 @@ describe("HeartRateZones", () => {
     expect(screen.getByText(/0[–-]114 bpm/)).toBeInTheDocument();
     expect(screen.getByText(/172[–-]191 bpm/)).toBeInTheDocument();
 
-    expect(screen.queryByText(CALIBRATING_COPY)).not.toBeInTheDocument();
+    // Time and percent figures render for each zone.
+    expect(screen.getByText("4:00")).toBeInTheDocument(); // Recovery 240s
+    expect(screen.getByText("8%")).toBeInTheDocument(); // Recovery 0.076
+    expect(screen.getByText("16%")).toBeInTheDocument(); // VO2max 0.158
+  });
+
+  it("renders rows in descending zone order (VO2max first, Recovery last)", () => {
+    render(<HeartRateZones zones={zones()} />);
+
+    const names = screen.getAllByText(/^(Recovery|Aerobic|Tempo|Threshold|VO2max)$/);
+    expect(names.map((n) => n.textContent)).toEqual([
+      "VO2max",
+      "Threshold",
+      "Tempo",
+      "Aerobic",
+      "Recovery",
+    ]);
+  });
+
+  it("renders each fill with a width from time_pct and its zone color", () => {
+    const { container } = render(<HeartRateZones zones={zones()} />);
+
+    const fills = container.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
+    // One decorative fill per zone, in descending zone order.
+    expect(fills).toHaveLength(5);
+
+    // First fill is VO2max (zone 5): width 15.8%, --zone-5 fill.
+    expect(fills[0].style.width).toBe("15.8%");
+    expect(fills[0].style.backgroundColor).toBe("var(--zone-5)");
+    // Last fill is Recovery (zone 1): width 7.6%, --zone-1 fill.
+    expect(fills[4].style.width).toBe("7.6%");
+    expect(fills[4].style.backgroundColor).toBe("var(--zone-1)");
+  });
+
+  it("renders a zero-time zone's row with an empty fill and 0:00 / 0%", () => {
+    const base = zones();
+    const { container } = render(
+      <HeartRateZones
+        zones={zones({
+          zones: [{ ...base.zones[0], time_seconds: 0, time_pct: 0 }, ...base.zones.slice(1)],
+        })}
+      />,
+    );
+
+    // The Recovery row still renders.
+    expect(screen.getByText("Recovery")).toBeInTheDocument();
+    expect(screen.getByText("0:00")).toBeInTheDocument();
+    expect(screen.getByText("0%")).toBeInTheDocument();
+
+    // Its fill is the last one (zone 1) and has zero width.
+    const fills = container.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
+    expect(fills[4].style.width).toBe("0%");
+  });
+
+  it("renders all five rows for an extreme-skew run", () => {
+    render(
+      <HeartRateZones
+        zones={zones({
+          total_hr_seconds: 3650,
+          zones: [
+            { ...zones().zones[0], time_seconds: 37, time_pct: 0.01 }, // Recovery 0:37 / 1%
+            { ...zones().zones[1], time_seconds: 24, time_pct: 0.01 }, // Aerobic 0:24 / 1%
+            { ...zones().zones[2], time_seconds: 181, time_pct: 0.05 }, // Tempo 3:01 / 5%
+            { ...zones().zones[3], time_seconds: 814, time_pct: 0.22 }, // Threshold 13:34 / 22%
+            { ...zones().zones[4], time_seconds: 2614, time_pct: 0.71 }, // VO2max 43:34 / 71%
+          ],
+        })}
+      />,
+    );
+
+    for (const name of ["Recovery", "Aerobic", "Tempo", "Threshold", "VO2max"]) {
+      expect(screen.getByText(name)).toBeInTheDocument();
+    }
+    expect(screen.getByText("0:37")).toBeInTheDocument();
+    expect(screen.getByText("0:24")).toBeInTheDocument();
+    expect(screen.getByText("3:01")).toBeInTheDocument();
+    expect(screen.getByText("13:34")).toBeInTheDocument();
+    expect(screen.getByText("43:34")).toBeInTheDocument();
+    expect(screen.getByText("71%")).toBeInTheDocument();
+    // Both 1% zones show a present-but-short figure (two occurrences).
+    expect(screen.getAllByText("1%")).toHaveLength(2);
   });
 
   it("shows the calibrating banner copy for a calibrating fixture", () => {
@@ -92,8 +172,18 @@ describe("HeartRateZones", () => {
     expect(screen.getByText(CALIBRATING_COPY)).toBeInTheDocument();
   });
 
+  it("hides the calibrating banner for a calibrated fixture", () => {
+    render(<HeartRateZones zones={zones()} />);
+    expect(screen.queryByText(CALIBRATING_COPY)).not.toBeInTheDocument();
+  });
+
   it("renders nothing when zones is null", () => {
     const { container } = render(<HeartRateZones zones={null} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing when the zones array is empty", () => {
+    const { container } = render(<HeartRateZones zones={zones({ zones: [] })} />);
     expect(container.firstChild).toBeNull();
   });
 });

@@ -68,15 +68,20 @@
   --discipline-lift-2: #5a6493;
   --discipline-lift-3: #7d88c2;
   --discipline-lift-4: #aab4dd;
-  /* Heart-rate zone ramp — a periwinkle single-hue ramp (light → saturated
-     across Z1→Z5) anchored on the accent. Encodes the five percent-of-max-HR
-     training zones on the running detail page's time-in-zone bar; in-system
-     with the v0.4 palette rather than the cliché green→red. Z5 == --accent. */
-  --zone-1: #444a66;
-  --zone-2: #5a6188;
-  --zone-3: #717aa8;
-  --zone-4: #8893c5;
-  --zone-5: #9aa6d6;
+  /* Heart-rate zone scale — a separable cool→warm five-tone scale (slate →
+     dusty blue → muted teal-green → muted amber → dusty coral). Encodes the
+     five percent-of-max-HR training zones on the running detail page's
+     ranked time-in-zone bars. Each zone is a distinct hue held at the
+     status-tone saturation register (calm, dark-native — not a green→red heat
+     map) so adjacent zones stay legible at small fill widths. Cool reads as
+     low intensity, warm as high, matching the runner's mental model. Distinct
+     from --accent (no zone aliases selection/app-chrome). design-system
+     v0.4.2. */
+  --zone-1: #6b7280;
+  --zone-2: #6f93c2;
+  --zone-3: #6fb39a;
+  --zone-4: #d0a86e;
+  --zone-5: #cc8077;
   --discipline-mobility-bg: #182622;
   --discipline-mobility-fg: #8fc4b6;
   --discipline-mobility-dot: #6fae9b;
