@@ -6,7 +6,7 @@
  * dominant dashed goal line and a fainter average line at their scaled
  * heights, and color used as goal-state (over-goal success, under muted,
  * today the accent) rather than decoration. In-system to design-system v0.4
- * — reads `--success` / `--muted` / `--accent` / `--faint`, never raw hex.
+ * — reads `--success` / `--muted` / `--accent` / `--border`, never raw hex.
  *
  * `buildStepsGoalBars` is the pure render model; the component only draws it.
  */
