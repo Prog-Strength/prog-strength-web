@@ -1,6 +1,8 @@
 /// <reference types="vitest/globals" />
 
-import { buildStepsGoalBars } from "./steps-goal-bars";
+import { render, screen } from "@testing-library/react";
+
+import { buildStepsGoalBars, StepsGoalBars } from "./steps-goal-bars";
 
 describe("buildStepsGoalBars — scaling", () => {
   it("scales bars linearly against max(goal, maxDay) × headroom, not min/max-normalized", () => {
@@ -101,5 +103,40 @@ describe("buildStepsGoalBars — degraded states", () => {
     expect(m.avgPct).not.toBeNull();
     expect(m.avgPct as number).toBeCloseTo((10000 / 13200) * 100, 1);
     expect(buildStepsGoalBars([0, 0], 0, null).avgPct).toBeNull();
+  });
+});
+
+describe("StepsGoalBars — render", () => {
+  it("renders seven bars, a goal line, and an average line when a goal is set", () => {
+    render(<StepsGoalBars spark={[8000, 9000, 12000, 11500]} avg={10125} goal={10000} />);
+    expect(screen.getAllByTestId("steps-bar")).toHaveLength(7);
+    expect(screen.getByTestId("steps-goal-line")).toBeInTheDocument();
+    expect(screen.getByTestId("steps-avg-line")).toBeInTheDocument();
+  });
+
+  it("tags each bar with its tone (today accent, over success, under muted)", () => {
+    render(<StepsGoalBars spark={[8000, 9000, 12000, 11500]} avg={10125} goal={10000} />);
+    const bars = screen.getAllByTestId("steps-bar");
+    expect(bars[3]).toHaveAttribute("data-tone", "muted");
+    expect(bars[5]).toHaveAttribute("data-tone", "success");
+    expect(bars[6]).toHaveAttribute("data-tone", "accent");
+  });
+
+  it("draws no goal line and no over/under split when goal is null", () => {
+    render(<StepsGoalBars spark={[8000, 9000, 12000, 11500]} avg={10125} goal={null} />);
+    expect(screen.queryByTestId("steps-goal-line")).not.toBeInTheDocument();
+    const bars = screen.getAllByTestId("steps-bar");
+    expect(bars[5]).toHaveAttribute("data-tone", "muted");
+    expect(bars[6]).toHaveAttribute("data-tone", "accent");
+  });
+
+  it("renders degraded fixtures without NaN in the DOM", () => {
+    const { container: allZero } = render(
+      <StepsGoalBars spark={[0, 0, 0, 0, 0, 0, 0]} avg={0} goal={10000} />,
+    );
+    expect(allZero.textContent).not.toMatch(/NaN/);
+    const { container: single } = render(<StepsGoalBars spark={[9000]} avg={9000} goal={10000} />);
+    expect(single.querySelectorAll('[data-testid="steps-bar"]')).toHaveLength(7);
+    expect(single.textContent).not.toMatch(/NaN/);
   });
 });

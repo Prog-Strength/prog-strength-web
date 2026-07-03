@@ -76,3 +76,84 @@ export function buildStepsGoalBars(
     hasGoal,
   };
 }
+
+/** Per-tone bar fill. `empty` slots render only a faint track (no fill). */
+const BAR_COLOR: Record<Exclude<StepsBarTone, "empty">, string> = {
+  accent: "var(--accent)",
+  success: "var(--success)",
+  muted: "var(--muted)",
+};
+
+/**
+ * The steps tile's goal-relative bar week. Swaps 1:1 for `<Spark>` inside
+ * `StepsCard`, keeping the tile's rhythm and ~180px budget. Presentational
+ * and pure — all layout math is in `buildStepsGoalBars`.
+ */
+export function StepsGoalBars({
+  spark,
+  avg,
+  goal,
+}: {
+  spark: number[];
+  avg: number;
+  goal: number | null;
+}) {
+  const model = buildStepsGoalBars(spark, avg, goal);
+
+  return (
+    <div
+      className="relative h-12 w-full"
+      role="img"
+      aria-label="Daily steps versus goal, last seven days"
+    >
+      {/* Average line — quiet, thin, behind the bars. */}
+      {model.avgPct !== null && (
+        <div
+          data-testid="steps-avg-line"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 z-0 border-t border-[var(--muted)]/60"
+          style={{ bottom: `${model.avgPct}%` }}
+        />
+      )}
+
+      {/* Bars — a seven-column floor-anchored row. */}
+      <div className="absolute inset-0 z-10 flex items-end gap-[3px]">
+        {model.slots.map((slot, i) => (
+          <div key={i} className="flex h-full flex-1 items-end">
+            {slot.tone === "empty" ? (
+              <div
+                data-testid="steps-bar"
+                data-tone="empty"
+                aria-hidden="true"
+                className="w-full rounded-sm bg-[var(--border)]"
+                style={{ height: "2px" }}
+              />
+            ) : (
+              <div
+                data-testid="steps-bar"
+                data-tone={slot.tone}
+                aria-hidden="true"
+                className="w-full rounded-sm"
+                style={{
+                  height: `${slot.heightPct}%`,
+                  minHeight: "2px",
+                  backgroundColor: BAR_COLOR[slot.tone],
+                }}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Goal line — dominant, dashed, in front of the bars. */}
+      {model.goalPct !== null && (
+        <div
+          data-testid="steps-goal-line"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 z-20 border-t border-dashed border-[var(--success)]"
+          style={{ bottom: `${model.goalPct}%` }}
+        />
+      )}
+    </div>
+  );
+}
