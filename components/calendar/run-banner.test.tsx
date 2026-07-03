@@ -13,6 +13,8 @@ function makeRun(overrides: Partial<RunningSession> = {}): RunningSession {
     name: "Tempo Run",
     start_time: "2026-06-09T12:00:00Z",
     distance_meters: 8046.72,
+    raw_distance_meters: 8046.72,
+    environment: "outdoor",
     duration_seconds: 2520,
     avg_pace_sec_per_km: 313,
     best_pace_sec_per_km: 290,

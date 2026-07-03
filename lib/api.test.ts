@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  calibrateRunningSession,
   checkUsernameAvailable,
   getDashboardSummary,
   getExerciseOneRMHistory,
@@ -12,6 +13,7 @@ import {
   listRunningBestEfforts,
   removeFollower,
   requestFollow,
+  setRunningSessionEnvironment,
   unlinkPlannedWorkout,
 } from "@/lib/api";
 
@@ -634,5 +636,81 @@ describe("planned-workout reconciliation", () => {
     );
     const result = await getPlannedWorkoutBySession(TOKEN, "act1", "activity");
     expect(result).toBeNull();
+  });
+});
+
+describe("calibrateRunningSession", () => {
+  // A calibrated session comes back carrying the new fields + rescaled
+  // trackpoints, mirroring the full detail shape the API returns.
+  const calibrated = {
+    id: "run-9",
+    activity_type: "running",
+    environment: "indoor",
+    distance_meters: 4828.03,
+    raw_distance_meters: 5050,
+    trackpoints: [{ sequence: 0, elapsed_seconds: 0, distance_meters: 0 }],
+  };
+
+  it("POSTs to /calibrate with the distance body + bearer and returns the session", async () => {
+    const fetchMock = mockFetchOk(calibrated);
+
+    const result = await calibrateRunningSession(TOKEN, "run-9", 4828.03);
+
+    expect(result).toEqual(calibrated);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/run-9/calibrate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ distance_meters: 4828.03 }),
+    });
+  });
+
+  it("throws when the API returns no activity", async () => {
+    mockFetchOk(null);
+    await expect(calibrateRunningSession(TOKEN, "run-9", 4828.03)).rejects.toThrow(
+      "did not return the calibrated activity",
+    );
+  });
+
+  it("rejects with the API error text on a non-ok response", async () => {
+    mockFetchError("tag the run as indoor before calibrating its distance");
+    await expect(calibrateRunningSession(TOKEN, "run-9", 4828.03)).rejects.toThrow(
+      "tag the run as indoor",
+    );
+  });
+});
+
+describe("setRunningSessionEnvironment", () => {
+  const updated = {
+    id: "run-9",
+    activity_type: "running",
+    environment: "indoor",
+    distance_meters: 5050,
+    raw_distance_meters: 5050,
+  };
+
+  it("PATCHes with the environment body + bearer and returns the session", async () => {
+    const fetchMock = mockFetchOk(updated);
+
+    const result = await setRunningSessionEnvironment(TOKEN, "run-9", "indoor");
+
+    expect(result).toEqual(updated);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/run-9`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ environment: "indoor" }),
+    });
+  });
+
+  it("throws when the API returns no activity", async () => {
+    mockFetchOk(null);
+    await expect(setRunningSessionEnvironment(TOKEN, "run-9", "outdoor")).rejects.toThrow(
+      "did not return the updated activity",
+    );
   });
 });

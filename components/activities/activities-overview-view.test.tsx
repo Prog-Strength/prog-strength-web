@@ -84,6 +84,8 @@ function run(daysBack: number, opts: Partial<RunningSession>): RunningSession {
     name: null,
     start_time: start.toISOString(),
     distance_meters: 5000,
+    raw_distance_meters: 5000,
+    environment: "outdoor",
     duration_seconds: 1500,
     avg_pace_sec_per_km: 300,
     best_pace_sec_per_km: 290,

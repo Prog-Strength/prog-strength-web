@@ -35,6 +35,8 @@ function makeRun(overrides: Partial<RunningSession> = {}): RunningSession {
     name: "Logged Run",
     start_time: iso(15, 7),
     distance_meters: 5000,
+    raw_distance_meters: 5000,
+    environment: "outdoor",
     duration_seconds: 1500,
     avg_pace_sec_per_km: 300,
     best_pace_sec_per_km: 280,

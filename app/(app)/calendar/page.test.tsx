@@ -109,6 +109,8 @@ function makeRun(id: string, name: string, day: number): RunningSession {
     name,
     start_time: iso(day, 7), // 07:00, before the 08:00 workout
     distance_meters: 5000,
+    raw_distance_meters: 5000,
+    environment: "outdoor",
     duration_seconds: 1500,
     avg_pace_sec_per_km: 300,
     best_pace_sec_per_km: 280,

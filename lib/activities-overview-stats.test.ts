@@ -41,6 +41,8 @@ function run(
     source_activity_id: id(),
     name: null,
     start_time: new Date(`${date}T07:00:00`).toISOString(),
+    raw_distance_meters: opts.distance_meters,
+    environment: "outdoor",
     avg_pace_sec_per_km: null,
     best_pace_sec_per_km: null,
     avg_heart_rate_bpm: null,
