@@ -584,6 +584,11 @@ export default function CalendarPage() {
           // Refresh the calendar window but keep the modal open — it returns
           // to its read-only view of the saved plan.
           onSaved={() => loadWindow()}
+          // A deleted plan has no view to return to — close and refresh.
+          onDeleted={() => {
+            closePlanning();
+            loadWindow();
+          }}
           onStartWorkout={startPlannedWorkout}
         />
       )}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getToken } from "@/lib/auth";
 import {
   createPlannedWorkout,
+  deletePlannedWorkout,
   updatePlannedWorkout,
   type ActivityKind,
   type Exercise,
@@ -30,7 +31,9 @@ import { AgendaEditor, type PlannedExerciseDraft } from "@/components/calendar/a
  *    type, schedule, notes, Google-sync state, and — for a lift — its
  *    agenda formatted like a logged workout (PlannedAgendaDetails). A
  *    pencil switches to edit; "Start workout" (lift plans) hands the plan
- *    to the parent to begin a prefilled live session.
+ *    to the parent to begin a prefilled live session. A footer Delete
+ *    (still-planned plans only) removes the plan behind an inline confirm;
+ *    the API takes its Google Calendar event with it.
  *  - **edit**: the create/edit form. How "Plan a workout" (no plan) opens,
  *    and where the pencil leads. Reps are required per set; weight is
  *    optional (fill it in ahead, or while lifting). Google Calendar sync
@@ -64,6 +67,7 @@ export function PlannedWorkoutModal({
   defaultDate,
   onClose,
   onSaved,
+  onDeleted,
   onStartWorkout,
 }: {
   plan: PlannedWorkout | null;
@@ -74,6 +78,8 @@ export function PlannedWorkoutModal({
   defaultDate?: Date;
   onClose: () => void;
   onSaved: (saved: PlannedWorkout) => void;
+  // The plan was deleted — the parent should close the modal and refresh.
+  onDeleted?: () => void;
   // Begin a live workout prefilled from this plan (lift plans only). The
   // parent owns the session + navigation; omitted ⇒ no Start button.
   onStartWorkout?: (plan: PlannedWorkout) => void;
@@ -89,6 +95,11 @@ export function PlannedWorkoutModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Deleting is a two-step footer flow: Delete swaps the view footer for an
+  // inline danger panel (Cancel / Delete), so a stray click can't destroy a
+  // plan. Only reachable in view mode on a still-planned plan.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const exerciseMap = useMemo(() => new Map(catalog.map((e) => [e.id, e])), [catalog]);
 
@@ -156,6 +167,26 @@ export function PlannedWorkoutModal({
       setSaving(false);
     }
   }, [draft, currentPlan, onSaved]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!currentPlan) return;
+    const token = getToken();
+    if (!token) {
+      setError("Not signed in.");
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      // The API also removes the plan's Google Calendar event (best-effort).
+      await deletePlannedWorkout(token, currentPlan.id);
+      onDeleted?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }, [currentPlan, onDeleted]);
 
   const updateField = <K extends keyof PlannedDraft>(key: K, value: PlannedDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -310,26 +341,67 @@ export function PlannedWorkoutModal({
               {error}
             </p>
           )}
-          {mode === "view" ? (
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-3)]"
-              >
-                Close
-              </button>
-              {onStartWorkout &&
-                currentPlan?.activity_kind === "lift" &&
-                currentPlan.status === "planned" && (
-                  <button
-                    type="button"
-                    onClick={() => onStartWorkout(currentPlan)}
-                    className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:bg-[var(--accent-dark)]"
-                  >
-                    Start workout
-                  </button>
-                )}
+          {mode === "view" && confirmingDelete && currentPlan ? (
+            <div className="flex flex-col gap-3 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-3">
+              <p className="text-sm">
+                Delete this planned activity?
+                {currentPlan.google_event_id && " Its Google Calendar event will be removed too."}
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    setError(null);
+                  }}
+                  disabled={deleting}
+                  className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-3)] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                  className="rounded-full border border-[var(--danger)]/40 bg-[var(--danger)] px-4 py-1.5 text-sm font-medium text-white transition hover:opacity-80 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          ) : mode === "view" ? (
+            <div className="flex items-center justify-between gap-2">
+              {currentPlan?.status === "planned" ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(true)}
+                  className="rounded-full border border-[var(--danger)]/40 px-4 py-1.5 text-sm text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
+                >
+                  Delete
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-4 py-1.5 text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-3)]"
+                >
+                  Close
+                </button>
+                {onStartWorkout &&
+                  currentPlan?.activity_kind === "lift" &&
+                  currentPlan.status === "planned" && (
+                    <button
+                      type="button"
+                      onClick={() => onStartWorkout(currentPlan)}
+                      className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:bg-[var(--accent-dark)]"
+                    >
+                      Start workout
+                    </button>
+                  )}
+              </div>
             </div>
           ) : (
             <div className="flex justify-end gap-2">

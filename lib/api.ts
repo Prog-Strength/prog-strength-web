@@ -2846,12 +2846,17 @@ export async function updatePlannedWorkout(
   return updated;
 }
 
-/** DELETE /planned-workouts/{id}. */
+/**
+ * DELETE /planned-workouts/{id}. A 404 counts as success — the plan is
+ * already gone (deleted from another tab or by the coach), which is the
+ * outcome the caller wanted.
+ */
 export async function deletePlannedWorkout(token: string, id: string): Promise<void> {
   const resp = await fetch(`${config.apiUrl}/planned-workouts/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (resp.status === 404) return;
   if (!resp.ok) {
     let detail: string;
     try {

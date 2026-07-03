@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   calibrateRunningSession,
   checkUsernameAvailable,
+  deletePlannedWorkout,
   getDashboardSummary,
   getExerciseOneRMHistory,
   getPlannedWorkoutBySession,
@@ -599,6 +600,34 @@ describe("getDashboardSummary", () => {
   it("rejects with the API error text on a non-ok response", async () => {
     mockFetchError("boom");
     await expect(getDashboardSummary(TOKEN, "America/Denver")).rejects.toThrow("boom");
+  });
+});
+
+describe("deletePlannedWorkout", () => {
+  it("sends DELETE with the bearer header and resolves on ok", async () => {
+    const fetchMock = mockFetchOk(null);
+    await expect(deletePlannedWorkout(TOKEN, "p1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/planned-workouts/p1`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("treats a 404 as success — the plan is already gone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: "planned workout not found" }),
+      }),
+    );
+    await expect(deletePlannedWorkout(TOKEN, "p1")).resolves.toBeUndefined();
+  });
+
+  it("rejects with the API error text on other failures", async () => {
+    mockFetchError("boom");
+    await expect(deletePlannedWorkout(TOKEN, "p1")).rejects.toThrow("boom");
   });
 });
 
