@@ -15,6 +15,7 @@ import {
 import { compact } from "./_components/compact";
 import { formatDuration } from "@/lib/format";
 import { Spark } from "./_components/spark";
+import { StepsGoalBars } from "./_components/steps-goal-bars";
 import { BigNum } from "./_components/big-num";
 import { MetaRow } from "./_components/meta-row";
 import { MacroBar } from "./_components/macro-bar";
@@ -300,7 +301,7 @@ function StepsCard({ section }: { section: DashboardData["steps"] }) {
   return (
     <MiniCard title="Steps" href={DEEP_LINKS.steps}>
       <BigNum value={compact(v.today)} suffix="today" />
-      <Spark points={v.spark} className="h-7 w-full text-[var(--accent-2)]" />
+      <StepsGoalBars spark={v.spark} avg={v.avg} goal={v.goal} />
       <MetaRow
         items={[
           { label: "avg", value: compact(v.avg) },
