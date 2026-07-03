@@ -10,6 +10,7 @@ import {
   getRunningBestEffortHistory,
   getRunningMaxEffort,
   getRunningMaxEffortSummary,
+  getRunningSession,
   listProgression,
   listRunningBestEfforts,
   removeFollower,
@@ -668,6 +669,35 @@ describe("planned-workout reconciliation", () => {
   });
 });
 
+describe("getRunningSession", () => {
+  it("GETs the activity with the default unit param and returns it", async () => {
+    const activity = { id: "a1", trackpoints: [] };
+    const fetchMock = mockFetchOk(activity);
+
+    const result = await getRunningSession(TOKEN, "a1");
+
+    expect(result).toEqual(activity);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/a1?unit=mi`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("passes an explicit unit param through", async () => {
+    const fetchMock = mockFetchOk({ id: "a1", trackpoints: [] });
+
+    await getRunningSession(TOKEN, "a1", "km");
+
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/a1?unit=km`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("throws when the API returns no activity", async () => {
+    mockFetchOk(null);
+    await expect(getRunningSession(TOKEN, "a1")).rejects.toThrow("activity not found");
+  });
+});
+
 describe("calibrateRunningSession", () => {
   // A calibrated session comes back carrying the new fields + rescaled
   // trackpoints, mirroring the full detail shape the API returns.
@@ -686,7 +716,7 @@ describe("calibrateRunningSession", () => {
     const result = await calibrateRunningSession(TOKEN, "run-9", 4828.03);
 
     expect(result).toEqual(calibrated);
-    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/run-9/calibrate`, {
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/run-9/calibrate?unit=mi`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -694,6 +724,17 @@ describe("calibrateRunningSession", () => {
       },
       body: JSON.stringify({ distance_meters: 4828.03 }),
     });
+  });
+
+  it("passes an explicit unit param through", async () => {
+    const fetchMock = mockFetchOk(calibrated);
+
+    await calibrateRunningSession(TOKEN, "run-9", 4828.03, "km");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${BASE}/activities/run-9/calibrate?unit=km`,
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("throws when the API returns no activity", async () => {

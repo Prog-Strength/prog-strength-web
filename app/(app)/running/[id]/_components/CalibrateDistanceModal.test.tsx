@@ -112,6 +112,7 @@ describe("CalibrateDistanceModal", () => {
         "test-token",
         "run-1",
         3.0 * METERS_PER_MILE,
+        "mi", // the active unit rides along so the response's derived blocks match
       );
     });
     expect(onCalibrated).toHaveBeenCalledWith(updated);

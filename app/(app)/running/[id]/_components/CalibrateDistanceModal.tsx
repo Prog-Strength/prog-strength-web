@@ -84,7 +84,9 @@ export function CalibrateDistanceModal({
     setSaving(true);
     setError(null);
     try {
-      const updated = await calibrateRunningSession(token, session.id, meters);
+      // Forward the active unit so the calibrate response carries
+      // unit-correct server-derived blocks (splits/strip/intervals/best).
+      const updated = await calibrateRunningSession(token, session.id, meters, unit);
       toast.success("Distance calibrated.");
       onCalibrated(updated);
     } catch (e) {

@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { formatPaceClock } from "./pace-format";
+import { formatPaceClock, formatPaceClockOrDash, formatPaceDelta } from "./pace-format";
 
 describe("formatPaceClock", () => {
   it("formats a typical pace as m:ss", () => {
@@ -24,5 +24,19 @@ describe("formatPaceClock", () => {
   it("returns an em-dash for negative input rather than a malformed clock", () => {
     expect(formatPaceClock(-5)).toBe("—");
     expect(formatPaceClock(-65)).toBe("—");
+  });
+});
+
+describe("formatPaceClockOrDash", () => {
+  it("dashes null and delegates otherwise", () => {
+    expect(formatPaceClockOrDash(null)).toBe("—");
+    expect(formatPaceClockOrDash(626)).toBe("10:26");
+  });
+});
+
+describe("formatPaceDelta", () => {
+  it("signs and formats", () => {
+    expect(formatPaceDelta(-65)).toBe("−1:05");
+    expect(formatPaceDelta(5)).toBe("+0:05");
   });
 });

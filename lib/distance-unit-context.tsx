@@ -31,6 +31,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getMe, updateMe } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { formatPaceClock } from "@/lib/pace-format";
 
 export type DistanceUnit = "mi" | "km";
 
@@ -67,11 +68,7 @@ export function formatDistanceValue(meters: number, unit: DistanceUnit): string 
  */
 export function formatPaceValue(secPerKm: number | null, unit: DistanceUnit): string {
   if (secPerKm == null || !Number.isFinite(secPerKm) || secPerKm <= 0) return "—";
-  const secPerUnit = unit === "mi" ? secPerKm * KM_PER_MILE : secPerKm;
-  const totalSeconds = Math.round(secPerUnit);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  return formatPaceClock(unit === "mi" ? secPerKm * KM_PER_MILE : secPerKm);
 }
 
 type DistanceUnitContextValue = {

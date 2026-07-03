@@ -3,11 +3,13 @@
 /**
  * The ledger backbone: a "Splits" label, a miles↔intervals segmented toggle,
  * and the two tables it flips between. Pure and prop-driven over the
- * `running-splits` derivation output. The toggle is gated on detected
- * intervals — when `intervals` is null the surface degrades to a miles-only
- * view with no toggle. The miles table tints the pace column with the
- * green-teal discipline-run hue and tags the fastest/slowest full splits; the
- * intervals table adds a vs-target column for work bouts.
+ * SERVER-derived splits/intervals blocks (`RunningSplit`/
+ * `RunningIntervalSegment` on the detail response) — no client re-derivation.
+ * The toggle is gated on detected intervals — when `intervals` is null the
+ * surface degrades to a miles-only view with no toggle. The miles table tints
+ * the pace column with the green-teal discipline-run hue and tags the
+ * fastest/slowest full splits; the intervals table adds a vs-target column
+ * for work bouts.
  *
  * Tokens only (design-system v0.4): accent only on the active toggle segment,
  * discipline-run for pace/work dot, success/danger for tags and vs-target.
@@ -15,27 +17,10 @@
 
 import { useState } from "react";
 import { formatDuration } from "@/lib/format";
-import type { IntervalSegment, Split } from "@/lib/running-splits";
+import { formatPaceClockOrDash, formatPaceDelta } from "@/lib/pace-format";
+import type { RunningIntervalSegment, RunningSplit } from "@/lib/api";
 
 type Mode = "miles" | "intervals";
-
-/** Format a pace in sec/unit as `m:ss`; `—` when null. */
-function fmtPaceUnit(secPerUnit: number | null): string {
-  if (secPerUnit == null || !Number.isFinite(secPerUnit)) return "—";
-  const total = Math.round(secPerUnit);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-/** Format a signed pace delta in sec/unit as `+m:ss` (slower) / `−m:ss` (faster). */
-function fmtPaceDelta(deltaSec: number): string {
-  const sign = deltaSec < 0 ? "−" : "+";
-  const abs = Math.abs(Math.round(deltaSec));
-  const m = Math.floor(abs / 60);
-  const s = abs % 60;
-  return `${sign}${m}:${String(s).padStart(2, "0")}`;
-}
 
 export function SplitsSpine({
   splits,
@@ -45,8 +30,8 @@ export function SplitsSpine({
   hasTargetColumn,
   targetPaceSecPerUnit,
 }: {
-  splits: Split[];
-  intervals: IntervalSegment[] | null;
+  splits: RunningSplit[];
+  intervals: RunningIntervalSegment[] | null;
   unitLabel: "mi" | "km";
   formatDistance: (meters: number) => string;
   hasTargetColumn: boolean;
@@ -101,7 +86,7 @@ function MilesTable({
   unitLabel,
   formatDistance,
 }: {
-  splits: Split[];
+  splits: RunningSplit[];
   unitLabel: "mi" | "km";
   formatDistance: (meters: number) => string;
 }) {
@@ -120,20 +105,22 @@ function MilesTable({
             >
               <td className="px-3 py-2 text-left text-[var(--muted)]">
                 {s.partial
-                  ? `${formatDistance(s.distanceMeters)} ${unitLabel}`
+                  ? `${formatDistance(s.distance_meters)} ${unitLabel}`
                   : `${distLabel} ${s.index + 1}`}
               </td>
-              <td className="px-3 py-2">{formatDistance(s.distanceMeters)}</td>
-              <td className="px-3 py-2">{formatDuration(s.durationSec)}</td>
+              <td className="px-3 py-2">{formatDistance(s.distance_meters)}</td>
+              <td className="px-3 py-2">{formatDuration(s.duration_seconds)}</td>
               <td className="px-3 py-2 font-semibold text-[var(--discipline-run-fg)]">
-                {fmtPaceUnit(s.avgPaceSecPerUnit)}
+                {formatPaceClockOrDash(s.pace_sec_per_unit)}
                 {s.fastest && <Tag tone="success">fastest</Tag>}
                 {s.slowest && <Tag tone="danger">slowest</Tag>}
               </td>
               <td className="px-3 py-2 text-[var(--muted)]">
-                {s.avgHr != null ? Math.round(s.avgHr) : "—"}
+                {s.avg_hr_bpm != null ? Math.round(s.avg_hr_bpm) : "—"}
               </td>
-              <td className="px-3 py-2 text-[var(--faint)]">{fmtElevDelta(s.elevDeltaMeters)}</td>
+              <td className="px-3 py-2 text-[var(--faint)]">
+                {fmtElevDelta(s.elevation_delta_meters)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -148,7 +135,7 @@ function IntervalsTable({
   hasTargetColumn,
   targetPaceSecPerUnit,
 }: {
-  intervals: IntervalSegment[];
+  intervals: RunningIntervalSegment[];
   formatDistance: (meters: number) => string;
   hasTargetColumn: boolean;
   targetPaceSecPerUnit: number | null;
@@ -166,8 +153,8 @@ function IntervalsTable({
               work &&
               hasTargetColumn &&
               targetPaceSecPerUnit != null &&
-              seg.avgPaceSecPerUnit != null;
-            const delta = showDelta ? seg.avgPaceSecPerUnit! - targetPaceSecPerUnit! : null;
+              seg.pace_sec_per_unit != null;
+            const delta = showDelta ? seg.pace_sec_per_unit! - targetPaceSecPerUnit! : null;
             return (
               <tr
                 key={seg.label}
@@ -186,24 +173,24 @@ function IntervalsTable({
                     </span>
                   </span>
                 </td>
-                <td className="px-3 py-2">{formatDistance(seg.distanceMeters)}</td>
-                <td className="px-3 py-2">{formatDuration(seg.durationSec)}</td>
+                <td className="px-3 py-2">{formatDistance(seg.distance_meters)}</td>
+                <td className="px-3 py-2">{formatDuration(seg.duration_seconds)}</td>
                 <td
                   className={`px-3 py-2 font-semibold ${
                     work ? "text-[var(--discipline-run-fg)]" : "text-[var(--muted)]"
                   }`}
                 >
-                  {fmtPaceUnit(seg.avgPaceSecPerUnit)}
+                  {formatPaceClockOrDash(seg.pace_sec_per_unit)}
                 </td>
                 <td className="px-3 py-2 text-[var(--muted)]">
-                  {seg.avgHr != null ? Math.round(seg.avgHr) : "—"}
+                  {seg.avg_hr_bpm != null ? Math.round(seg.avg_hr_bpm) : "—"}
                 </td>
                 <td className="px-3 py-2">
                   {delta == null ? (
                     <span className="text-[var(--faint)]">—</span>
                   ) : (
                     <span style={{ color: delta < 0 ? "var(--success)" : "var(--danger)" }}>
-                      {fmtPaceDelta(delta)}
+                      {formatPaceDelta(delta)}
                     </span>
                   )}
                 </td>

@@ -43,6 +43,9 @@ export function synthesize(specs: SegmentSpec[]): RunningTrackpoint[] {
       heart_rate_bpm: hr,
       pace_sec_per_km: paceSecPerKm,
       elevation_meters: elevation,
+      // Mirror the server rule: clean iff pace present, positive, and not
+      // slower than the 410 sec/km device-dropout threshold.
+      clean_pace: paceSecPerKm > 0 && paceSecPerKm <= 410,
     });
     sequence += 1;
   };
