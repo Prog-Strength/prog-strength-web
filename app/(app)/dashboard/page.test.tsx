@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { DashboardSummary, ResolvedProfile } from "@/lib/api";
 
 // --- module mocks ----------------------------------------------------------
@@ -182,6 +182,28 @@ describe("DashboardPage — full payload", () => {
     expect(hrefFor(/Nutrition/i)).toBe("/nutrition");
     expect(hrefFor(/Bodyweight/i)).toBe("/bodyweight");
     expect(hrefFor(/Streak/i)).toBe("/activities");
+  });
+
+  it("renders the steps tile as goal-relative bars with the today headline and avg · goal meta", async () => {
+    render(<DashboardPage />);
+    const stepsCard = await screen.findByRole("link", { name: /Steps/i });
+    expect(within(stepsCard).getAllByTestId("steps-bar")).toHaveLength(7);
+    expect(within(stepsCard).getByTestId("steps-goal-line")).toBeInTheDocument();
+    expect(within(stepsCard).getByText("11.5k")).toBeInTheDocument();
+    expect(within(stepsCard).getByText("9,200")).toBeInTheDocument();
+    expect(within(stepsCard).getByText("10k")).toBeInTheDocument();
+  });
+
+  it("shows 'set a goal' and no goal line when the steps goal is null", async () => {
+    summaryToReturn = {
+      ...FULL_SUMMARY,
+      steps: { ...FULL_SUMMARY.steps!, goal: null },
+    };
+    render(<DashboardPage />);
+    const stepsCard = await screen.findByRole("link", { name: /Steps/i });
+    expect(within(stepsCard).getByText("set a goal")).toBeInTheDocument();
+    expect(within(stepsCard).queryByTestId("steps-goal-line")).not.toBeInTheDocument();
+    expect(within(stepsCard).getAllByTestId("steps-bar")).toHaveLength(7);
   });
 });
 
