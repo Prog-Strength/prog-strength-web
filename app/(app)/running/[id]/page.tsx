@@ -18,7 +18,8 @@ import {
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
-import { deriveRunningActivity, parseTargetPace } from "@/lib/running-splits";
+import { formatPaceClock } from "@/lib/pace-format";
+import { buildPaceStrip, parseTargetPace } from "@/lib/running-splits";
 import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
 import { TreadmillBadge } from "../_components/TreadmillBadge";
 import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
@@ -32,8 +33,10 @@ import { HeartRateZones } from "./_components/HeartRateZones";
  * and a delete action. Below it, a splits ledger: a compact summary band
  * (with the linked plan's ✓ pill + Unlink and prescription context), the
  * splits spine — a per-distance table with a miles↔intervals toggle gated on
- * detected intervals — and a hero winsorized pace recap. The body derives
- * everything from the session's trackpoints via `deriveRunningActivity`.
+ * detected intervals — and a hero pace recap. The body is RENDER-ONLY: the
+ * splits/strip-summary/intervals/best-pace all arrive server-derived on the
+ * unit-aware detail response; the only client mapping is trackpoints → chart
+ * coordinates (`buildPaceStrip`). Toggling the unit refetches the detail.
  */
 export default function RunningDetailPage() {
   const router = useRouter();
@@ -74,7 +77,7 @@ export default function RunningDetailPage() {
     getPlannedWorkoutBySession(token, id, "activity")
       .then(setCompletesPlan)
       .catch(() => {});
-    getRunningSession(token, id)
+    getRunningSession(token, id, unit)
       .then((s) => {
         setError(null);
         setNotFound(false);
@@ -89,13 +92,13 @@ export default function RunningDetailPage() {
         }
         setError(msg);
       });
-  }, [id, router, handleAuthError]);
+  }, [id, unit, router, handleAuthError]);
 
-  // Derive the splits ledger (splits, pace recap, detected intervals) from the
-  // session's trackpoints, the linked plan's run type, and the active unit.
-  const derivation = useMemo(
-    () => deriveRunningActivity(session?.trackpoints ?? [], completesPlan?.run_type ?? null, unit),
-    [session, completesPlan, unit],
+  // The splits/intervals/summary all arrive server-derived; the only client
+  // mapping is trackpoints → chart coordinates.
+  const paceStrip = useMemo(
+    () => buildPaceStrip(session?.trackpoints ?? [], unit),
+    [session, unit],
   );
   const targetPace = useMemo(
     () => parseTargetPace(completesPlan?.run_details ?? null, unit),
@@ -172,7 +175,7 @@ export default function RunningDetailPage() {
       return;
     }
     try {
-      const updated = await calibrateRunningSession(token, id, session.raw_distance_meters);
+      const updated = await calibrateRunningSession(token, id, session.raw_distance_meters, unit);
       setSession(updated);
       toast.success("Reset to the original distance.");
     } catch (err) {
@@ -302,8 +305,8 @@ export default function RunningDetailPage() {
               {
                 label: "Best",
                 value:
-                  session.best_pace_sec_per_km != null
-                    ? `${formatPace(session.best_pace_sec_per_km)} /${unitLabel}`
+                  session.best_pace_sec_per_unit != null
+                    ? `${formatPaceClock(session.best_pace_sec_per_unit)} /${unitLabel}`
                     : "—",
               },
               {
@@ -362,14 +365,19 @@ export default function RunningDetailPage() {
             </div>
           )}
           <SplitsSpine
-            splits={derivation.splits}
-            intervals={derivation.intervals}
+            splits={session.splits ?? []}
+            intervals={
+              // The run-type gate stays client-side: the server always
+              // computes candidate intervals; show them only when the linked
+              // plan says intervals.
+              completesPlan?.run_type === "intervals" ? (session.intervals ?? null) : null
+            }
             unitLabel={unitLabel}
             formatDistance={formatDistance}
             hasTargetColumn={targetPace != null}
             targetPaceSecPerUnit={targetPace}
           />
-          <PaceRecap points={derivation.paceStrip} hasDropout={derivation.hasDropout} unit={unit} />
+          <PaceRecap points={paceStrip} stripSummary={session.strip_summary ?? null} unit={unit} />
           <HeartRateZones zones={session.heart_rate_zones} />
         </div>
       </div>

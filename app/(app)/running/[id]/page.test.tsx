@@ -1,7 +1,13 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { PlannedWorkout, RunningSession, RunningTrackpoint } from "@/lib/api";
+import type {
+  PlannedWorkout,
+  RunningIntervalSegment,
+  RunningSession,
+  RunningSplit,
+  RunningTrackpoint,
+} from "@/lib/api";
 
 // --- module mocks ----------------------------------------------------------
 
@@ -48,10 +54,12 @@ vi.mock("@/lib/api", async (orig) => ({
 
 // Distance-unit + toast contexts are mocked directly (matching the running
 // feature's existing tests) so render is provider-free and non-flaky. The
-// distance-unit mock mirrors the REAL "mi" formatters so the derivation that
-// the page feeds these into produces realistic, mile-bucketed splits.
+// active unit lives in a mutable holder so the unit-refetch test can flip it
+// and re-render; the formatters mirror the REAL "mi" formatters.
 const METERS_PER_MILE = 1609.344;
 const KM_PER_MILE = 1.609344;
+
+const unitState = vi.hoisted(() => ({ value: "mi" as "mi" | "km" }));
 
 function formatDistanceMi(meters: number): string {
   if (!Number.isFinite(meters)) return "—";
@@ -72,8 +80,8 @@ vi.mock("@/lib/distance-unit-context", () => ({
   formatDistanceValue: (m: number) => formatDistanceMi(m),
   formatPaceValue: (s: number | null) => formatPaceMi(s),
   useDistanceUnit: () => ({
-    unit: "mi",
-    unitLabel: "mi",
+    unit: unitState.value,
+    unitLabel: unitState.value,
     setUnit: vi.fn(),
     formatDistance: formatDistanceMi,
     formatPace: formatPaceMi,
@@ -92,7 +100,7 @@ import { intervalTrackpoints, synthesize } from "@/lib/test-fixtures/running-tra
 
 // --- trackpoint synthesis ---------------------------------------------------
 
-/** ~2.2 mi steady run — produces 3 mile splits, no interval structure. */
+/** ~2.2 mi steady run — feeds the pace chart only (splits arrive server-side). */
 function steadyTrackpoints(): RunningTrackpoint[] {
   return synthesize([
     { meters: 2.2 * METERS_PER_MILE, paceSecPerKm: 300, hr: 150, sampleMeters: 10 },
@@ -100,6 +108,101 @@ function steadyTrackpoints(): RunningTrackpoint[] {
 }
 
 // --- fixtures ---------------------------------------------------------------
+
+/**
+ * Server-derived splits (mirroring the ?unit=mi detail response): two full
+ * miles + a 0.2 mi trailing partial. Every pace_sec_per_unit equals
+ * duration_seconds / distance_meters * METERS_PER_MILE — the server's
+ * invariant. The page renders these verbatim.
+ */
+function serverSplits(): RunningSplit[] {
+  return [
+    {
+      index: 0,
+      partial: false,
+      distance_meters: METERS_PER_MILE,
+      duration_seconds: 483, // → 8:03 /mi
+      pace_sec_per_unit: 483,
+      avg_hr_bpm: 150,
+      elevation_delta_meters: 5,
+      fastest: false,
+      slowest: true,
+    },
+    {
+      index: 1,
+      partial: false,
+      distance_meters: METERS_PER_MILE,
+      duration_seconds: 466, // → 7:46 /mi
+      pace_sec_per_unit: 466,
+      avg_hr_bpm: 154,
+      elevation_delta_meters: -3,
+      fastest: true,
+      slowest: false,
+    },
+    {
+      index: 2,
+      partial: true,
+      distance_meters: 0.2 * METERS_PER_MILE,
+      duration_seconds: 96, // 96 / (0.2 mi) → 8:00 /mi
+      pace_sec_per_unit: 480,
+      avg_hr_bpm: 156,
+      elevation_delta_meters: null,
+      fastest: false,
+      slowest: false,
+    },
+  ];
+}
+
+/** Server-detected interval candidates (always computed; client gates display). */
+function serverIntervals(): RunningIntervalSegment[] {
+  return [
+    {
+      kind: "warmup",
+      rep: null,
+      label: "Warm-up",
+      distance_meters: METERS_PER_MILE,
+      duration_seconds: 579,
+      pace_sec_per_unit: 579,
+      avg_hr_bpm: 130,
+    },
+    {
+      kind: "work",
+      rep: 1,
+      label: "Rep 1",
+      distance_meters: 400,
+      duration_seconds: 96,
+      pace_sec_per_unit: 386,
+      avg_hr_bpm: 175,
+    },
+    {
+      kind: "recovery",
+      rep: 1,
+      label: "Recovery 1",
+      distance_meters: 200,
+      duration_seconds: 78,
+      pace_sec_per_unit: 628,
+      avg_hr_bpm: 150,
+    },
+    {
+      kind: "work",
+      rep: 2,
+      label: "Rep 2",
+      distance_meters: 400,
+      duration_seconds: 97,
+      pace_sec_per_unit: 390,
+      avg_hr_bpm: 176,
+    },
+    {
+      kind: "cooldown",
+      rep: null,
+      label: "Cool-down",
+      distance_meters: 0.5 * METERS_PER_MILE,
+      duration_seconds: 290,
+      pace_sec_per_unit: 580,
+      avg_hr_bpm: 135,
+    },
+  ];
+}
 
 function runningSession(trackpoints: RunningTrackpoint[]): RunningSession {
   return {
@@ -121,6 +224,14 @@ function runningSession(trackpoints: RunningTrackpoint[]): RunningSession {
     elevation_gain_meters: 30,
     created_at: "2026-06-18T13:30:00Z",
     trackpoints,
+    // Server-derived detail blocks (?unit=mi). Intervals are ALWAYS present
+    // here — the server computes candidates unconditionally; the page must
+    // gate their display on the linked plan's run_type.
+    unit: "mi",
+    splits: serverSplits(),
+    strip_summary: { fastest_sec_per_unit: 386, slowest_sec_per_unit: 628, dropout_count: 0 },
+    best_pace_sec_per_unit: 386, // → 6:26 /mi
+    intervals: serverIntervals(),
     heart_rate_zones: {
       model: "percent_max_hr",
       max_hr_reference_bpm: 191,
@@ -211,6 +322,7 @@ function intervalsPlan(): PlannedWorkout {
 beforeEach(() => {
   vi.clearAllMocks();
   params.value = { id: "run-1" };
+  unitState.value = "mi";
   // Sensible defaults; individual tests override.
   getRunningSessionMock.mockResolvedValue(runningSession(intervalTrackpoints()));
   getPlannedWorkoutBySessionMock.mockResolvedValue(intervalsPlan());
@@ -229,30 +341,49 @@ afterEach(() => {
 });
 
 describe("RunningDetailPage — splits ledger", () => {
-  it("Step 1: renders splits from a known interval fixture", async () => {
+  it("Step 1: renders the server-provided splits verbatim", async () => {
     render(<RunningDetailPage />);
 
     // Splits table renders a per-mile row.
     expect(await screen.findByText("Mi 1")).toBeInTheDocument();
     expect(screen.getByText("Mi 2")).toBeInTheDocument();
 
+    // The pace column shows the server's pace_sec_per_unit values verbatim
+    // (483 → 8:03 tagged slowest, 466 → 7:46 tagged fastest, partial 480 → 8:00).
+    const mi1Row = screen.getByText("Mi 1").closest("tr")!;
+    expect(within(mi1Row).getAllByText("8:03").length).toBeGreaterThan(0);
+    expect(within(mi1Row).getByText("slowest")).toBeInTheDocument();
+    const mi2Row = screen.getByText("Mi 2").closest("tr")!;
+    expect(within(mi2Row).getAllByText("7:46").length).toBeGreaterThan(0);
+    expect(within(mi2Row).getByText("fastest")).toBeInTheDocument();
+    const partialRow = screen.getByText("0.2 mi").closest("tr")!;
+    expect(within(partialRow).getAllByText("8:00").length).toBeGreaterThan(0); // partial split pace
+
     // Header band shows the session distance: 5000 m / 1609.344 ≈ "3.1 mi".
     const distanceLabel = screen.getByText("Distance");
     const distanceCell = distanceLabel.closest("div");
     expect(distanceCell).not.toBeNull();
     expect(within(distanceCell!).getByText(/3\.1\s*mi/)).toBeInTheDocument();
+
+    // The Best tile renders the display-unit best pace (386 → 6:26 /mi).
+    const bestLabel = screen.getByText("Best");
+    const bestCell = bestLabel.closest("div");
+    expect(within(bestCell!).getByText(/6:26\s*\/mi/)).toBeInTheDocument();
   });
 
-  it("Step 2a: shows the intervals toggle when intervals are detected", async () => {
+  it("Step 2a: shows the intervals toggle when the linked plan is an intervals run", async () => {
     render(<RunningDetailPage />);
 
     await screen.findByText("Mi 1");
-    // The segmented toggle exposes an "intervals" button only when detected.
+    // The segmented toggle exposes an "intervals" button only when the plan
+    // gates it open (server intervals are present on the fixture).
     expect(screen.getByRole("button", { name: "intervals" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "miles" })).toBeInTheDocument();
   });
 
-  it("Step 2b: hides the toggle for an easy/steady run (miles-only)", async () => {
+  it("Step 2b: hides the toggle when no linked plan says intervals (miles-only)", async () => {
+    // The session STILL carries server-computed interval candidates — the
+    // client gate (completesPlan?.run_type === "intervals") must hide them.
     getRunningSessionMock.mockResolvedValue(runningSession(steadyTrackpoints()));
     getPlannedWorkoutBySessionMock.mockResolvedValue(null);
 
@@ -269,9 +400,30 @@ describe("RunningDetailPage — splits ledger", () => {
     await screen.findByText("Mi 1");
     fireEvent.click(screen.getByRole("button", { name: "intervals" }));
 
-    // The intervals table surfaces warm-up + numbered reps.
+    // The intervals table surfaces the server's warm-up + numbered reps.
     expect(await screen.findByText("Warm-up")).toBeInTheDocument();
     expect(screen.getByText("Rep 1")).toBeInTheDocument();
+  });
+});
+
+describe("RunningDetailPage — unit refetch", () => {
+  it("refetches the detail when the unit toggles", async () => {
+    const { rerender } = render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(getRunningSessionMock).toHaveBeenCalledTimes(1);
+    expect(getRunningSessionMock).toHaveBeenLastCalledWith("test-token", "run-1", "mi");
+
+    // Flip the (mocked) unit context to km and re-render: the detail effect
+    // depends on the unit, so it must refetch the km-shaped response rather
+    // than convert anything client-side.
+    unitState.value = "km";
+    rerender(<RunningDetailPage />);
+
+    await waitFor(() => {
+      expect(getRunningSessionMock).toHaveBeenCalledTimes(2);
+    });
+    expect(getRunningSessionMock).toHaveBeenLastCalledWith("test-token", "run-1", "km");
   });
 });
 
@@ -429,10 +581,10 @@ describe("RunningDetailPage — treadmill badge + environment", () => {
 
 describe("RunningDetailPage — calibration", () => {
   it("calibrating replaces the session so header distance matches the rescaled splits", async () => {
-    // Start indoor at ~2.2 mi; calibrate to a ~1.1 mi rescaled series so the
-    // header distance and the trackpoint-derived splits both reflect the new
-    // (halved) distance — proving the whole session (incl. trackpoints) was
-    // replaced.
+    // Start indoor at ~2.2 mi; the calibrate response carries a ~1.1 mi
+    // distance AND rescaled server splits (one full mile + a 0.1 mi partial),
+    // so the header and the splits table both reflect the new distance —
+    // proving the whole session (splits included) was replaced.
     getRunningSessionMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       environment: "indoor",
@@ -441,6 +593,30 @@ describe("RunningDetailPage — calibration", () => {
     });
     getPlannedWorkoutBySessionMock.mockResolvedValue(null);
 
+    const rescaledSplits: RunningSplit[] = [
+      {
+        index: 0,
+        partial: false,
+        distance_meters: METERS_PER_MILE,
+        duration_seconds: 966,
+        pace_sec_per_unit: 966,
+        avg_hr_bpm: 150,
+        elevation_delta_meters: null,
+        fastest: false,
+        slowest: false,
+      },
+      {
+        index: 1,
+        partial: true,
+        distance_meters: 0.1 * METERS_PER_MILE,
+        duration_seconds: 97,
+        pace_sec_per_unit: 970,
+        avg_hr_bpm: 150,
+        elevation_delta_meters: null,
+        fastest: false,
+        slowest: false,
+      },
+    ];
     const rescaled = synthesize([
       { meters: 1.1 * METERS_PER_MILE, paceSecPerKm: 600, hr: 150, sampleMeters: 10 },
     ]);
@@ -450,6 +626,10 @@ describe("RunningDetailPage — calibration", () => {
       distance_meters: 1.1 * METERS_PER_MILE,
       raw_distance_meters: 2.2 * METERS_PER_MILE,
       duration_seconds: 1500,
+      splits: rescaledSplits,
+      strip_summary: { fastest_sec_per_unit: 960, slowest_sec_per_unit: 975, dropout_count: 0 },
+      best_pace_sec_per_unit: 960,
+      intervals: undefined,
     });
 
     render(<RunningDetailPage />);
@@ -461,11 +641,12 @@ describe("RunningDetailPage — calibration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Calibrate" }));
 
     await waitFor(() => {
-      // 1.1 mi * 1609.344 = 1770.28 m.
+      // 1.1 mi * 1609.344 = 1770.28 m; the active unit rides along.
       expect(calibrateRunningSessionMock).toHaveBeenCalledWith(
         "test-token",
         "run-1",
         expect.closeTo(1.1 * METERS_PER_MILE, 1),
+        "mi",
       );
     });
 
@@ -474,8 +655,11 @@ describe("RunningDetailPage — calibration", () => {
     const distanceCell = distanceLabel.closest("div");
     expect(within(distanceCell!).getByText(/1\.1\s*mi/)).toBeInTheDocument();
     expect(screen.getByText(/Calibrated from 2\.2 mi/)).toBeInTheDocument();
-    // Only one mile split now (the run is ~1.1 mi), proving splits re-derived.
+    // Only one full mile split now (the response's rescaled splits render).
     expect(screen.getByText("Mi 1")).toBeInTheDocument();
     expect(screen.queryByText("Mi 2")).not.toBeInTheDocument();
+    // The rescaled pace (966 s → 16:06) renders verbatim in the Mi 1 row.
+    const mi1Row = screen.getByText("Mi 1").closest("tr")!;
+    expect(within(mi1Row).getAllByText("16:06").length).toBeGreaterThan(0);
   });
 });

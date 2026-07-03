@@ -1,6 +1,10 @@
 /**
  * Hero pace-recap area chart beneath the splits ledger. Pure and prop-driven
- * over the derivation's `paceStrip`. Two load-bearing conventions, both visual:
+ * over the client-mapped chart points (`buildPaceStrip`) plus the SERVER's
+ * `strip_summary` block, which owns the header numbers (fastest/slowest) and
+ * the dropout count; the plotted extremes are only a fallback when the
+ * summary is absent. Chart geometry (domains, ticks, paths) stays client-side
+ * by design. Two load-bearing conventions, both visual:
  *
  *  1. FASTER IS HIGHER. The y-axis is inverted (min pace → small y → top), so a
  *     rising curve always reads as speeding up, never as slowing down. The axis
@@ -18,6 +22,7 @@
  * card with hairline border, faint/muted axis + caption type.
  */
 
+import type { RunningStripSummary } from "@/lib/api";
 import type { PaceStripPoint } from "@/lib/running-splits";
 import { formatPaceClock } from "@/lib/pace-format";
 
@@ -43,13 +48,14 @@ function niceStep(span: number, maxTicks = 7): number {
 
 export function PaceRecap({
   points,
-  hasDropout,
+  stripSummary,
   unit,
 }: {
   points: PaceStripPoint[];
-  hasDropout: boolean;
+  stripSummary: RunningStripSummary | null;
   unit: "km" | "mi";
 }) {
+  const hasDropout = (stripSummary?.dropout_count ?? 0) > 0;
   const plottable = points.filter((p): p is PlottablePoint => p.paceSecPerUnit != null);
 
   if (plottable.length < 2) {
@@ -68,9 +74,14 @@ export function PaceRecap({
     );
   }
 
+  // lo/hi stay client-side for the y-domain math (chart geometry); the
+  // HEADER numbers come from the server summary, falling back to the plotted
+  // extremes only when the summary is absent.
   const paces = plottable.map((p) => p.paceSecPerUnit);
-  const lo = Math.min(...paces); // fastest
-  const hi = Math.max(...paces); // slowest
+  const lo = Math.min(...paces); // fastest (plotted)
+  const hi = Math.max(...paces); // slowest (plotted)
+  const headerLo = stripSummary?.fastest_sec_per_unit ?? lo;
+  const headerHi = stripSummary?.slowest_sec_per_unit ?? hi;
 
   const dists = points.map((p) => p.distanceUnit);
   const minX = Math.min(...dists);
@@ -154,12 +165,13 @@ export function PaceRecap({
     }
   }
 
-  // Band one window per gap, but state the count honestly (singular/plural).
-  const dropoutCount = Math.max(1, gaps.length);
+  // Band one window per gap as drawn, but the caption states the SERVER's
+  // sample count (falling back to the drawn windows when the summary is absent).
+  const dropoutCount = stripSummary?.dropout_count ?? gaps.length;
   const dropoutPhrase = dropoutCount === 1 ? "one GPS dropout" : `${dropoutCount} GPS dropouts`;
 
   const ariaLabel =
-    `Pace recap: fastest ${formatPaceClock(lo)}, slowest ${formatPaceClock(hi)} per ${unit}` +
+    `Pace recap: fastest ${formatPaceClock(headerLo)}, slowest ${formatPaceClock(headerHi)} per ${unit}` +
     (hasDropout ? `; ${dropoutPhrase}.` : ".");
 
   return (
@@ -170,7 +182,7 @@ export function PaceRecap({
             Pace recap
           </h3>
           <p className="mt-2 text-[13px] text-[var(--muted)]">
-            Fastest {formatPaceClock(lo)} · slowest {formatPaceClock(hi)} /{unit}
+            Fastest {formatPaceClock(headerLo)} · slowest {formatPaceClock(headerHi)} /{unit}
             {hasDropout && ` · ${dropoutPhrase} bridged`}
           </p>
         </div>
@@ -270,7 +282,7 @@ export function PaceRecap({
             fontSize={13}
             fontWeight={600}
           >
-            Fastest {formatPaceClock(fastest.paceSecPerUnit)}
+            Fastest {formatPaceClock(headerLo)}
           </text>
         </g>
 

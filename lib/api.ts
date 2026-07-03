@@ -1752,12 +1752,8 @@ export type RunningTrackpoint = {
   elevation_meters: number | null;
   // Server-owned plottability flag: the chart draws a gap where false
   // (per-point pace absent, non-positive, or slower than the device-dropout
-  // threshold). Always present on live API responses; kept optional here
-  // (rather than required) so existing fixtures/tests outside W1's scope
-  // don't fail typecheck — TODO(W3): make required once
-  // lib/test-fixtures/running-trackpoints.ts (and other fixtures) are
-  // updated to include it.
-  clean_pace?: boolean;
+  // threshold).
+  clean_pace: boolean;
 };
 
 /**
