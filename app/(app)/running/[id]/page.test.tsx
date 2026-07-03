@@ -32,6 +32,8 @@ const getPlannedWorkoutBySessionMock = vi.hoisted(() => vi.fn());
 const renameRunningSessionMock = vi.hoisted(() => vi.fn());
 const deleteRunningSessionMock = vi.hoisted(() => vi.fn());
 const unlinkPlannedWorkoutMock = vi.hoisted(() => vi.fn());
+const calibrateRunningSessionMock = vi.hoisted(() => vi.fn());
+const setRunningSessionEnvironmentMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
@@ -40,6 +42,8 @@ vi.mock("@/lib/api", async (orig) => ({
   renameRunningSession: renameRunningSessionMock,
   deleteRunningSession: deleteRunningSessionMock,
   unlinkPlannedWorkout: unlinkPlannedWorkoutMock,
+  calibrateRunningSession: calibrateRunningSessionMock,
+  setRunningSessionEnvironment: setRunningSessionEnvironmentMock,
 }));
 
 // Distance-unit + toast contexts are mocked directly (matching the running
@@ -60,6 +64,13 @@ function formatPaceMi(secPerKm: number | null): string {
 }
 
 vi.mock("@/lib/distance-unit-context", () => ({
+  // The calibrate modal (rendered by the page) also imports the pure helpers
+  // and the conversion constants, so expose them from the same mock. Literals
+  // (not the top-level const) because the factory is hoisted above it.
+  METERS_PER_MILE: 1609.344,
+  METERS_PER_KM: 1000,
+  formatDistanceValue: (m: number) => formatDistanceMi(m),
+  formatPaceValue: (s: number | null) => formatPaceMi(s),
   useDistanceUnit: () => ({
     unit: "mi",
     unitLabel: "mi",
@@ -99,6 +110,8 @@ function runningSession(trackpoints: RunningTrackpoint[]): RunningSession {
     name: "Morning Run",
     start_time: "2026-06-18T13:00:00Z",
     distance_meters: 5000,
+    raw_distance_meters: 5000,
+    environment: "outdoor",
     duration_seconds: 1500,
     avg_pace_sec_per_km: 300,
     best_pace_sec_per_km: 240,
@@ -207,6 +220,8 @@ beforeEach(() => {
   }));
   deleteRunningSessionMock.mockResolvedValue(undefined);
   unlinkPlannedWorkoutMock.mockResolvedValue({ ...intervalsPlan(), status: "planned" });
+  calibrateRunningSessionMock.mockReset();
+  setRunningSessionEnvironmentMock.mockReset();
 });
 
 afterEach(() => {
@@ -335,5 +350,132 @@ describe("RunningDetailPage — preserved behaviors", () => {
       expect(screen.queryByText(/Track Intervals/)).not.toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: /Unlink/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("RunningDetailPage — treadmill badge + environment", () => {
+  it("shows the Treadmill badge and calibrate action for an indoor run", async () => {
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "indoor",
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.getAllByTitle(/Recorded indoors/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Calibrate distance" })).toBeInTheDocument();
+  });
+
+  it("hides the badge and calibrate action for an outdoor run", async () => {
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "outdoor",
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.queryByTitle(/Recorded indoors/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Calibrate distance" })).not.toBeInTheDocument();
+  });
+
+  it("toggling to Indoor calls setRunningSessionEnvironment after confirm", async () => {
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "outdoor",
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+    setRunningSessionEnvironmentMock.mockResolvedValue({
+      ...runningSession([]),
+      environment: "indoor",
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    fireEvent.click(screen.getByRole("button", { name: "Indoor" }));
+
+    await waitFor(() => {
+      expect(setRunningSessionEnvironmentMock).toHaveBeenCalledWith(
+        "test-token",
+        "run-1",
+        "indoor",
+      );
+    });
+    confirmSpy.mockRestore();
+  });
+
+  it("does not call the API when the confirm is dismissed", async () => {
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "outdoor",
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    fireEvent.click(screen.getByRole("button", { name: "Indoor" }));
+
+    expect(setRunningSessionEnvironmentMock).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+});
+
+describe("RunningDetailPage — calibration", () => {
+  it("calibrating replaces the session so header distance matches the rescaled splits", async () => {
+    // Start indoor at ~2.2 mi; calibrate to a ~1.1 mi rescaled series so the
+    // header distance and the trackpoint-derived splits both reflect the new
+    // (halved) distance — proving the whole session (incl. trackpoints) was
+    // replaced.
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "indoor",
+      distance_meters: 2.2 * METERS_PER_MILE,
+      raw_distance_meters: 2.2 * METERS_PER_MILE,
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    const rescaled = synthesize([
+      { meters: 1.1 * METERS_PER_MILE, paceSecPerKm: 600, hr: 150, sampleMeters: 10 },
+    ]);
+    calibrateRunningSessionMock.mockResolvedValue({
+      ...runningSession(rescaled),
+      environment: "indoor",
+      distance_meters: 1.1 * METERS_PER_MILE,
+      raw_distance_meters: 2.2 * METERS_PER_MILE,
+      duration_seconds: 1500,
+    });
+
+    render(<RunningDetailPage />);
+
+    // Open modal, enter the corrected distance, submit.
+    fireEvent.click(await screen.findByRole("button", { name: "Calibrate distance" }));
+    const input = await screen.findByLabelText(/Corrected distance/);
+    fireEvent.change(input, { target: { value: "1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Calibrate" }));
+
+    await waitFor(() => {
+      // 1.1 mi * 1609.344 = 1770.28 m.
+      expect(calibrateRunningSessionMock).toHaveBeenCalledWith(
+        "test-token",
+        "run-1",
+        expect.closeTo(1.1 * METERS_PER_MILE, 1),
+      );
+    });
+
+    // Header distance now reads ~1.1 mi, and the provenance line shows the raw.
+    const distanceLabel = await screen.findByText("Distance");
+    const distanceCell = distanceLabel.closest("div");
+    expect(within(distanceCell!).getByText(/1\.1\s*mi/)).toBeInTheDocument();
+    expect(screen.getByText(/Calibrated from 2\.2 mi/)).toBeInTheDocument();
+    // Only one mile split now (the run is ~1.1 mi), proving splits re-derived.
+    expect(screen.getByText("Mi 1")).toBeInTheDocument();
+    expect(screen.queryByText("Mi 2")).not.toBeInTheDocument();
   });
 });

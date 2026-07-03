@@ -28,6 +28,8 @@ function makeRun(overrides: Partial<RunningSession> = {}): RunningSession {
     name: "Morning Run",
     start_time: "2026-06-08T07:00:00Z",
     distance_meters: 5000,
+    raw_distance_meters: 5000,
+    environment: "outdoor",
     duration_seconds: 1500,
     avg_pace_sec_per_km: 300,
     best_pace_sec_per_km: 280,

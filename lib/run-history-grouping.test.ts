@@ -14,6 +14,8 @@ function makeRun(partial: Partial<RunningSession> & { id: string }): RunningSess
     name: null,
     start_time: "2026-06-10T08:00:00",
     distance_meters: 1000,
+    raw_distance_meters: 1000,
+    environment: "outdoor",
     duration_seconds: 300,
     avg_pace_sec_per_km: null,
     best_pace_sec_per_km: null,

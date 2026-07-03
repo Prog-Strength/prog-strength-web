@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { formatDuration } from "@/lib/format";
 import type { RunningSession } from "@/lib/api";
+import { TreadmillBadge } from "./TreadmillBadge";
 
 /**
  * One run in the dashboard list. Clickable across its whole surface
@@ -23,7 +24,12 @@ export function RunListRow({ session }: { session: RunningSession }) {
         className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 transition hover:bg-[var(--surface-2)] sm:flex-row sm:items-center sm:justify-between sm:gap-4"
       >
         <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="truncate text-sm font-medium">{title}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+            <span className="truncate">{title}</span>
+            {session.activity_type === "running" && session.environment === "indoor" && (
+              <TreadmillBadge glyphOnly className="shrink-0" />
+            )}
+          </p>
           <p className="truncate text-xs text-[var(--muted)]">
             {formatStartDateTime(session.start_time)}
           </p>

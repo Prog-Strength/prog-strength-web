@@ -1681,6 +1681,13 @@ export type RunningSession = {
   name: string | null;
   start_time: string; // RFC3339
   distance_meters: number;
+  // Distance as originally ingested from the TCX, never mutated by
+  // calibration. "Calibrated" is derivable as
+  // raw_distance_meters !== distance_meters; a reset calibrates back to it.
+  raw_distance_meters: number;
+  // "indoor" (treadmill / no GPS) or "outdoor" (GPS). Indoor running is
+  // user-calibratable and excluded from PRs/best-efforts.
+  environment: "outdoor" | "indoor";
   duration_seconds: number;
   avg_pace_sec_per_km: number | null;
   best_pace_sec_per_km: number | null;
@@ -1830,6 +1837,61 @@ export async function renameRunningSession(
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ name }),
+  });
+  const updated = await unwrap<RunningSession | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated activity");
+  }
+  return updated;
+}
+
+/**
+ * POST /activities/{id}/calibrate. Rescales an indoor run to
+ * `distanceMeters`, recomputing pace and every trackpoint server-side in one
+ * transaction. Returns the full activity detail INCLUDING its rescaled
+ * `trackpoints`, so the caller replaces its session state wholesale (the
+ * detail page derives splits/pace from trackpoints — keeping stale ones would
+ * make the header and splits disagree). Indoor-only; the API rejects an
+ * outdoor run with a machine-readable code the thrown message carries.
+ */
+export async function calibrateRunningSession(
+  token: string,
+  id: string,
+  distanceMeters: number,
+): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}/calibrate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ distance_meters: distanceMeters }),
+  });
+  const updated = await unwrap<RunningSession | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the calibrated activity");
+  }
+  return updated;
+}
+
+/**
+ * PATCH /activities/{id} with an environment override ("outdoor" | "indoor").
+ * Tagging a run indoor removes it from running PRs/best-efforts; outdoor
+ * restores them. Returns the updated activity summary (no trackpoints —
+ * environment changes don't rescale trackpoints).
+ */
+export async function setRunningSessionEnvironment(
+  token: string,
+  id: string,
+  environment: "outdoor" | "indoor",
+): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ environment }),
   });
   const updated = await unwrap<RunningSession | null>(resp, null);
   if (!updated) {
