@@ -48,9 +48,15 @@ vi.mock("@/lib/api", async (orig) => ({
   listPlannedWorkouts: vi.fn(async () => PLANNED),
   getCalendarConnection: vi.fn(async () => ({ status: "connected" })),
   resyncPlannedWorkout: vi.fn(async () => PLANNED[0]),
+  deletePlannedWorkout: vi.fn(async () => {}),
 }));
 
-import { listWorkouts, listRunningSessions, listPlannedWorkouts } from "@/lib/api";
+import {
+  listWorkouts,
+  listRunningSessions,
+  listPlannedWorkouts,
+  deletePlannedWorkout,
+} from "@/lib/api";
 import type { PlannedWorkout } from "@/lib/api";
 import CalendarPage from "./page";
 
@@ -317,6 +323,29 @@ describe("CalendarPage", () => {
     // The planned-workout modal opens in read-only view for that plan.
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByLabelText("Edit planned workout")).toBeInTheDocument();
+  });
+
+  it("deletes a planned workout from the modal, closes it, and refreshes the window", async () => {
+    renderPage();
+    await findDigest(TODAY);
+
+    const cell = screen.getByLabelText(new RegExp(`^${longDate(DISTINCT_DATE)}`));
+    fireEvent.click(await within(cell).findByTestId("planned-pill"));
+    const dialog = await screen.findByRole("dialog");
+
+    const callsBefore = vi.mocked(listPlannedWorkouts).mock.calls.length;
+    // Footer Delete opens the inline confirm; the panel's Delete commits.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(deletePlannedWorkout)).toHaveBeenCalledWith("test-token", "p-distinct"),
+    );
+    // The modal closes and the calendar window refetches.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(vi.mocked(listPlannedWorkouts).mock.calls.length).toBeGreaterThan(callsBefore),
+    );
   });
 
   it("shows one Week rollup column per week summarizing trained days", async () => {

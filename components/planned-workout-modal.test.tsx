@@ -7,6 +7,7 @@ import type { Exercise, PlannedWorkout } from "@/lib/api";
 
 const createMock = vi.hoisted(() => vi.fn());
 const updateMock = vi.hoisted(() => vi.fn());
+const deleteMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
   getToken: () => "test-token",
@@ -16,6 +17,7 @@ vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
   createPlannedWorkout: createMock,
   updatePlannedWorkout: updateMock,
+  deletePlannedWorkout: deleteMock,
 }));
 
 import { PlannedWorkoutModal } from "./planned-workout-modal";
@@ -80,6 +82,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   createMock.mockResolvedValue(plannedFixture());
   updateMock.mockResolvedValue(plannedFixture());
+  deleteMock.mockResolvedValue(undefined);
 });
 
 describe("PlannedWorkoutModal", () => {
@@ -285,6 +288,113 @@ describe("PlannedWorkoutModal", () => {
     const [, body] = createMock.mock.calls[0];
     expect(body.exercises[0].sets[0].amrap).toBe(true);
     expect(body.exercises[0].sets[0].target_reps).toBeUndefined();
+  });
+
+  it("deletes a planned workout after inline confirmation and notifies the parent", async () => {
+    const onDeleted = vi.fn();
+    render(
+      <PlannedWorkoutModal
+        plan={plannedFixture()}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+
+    // The footer Delete opens the inline confirm panel — nothing is deleted yet.
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(deleteMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/Delete this planned activity\?/)).toBeInTheDocument();
+    // This plan was never synced (google_event_id null) — no calendar warning.
+    expect(screen.queryByText(/Google Calendar/)).not.toBeInTheDocument();
+
+    // Confirming performs the delete and hands control back to the parent.
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("test-token", "p-1"));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+  });
+
+  it("lets the confirm panel be cancelled without deleting", () => {
+    render(
+      <PlannedWorkoutModal
+        plan={plannedFixture()}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText(/Delete this planned activity\?/)).not.toBeInTheDocument();
+    expect(deleteMock).not.toHaveBeenCalled();
+    // Back to the normal view footer (the Delete entry point is back).
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("warns that the Google Calendar event is removed when the plan is synced", () => {
+    render(
+      <PlannedWorkoutModal
+        plan={{ ...plannedFixture(), google_event_id: "evt-1", google_sync_status: "synced" }}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByText(/Google Calendar event/)).toBeInTheDocument();
+  });
+
+  it("hides Delete on completed and skipped plans", () => {
+    const { unmount } = render(
+      <PlannedWorkoutModal
+        plan={{ ...plannedFixture(), status: "completed" }}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    unmount();
+    render(
+      <PlannedWorkoutModal
+        plan={{ ...plannedFixture(), status: "skipped" }}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("surfaces a delete failure and keeps the modal open", async () => {
+    deleteMock.mockRejectedValue(new Error("nope"));
+    const onDeleted = vi.fn();
+    render(
+      <PlannedWorkoutModal
+        plan={plannedFixture()}
+        catalog={CATALOG}
+        calendarConnected
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(await screen.findByText("nope")).toBeInTheDocument();
+    expect(onDeleted).not.toHaveBeenCalled();
+    // Still on the confirm panel — the user can retry or cancel.
+    expect(screen.getByText(/Delete this planned activity\?/)).toBeInTheDocument();
   });
 
   it("requires reps on every set (weight stays optional)", () => {
