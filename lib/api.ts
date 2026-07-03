@@ -1700,6 +1700,46 @@ export type RunningSession = {
   trackpoints?: RunningTrackpoint[];
   // Backend-computed time-in-zone breakdown; absent when the run has no HR.
   heart_rate_zones?: HeartRateZones;
+  // Server-derived detail blocks (running only; absent on list responses).
+  // The page renders these verbatim — no client-side re-derivation.
+  unit?: "mi" | "km";
+  splits?: RunningSplit[];
+  strip_summary?: RunningStripSummary;
+  best_pace_sec_per_unit?: number;
+  intervals?: RunningIntervalSegment[];
+};
+
+/** One distance bucket of the server-derived splits table. Pace is per the
+ *  response's `unit` and equals duration_seconds/distance_meters normalized
+ *  to one unit — the backend's invariant gate asserts it. */
+export type RunningSplit = {
+  index: number;
+  partial: boolean;
+  distance_meters: number;
+  duration_seconds: number;
+  pace_sec_per_unit: number | null;
+  avg_hr_bpm: number | null;
+  elevation_delta_meters: number | null;
+  fastest: boolean;
+  slowest: boolean;
+};
+
+/** Pace-chart header numbers, server-computed over clean samples only. */
+export type RunningStripSummary = {
+  fastest_sec_per_unit: number | null;
+  slowest_sec_per_unit: number | null;
+  dropout_count: number;
+};
+
+/** One labeled bout of a server-detected interval workout. */
+export type RunningIntervalSegment = {
+  kind: "warmup" | "work" | "recovery" | "cooldown";
+  rep: number | null;
+  label: string;
+  distance_meters: number;
+  duration_seconds: number;
+  pace_sec_per_unit: number | null;
+  avg_hr_bpm: number | null;
 };
 
 /** One sampled point along an activity's track, ordered by `sequence`. */
@@ -1710,6 +1750,14 @@ export type RunningTrackpoint = {
   heart_rate_bpm: number | null;
   pace_sec_per_km: number | null;
   elevation_meters: number | null;
+  // Server-owned plottability flag: the chart draws a gap where false
+  // (per-point pace absent, non-positive, or slower than the device-dropout
+  // threshold). Always present on live API responses; kept optional here
+  // (rather than required) so existing fixtures/tests outside W1's scope
+  // don't fail typecheck — TODO(W3): make required once
+  // lib/test-fixtures/running-trackpoints.ts (and other fixtures) are
+  // updated to include it.
+  clean_pace?: boolean;
 };
 
 /**
@@ -1788,10 +1836,15 @@ export async function listRunningSessions(
 /**
  * GET /activities/{id}. Returns a single activity owned by the authed
  * user, including its `trackpoints`. 404 if the ID doesn't exist or
- * belongs to another user.
+ * belongs to another user. `unit` selects the display unit for the
+ * server-derived splits/strip-summary/best-pace blocks.
  */
-export async function getRunningSession(token: string, id: string): Promise<RunningSession> {
-  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+export async function getRunningSession(
+  token: string,
+  id: string,
+  unit: "mi" | "km" = "mi",
+): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}?unit=${unit}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const got = await unwrap<RunningSession | null>(resp, null);
@@ -1853,20 +1906,25 @@ export async function renameRunningSession(
  * detail page derives splits/pace from trackpoints — keeping stale ones would
  * make the header and splits disagree). Indoor-only; the API rejects an
  * outdoor run with a machine-readable code the thrown message carries.
+ * `unit` selects the display unit for the returned derived blocks.
  */
 export async function calibrateRunningSession(
   token: string,
   id: string,
   distanceMeters: number,
+  unit: "mi" | "km" = "mi",
 ): Promise<RunningSession> {
-  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}/calibrate`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(id)}/calibrate?unit=${unit}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ distance_meters: distanceMeters }),
     },
-    body: JSON.stringify({ distance_meters: distanceMeters }),
-  });
+  );
   const updated = await unwrap<RunningSession | null>(resp, null);
   if (!updated) {
     throw new Error("API did not return the calibrated activity");
