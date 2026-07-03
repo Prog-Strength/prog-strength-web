@@ -35,8 +35,11 @@ import { getToken } from "@/lib/auth";
 export type DistanceUnit = "mi" | "km";
 
 const STORAGE_KEY = "ps_distance_unit";
-const METERS_PER_MILE = 1609.344;
-const METERS_PER_KM = 1000;
+// Exported so unit→meters conversion (e.g. the calibrate modal turning a
+// user-entered distance into meters for the API) shares one source of truth
+// with the display formatters below.
+export const METERS_PER_MILE = 1609.344;
+export const METERS_PER_KM = 1000;
 // secPerMile = secPerKm * (meters per mile / meters per km).
 const KM_PER_MILE = METERS_PER_MILE / METERS_PER_KM; // 1.609344
 

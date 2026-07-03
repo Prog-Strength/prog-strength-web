@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
+  calibrateRunningSession,
   deleteRunningSession,
   getPlannedWorkoutBySession,
   getRunningSession,
   renameRunningSession,
+  setRunningSessionEnvironment,
   unlinkPlannedWorkout,
   type PlannedWorkout,
   type RunningSession,
@@ -18,6 +20,8 @@ import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
 import { deriveRunningActivity, parseTargetPace } from "@/lib/running-splits";
 import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
+import { TreadmillBadge } from "../_components/TreadmillBadge";
+import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
 import { RunHeaderBand } from "./_components/RunHeaderBand";
 import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceRecap } from "./_components/PaceRecap";
@@ -44,6 +48,8 @@ export default function RunningDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
+  const [calibrateOpen, setCalibrateOpen] = useState(false);
+  const [environmentBusy, setEnvironmentBusy] = useState(false);
 
   const handleAuthError = useCallback(
     (err: unknown): boolean => {
@@ -155,6 +161,57 @@ export default function RunningDetailPage() {
     }
   }
 
+  // Reset = calibrate back to the originally-ingested distance. Like any
+  // calibration, the API returns the full rescaled session, so we replace
+  // state wholesale to keep header + splits consistent.
+  async function handleReset() {
+    if (!session) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    try {
+      const updated = await calibrateRunningSession(token, id, session.raw_distance_meters);
+      setSession(updated);
+      toast.success("Reset to the original distance.");
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      toast.error(err instanceof Error ? err.message : "Reset failed");
+    }
+  }
+
+  // Toggle outdoor ↔ indoor. Switching to outdoor can add the run back into
+  // PR surfaces; to indoor removes it — so confirm the PR-membership change.
+  // The PATCH returns a summary (no trackpoints); an environment change never
+  // rescales trackpoints, so keep the existing ones.
+  async function handleSetEnvironment(next: "outdoor" | "indoor") {
+    if (!session || session.environment === next) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    const message =
+      next === "indoor"
+        ? "Tag this run as a treadmill run? It will be removed from your running PRs and best-efforts."
+        : "Tag this run as outdoor? It will be added back into your running PRs and best-efforts.";
+    if (!window.confirm(message)) return;
+    setEnvironmentBusy(true);
+    try {
+      const updated = await setRunningSessionEnvironment(token, id, next);
+      // Keep the current trackpoints — the summary response omits them and
+      // an environment change doesn't rescale them.
+      setSession((s) => (s ? { ...s, ...updated, trackpoints: s.trackpoints } : updated));
+      toast.success(next === "indoor" ? "Tagged as treadmill run." : "Tagged as outdoor run.");
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      toast.error(err instanceof Error ? err.message : "Failed to change environment");
+    } finally {
+      setEnvironmentBusy(false);
+    }
+  }
+
   if (notFound) {
     return (
       <CenteredMessage>
@@ -193,6 +250,9 @@ export default function RunningDetailPage() {
     );
   }
 
+  const isRun = session.activity_type === "running";
+  const isIndoorRun = isRun && session.environment === "indoor";
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
@@ -204,11 +264,14 @@ export default function RunningDetailPage() {
         </Link>
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <EditableName
-              name={session.name}
-              fallback={runFallbackName(session.start_time)}
-              onSave={handleRename}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <EditableName
+                name={session.name}
+                fallback={runFallbackName(session.start_time)}
+                onSave={handleRename}
+              />
+              {isIndoorRun && <TreadmillBadge />}
+            </div>
             <p className="text-xs text-[var(--muted)]">
               {formatStartDateTime(session.start_time)} · {formatDuration(session.duration_seconds)}
             </p>
@@ -268,6 +331,36 @@ export default function RunningDetailPage() {
             onUnlink={completesPlan ? handleUnlink : undefined}
             unlinking={unlinking}
           />
+          {isRun && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <EnvironmentToggle
+                value={session.environment}
+                disabled={environmentBusy}
+                onChange={handleSetEnvironment}
+              />
+              {isIndoorRun && (
+                <button
+                  type="button"
+                  onClick={() => setCalibrateOpen(true)}
+                  className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1 text-xs font-medium text-[var(--foreground)] transition hover:opacity-80"
+                >
+                  Calibrate distance
+                </button>
+              )}
+              {session.raw_distance_meters !== session.distance_meters && (
+                <p className="text-xs text-[var(--muted)]">
+                  Calibrated from {formatDistance(session.raw_distance_meters)} {unitLabel} ·{" "}
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    className="text-[var(--accent)] transition hover:underline"
+                  >
+                    Reset
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
           <SplitsSpine
             splits={derivation.splits}
             intervals={derivation.intervals}
@@ -284,7 +377,67 @@ export default function RunningDetailPage() {
       {confirmingDelete && (
         <DeleteConfirmModal onCancel={() => setConfirmingDelete(false)} onConfirm={handleDelete} />
       )}
+
+      {calibrateOpen && (
+        <CalibrateDistanceModal
+          session={session}
+          onClose={() => setCalibrateOpen(false)}
+          onCalibrated={(updated) => {
+            // Replace the WHOLE session (including trackpoints) so the header
+            // and the trackpoint-derived splits stay consistent.
+            setSession(updated);
+            setCalibrateOpen(false);
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * Full-pill segmented Outdoor/Indoor control (design-system segmented toggle:
+ * a `--surface` track, the active segment an `--accent` fill with
+ * `--accent-fg`, inactive segments `--muted` brightening to `--foreground`).
+ */
+function EnvironmentToggle({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: "outdoor" | "indoor";
+  disabled?: boolean;
+  onChange: (next: "outdoor" | "indoor") => void;
+}) {
+  const options: { key: "outdoor" | "indoor"; label: string }[] = [
+    { key: "outdoor", label: "Outdoor" },
+    { key: "indoor", label: "Indoor" },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Run environment"
+      className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5"
+    >
+      {options.map((opt) => {
+        const active = value === opt.key;
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            aria-pressed={active}
+            disabled={disabled || active}
+            onClick={() => onChange(opt.key)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition disabled:cursor-default ${
+              active
+                ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                : "text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
