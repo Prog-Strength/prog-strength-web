@@ -36,21 +36,31 @@ export function EstimateStatTiles({ detail }: { detail: RunningMaxEffortDetail }
 
   const confidence = humanizeConfidence(stats.confidence);
   const confidenceCaption = stats.data_summary || null;
+  const floored = detail.estimate?.floored_at_logged_best;
+  const rawSeconds = detail.estimate?.raw_seconds;
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <StatTile
-        value={durationOrDash(stats.estimated_max_effort_seconds)}
-        label="Estimated max-effort time"
-        headline
-      />
-      <StatTile
-        value={durationOrDash(stats.current_best_seconds)}
-        label="Current best"
-        caption={gapCaption}
-      />
-      <StatTile value={confidence} label="Confidence" caption={confidenceCaption} />
-      <StatTile value={trend.text} label="Trend" tone={trend.tone} arrow={trend.arrow} />
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          value={durationOrDash(stats.estimated_max_effort_seconds)}
+          label="Estimated max-effort time"
+          headline
+        />
+        <StatTile
+          value={durationOrDash(stats.current_best_seconds)}
+          label="Current best"
+          caption={gapCaption}
+        />
+        <StatTile value={confidence} label="Confidence" caption={confidenceCaption} />
+        <StatTile value={trend.text} label="Trend" tone={trend.tone} arrow={trend.arrow} />
+      </div>
+      {floored && rawSeconds != null && (
+        <p className="text-xs text-[var(--muted)]">
+          At your proven best — the model projected {formatDuration(rawSeconds)} before applying
+          your logged best as a floor.
+        </p>
+      )}
     </div>
   );
 }

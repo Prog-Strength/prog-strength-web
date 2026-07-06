@@ -41,6 +41,8 @@ function profile(over: Partial<ResolvedProfile> = {}): ResolvedProfile {
     weight_unit: "lb",
     distance_unit: "mi",
     height_cm: 180,
+    birthdate: null,
+    sex: null,
     avatar_url: null,
     timezone: "America/Denver",
     calendar_default_detail: "time_block",
