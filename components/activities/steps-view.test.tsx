@@ -107,8 +107,12 @@ function entry(date: string, steps: number) {
   return { id: date, date, steps, created_at: date, updated_at: date };
 }
 
-const YESTERDAY = daysAgo(1);
-const TODAY = daysAgo(0);
+// Pinned calendar days in the same Mon-start week (Jun 29 – Jul 5) so the
+// accordion's default-expanded week always contains both rows regardless of
+// when CI runs. "Today" is pinned to Jul 5 in beforeEach so the 30-day range
+// window includes them.
+const TODAY = "2026-07-05";
+const YESTERDAY = "2026-07-04";
 
 function bars() {
   return Array.from(document.querySelectorAll('[data-recharts="Bar"]')).map((b) => ({
@@ -118,6 +122,8 @@ function bars() {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date(2026, 6, 5, 12, 0, 0));
   vi.clearAllMocks();
   getTokenMock.mockReturnValue("tok");
   getStepsGoalMock.mockResolvedValue({ goal: 0, created_at: null, updated_at: null });
@@ -127,6 +133,10 @@ beforeEach(() => {
     steps: [entry(YESTERDAY, 8000), entry(TODAY, 12000)],
     next_before: null,
   });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("StepsView — hero ring", () => {
