@@ -11,8 +11,9 @@ export type Draft = {
   display_name: string;
   username: string;
   bio: string;
-  // Height as the DISPLAY string in the current distance-derived unit; "" = unset.
   height: string;
+  birthdate: string;
+  sex: "" | "male" | "female";
   distance_unit: "mi" | "km";
   weight_unit: "lb" | "kg";
   calendar_default_detail: "time_block" | "full_agenda";
@@ -72,6 +73,8 @@ export function draftFromProfile(p: ResolvedProfile): Draft {
     username: p.username ?? "",
     bio: p.bio ?? "",
     height: heightToDisplay(p.height_cm, heightUnitFor(p.distance_unit)),
+    birthdate: p.birthdate ?? "",
+    sex: p.sex ?? "",
     distance_unit: p.distance_unit,
     weight_unit: p.weight_unit,
     calendar_default_detail: p.calendar_default_detail,
@@ -92,6 +95,8 @@ export function patchFromDraft(
   username?: string;
   bio?: string;
   height_cm?: number | null;
+  birthdate?: string | null;
+  sex?: "male" | "female" | null;
   distance_unit?: "mi" | "km";
   weight_unit?: "lb" | "kg";
   calendar_default_detail?: "time_block" | "full_agenda";
@@ -110,6 +115,12 @@ export function patchFromDraft(
         break;
       case "height":
         patch.height_cm = displayToCm(draft.height, heightUnitFor(draft.distance_unit));
+        break;
+      case "birthdate":
+        patch.birthdate = draft.birthdate.trim() === "" ? null : draft.birthdate.trim();
+        break;
+      case "sex":
+        patch.sex = draft.sex === "" ? null : draft.sex;
         break;
       case "distance_unit":
         patch.distance_unit = draft.distance_unit;

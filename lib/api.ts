@@ -339,6 +339,8 @@ export type ResolvedProfile = {
   weight_unit: "lb" | "kg";
   distance_unit: "mi" | "km";
   height_cm: number | null;
+  birthdate: string | null;
+  sex: "male" | "female" | null;
   avatar_url: string | null;
   // IANA timezone (e.g. "America/Denver"). Anchors the day windows the
   // planned-workout + Google Calendar sync features push events into.
@@ -404,6 +406,8 @@ export async function updateMe(
     display_name?: string;
     // Canonical centimeters; pass `null` to clear a previously-set height.
     height_cm?: number | null;
+    birthdate?: string | null;
+    sex?: "male" | "female" | null;
     weight_unit?: "lb" | "kg";
     distance_unit?: "mi" | "km";
     // IANA timezone name.
@@ -2322,6 +2326,8 @@ export type RunningMaxEffortEstimate = {
   seconds: number;
   lower_seconds: number;
   upper_seconds: number;
+  raw_seconds?: number;
+  floored_at_logged_best?: boolean;
   basis: string;
   confidence: string;
   n_points: number;
@@ -2358,6 +2364,8 @@ export type RunningMaxEffortAttempt = {
   duration_seconds: number;
   pace_sec_per_km: number;
   source: string;
+  pace_ratio?: number;
+  hr_z4_z5_pct?: number;
 };
 
 /**

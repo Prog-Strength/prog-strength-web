@@ -54,6 +54,8 @@ const EMPTY_DRAFT: Draft = {
   username: "",
   bio: "",
   height: "",
+  birthdate: "",
+  sex: "",
   distance_unit: "mi",
   weight_unit: "lb",
   calendar_default_detail: "time_block",
@@ -302,6 +304,37 @@ export default function SettingsPage() {
                 />
                 <span className="shrink-0 text-xs text-[var(--muted)]">{heightUnit}</span>
               </div>
+            </Field>
+
+            <Field
+              label="Birthdate"
+              hint="Optional. Improves running max-effort estimates (YYYY-MM-DD)."
+            >
+              <input
+                type="date"
+                aria-label="Birthdate"
+                value={draft.birthdate}
+                disabled={disabled}
+                onChange={(e) => set("birthdate", e.target.value)}
+                className={`${inputClass} w-full tabular-nums`}
+              />
+            </Field>
+
+            <Field
+              label="Sex (for running estimates)"
+              hint="Optional. Used only for running pace projections."
+            >
+              <select
+                aria-label="Sex for running estimates"
+                value={draft.sex}
+                disabled={disabled}
+                onChange={(e) => set("sex", e.target.value as Draft["sex"])}
+                className={`${inputClass} w-full`}
+              >
+                <option value="">Not set</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
             </Field>
           </Card>
 
