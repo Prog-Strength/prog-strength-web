@@ -206,13 +206,12 @@ describe("StepsView — goal-relative bars", () => {
 });
 
 describe("StepsView — ring-row log", () => {
-  it("shows a per-day goal-% on each row", async () => {
+  it("shows a per-day goal-% on each row in the expanded week", async () => {
     getStepsGoalMock.mockResolvedValue({ goal: 10000, created_at: "x", updated_at: "x" });
     render(<StepsView days={30} />);
     await waitFor(() => expect(screen.getByTestId("hero-average")).toBeInTheDocument());
-    // Row percents: 8000 ⇒ 80%, 12000 ⇒ 120%.
+    // Row percents: 8000 ⇒ 80%, 12000 ⇒ 120% (current week expanded by default).
     expect(screen.getByText("80%")).toBeInTheDocument();
-    // 120% appears both in the hero (avg 10k ⇒ 100% here, so distinct) and the row.
     expect(screen.getByText("120%")).toBeInTheDocument();
   });
 
@@ -224,8 +223,8 @@ describe("StepsView — ring-row log", () => {
   });
 });
 
-describe("StepsView — keyset pagination", () => {
-  it("shows Load more when next_before is set and fetches with before on click", async () => {
+describe("StepsView — week pagination", () => {
+  it("fetches the next keyset page when navigating to an older week page", async () => {
     listStepsMock.mockImplementation((_token: string, opts: { before?: string } = {}) => {
       if (opts.before) {
         return Promise.resolve({ steps: [entry(daysAgo(40), 5000)], next_before: null });
@@ -237,9 +236,10 @@ describe("StepsView — keyset pagination", () => {
     });
 
     render(<StepsView days={30} />);
+    await waitFor(() => expect(screen.getByTestId("hero-average")).toBeInTheDocument());
 
-    const loadMore = await screen.findByRole("button", { name: /load more/i });
-    fireEvent.click(loadMore);
+    const older = await screen.findByRole("button", { name: /older/i });
+    fireEvent.click(older);
 
     await waitFor(() =>
       expect(listStepsMock).toHaveBeenCalledWith("tok", { limit: 25, before: YESTERDAY }),
@@ -257,7 +257,7 @@ describe("StepsView — mutations", () => {
     const callsBefore = listStepsMock.mock.calls.length;
     fireEvent.click(deleteButtons[0]);
 
-    await waitFor(() => expect(deleteStepsMock).toHaveBeenCalledWith("tok", YESTERDAY));
+    await waitFor(() => expect(deleteStepsMock).toHaveBeenCalledWith("tok", TODAY));
     await waitFor(() => expect(listStepsMock.mock.calls.length).toBeGreaterThan(callsBefore));
   });
 
@@ -265,13 +265,13 @@ describe("StepsView — mutations", () => {
     upsertStepsMock.mockResolvedValue(undefined);
     render(<StepsView days={30} />);
     const editButtons = await screen.findAllByRole("button", { name: /edit steps/i });
-    fireEvent.click(editButtons[0]); // edit the YESTERDAY row
+    fireEvent.click(editButtons[0]); // edit the newest row (today)
 
     const stepsInput = await screen.findByPlaceholderText("10000");
     fireEvent.change(stepsInput, { target: { value: "9500" } });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(upsertStepsMock).toHaveBeenCalledWith("tok", YESTERDAY, 9500));
+    await waitFor(() => expect(upsertStepsMock).toHaveBeenCalledWith("tok", TODAY, 9500));
   });
 
   it("opens the Log steps modal from the toolbar and upserts a new day", async () => {

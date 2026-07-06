@@ -22,9 +22,10 @@ import {
   type StepsEntry,
   type StepsGoal,
 } from "@/lib/api";
+import { StepsLogAccordion } from "@/components/activities/steps-log-accordion";
+import { bucketByWeek, WEEKS_PER_PAGE } from "@/lib/steps-grouping";
 import {
   buildAxis,
-  dayPct,
   deriveStats,
   isoDate,
   parseLocalDate,
@@ -56,11 +57,11 @@ const MAX_STEPS = 200000;
  *   - A goal-relative bar chart: a muted base climbs to the goal line and a
  *     success crest tops days that clear it; unlogged days are gaps (never
  *     0-step bars). With no goal every bar reads in the calm accent.
- *   - A keyset-paginated log table, each row carrying a per-day mini-ring +
- *     goal-%, with Log / Edit / Delete affordances and a "Set steps goal"
- *     control.
+ *   - A week-accordion log: collapsible Mon–Sun sections with week summaries,
+ *     four weeks per page, and day ring-rows with Log / Edit / Delete inside
+ *     an expanded week.
  *
- * The ring + strip + bars read the `days` window (range fetch); the log table
+ * The ring + strip + bars read the `days` window (range fetch); the log
  * paginates independently of the window via keyset cursors. Both refetch after
  * any mutation so the view reflects the saved value immediately. Everything the
  * view shows is derived client-side (`lib/steps-stats`) from the existing
@@ -71,10 +72,12 @@ export function StepsView({ days }: { days: number | null }) {
 
   // Range-windowed entries powering the ring + strip + chart.
   const [rangeEntries, setRangeEntries] = useState<StepsEntry[] | null>(null);
-  // Keyset-paginated entries powering the log table.
+  // Keyset-paginated entries powering the week accordion.
   const [logEntries, setLogEntries] = useState<StepsEntry[] | null>(null);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [weekPage, setWeekPage] = useState(0);
+  const [accordionResetKey, setAccordionResetKey] = useState(0);
   const [goal, setGoal] = useState<StepsGoal | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,7 +99,7 @@ export function StepsView({ days }: { days: number | null }) {
   );
 
   // Range fetch (ring + strip + chart) + goal + first keyset page of the log
-  // table. Reused on mount, on `days` change, and after any mutation.
+  // accordion. Reused on mount, on `days` change, and after any mutation.
   const refetch = useCallback(() => {
     const token = getToken();
     if (!token) {
@@ -116,6 +119,8 @@ export function StepsView({ days }: { days: number | null }) {
         setGoal(g);
         setLogEntries(firstPage.steps);
         setNextBefore(firstPage.next_before);
+        setWeekPage(0);
+        setAccordionResetKey((k) => k + 1);
       })
       .catch((err: unknown) => {
         if (handleAuthError(err)) return;
@@ -127,12 +132,25 @@ export function StepsView({ days }: { days: number | null }) {
     refetch();
   }, [refetch]);
 
-  function loadMore() {
+  const hasGoal = goal !== null && goal.goal > 0;
+  const goalValue = hasGoal ? goal.goal : null;
+
+  const weeks = useMemo(() => bucketByWeek(logEntries ?? [], goalValue), [logEntries, goalValue]);
+  const pageCount = Math.max(1, Math.ceil(weeks.length / WEEKS_PER_PAGE));
+  const showPager = pageCount > 1 || nextBefore !== null;
+  const canGoOlder =
+    weekPage < pageCount - 1 || (weekPage === pageCount - 1 && nextBefore !== null);
+
+  useEffect(() => {
+    if (logEntries === null || loadingMore) return;
+    if (weeks.length > weekPage * WEEKS_PER_PAGE || nextBefore === null) return;
+
     const token = getToken();
-    if (!token || !nextBefore) {
-      if (!token) router.replace("/login");
+    if (!token) {
+      router.replace("/login");
       return;
     }
+
     setLoadingMore(true);
     listSteps(token, { limit: PAGE_SIZE, before: nextBefore })
       .then((page) => {
@@ -144,7 +162,7 @@ export function StepsView({ days }: { days: number | null }) {
         setError(err instanceof Error ? err.message : "Failed to load more steps");
       })
       .finally(() => setLoadingMore(false));
-  }
+  }, [logEntries, loadingMore, weekPage, weeks.length, nextBefore, router, handleAuthError]);
 
   function handleSave(date: string, steps: number): Promise<void> {
     const token = getToken();
@@ -180,9 +198,6 @@ export function StepsView({ days }: { days: number | null }) {
       refetch();
     });
   }
-
-  const hasGoal = goal !== null && goal.goal > 0;
-  const goalValue = hasGoal ? goal.goal : null;
 
   const stats = useMemo(
     () => deriveStats(rangeEntries ?? [], days, goalValue ?? 0),
@@ -242,14 +257,18 @@ export function StepsView({ days }: { days: number | null }) {
               {logEntries !== null && logEntries.length === 0 ? (
                 <EmptyState onLog={() => setShowLog(true)} />
               ) : (
-                <StepsTable
+                <StepsLogAccordion
                   entries={logEntries ?? []}
                   goal={goalValue}
                   onEdit={(e) => setEditingEntry(e)}
                   onDelete={(date) => handleDelete(date)}
-                  hasMore={nextBefore !== null}
+                  weekPage={weekPage}
+                  onWeekPageChange={setWeekPage}
+                  pageCount={pageCount}
+                  showPager={showPager}
+                  canGoOlder={canGoOlder}
                   loadingMore={loadingMore}
-                  onLoadMore={loadMore}
+                  resetKey={accordionResetKey}
                 />
               )}
             </section>
@@ -385,30 +404,6 @@ function Ring({ pct, center, cleared }: { pct: number | null; center: string; cl
         )}
       </div>
     </div>
-  );
-}
-
-function MiniRing({ pct, hit }: { pct: number | null; hit: boolean }) {
-  const r = 8;
-  const c = 2 * Math.PI * r;
-  const frac = pct === null ? 0 : Math.min(pct, 100) / 100;
-  return (
-    <svg viewBox="0 0 22 22" className="h-6 w-6 -rotate-90" aria-hidden="true">
-      <circle cx="11" cy="11" r={r} fill="none" stroke="var(--surface-3)" strokeWidth="3" />
-      {pct !== null && (
-        <circle
-          cx="11"
-          cy="11"
-          r={r}
-          fill="none"
-          stroke={hit ? "var(--success)" : "var(--accent)"}
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - frac)}
-        />
-      )}
-    </svg>
   );
 }
 
@@ -578,83 +573,7 @@ function BarsTooltip({
   );
 }
 
-// --- Table --------------------------------------------------------
-
-function StepsTable({
-  entries,
-  goal,
-  onEdit,
-  onDelete,
-  hasMore,
-  loadingMore,
-  onLoadMore,
-}: {
-  entries: StepsEntry[];
-  goal: number | null;
-  onEdit: (entry: StepsEntry) => void;
-  onDelete: (date: string) => Promise<void>;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <ul className="flex flex-col gap-2">
-        {entries.map((e) => {
-          const pct = dayPct(e.steps, goal ?? 0);
-          const hit = goal !== null && e.steps >= goal;
-          return (
-            <li
-              key={e.id}
-              className="flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
-            >
-              <MiniRing pct={pct} hit={hit} />
-              <span className="flex-1 text-[13px] text-[var(--muted)]">
-                {formatRowDate(e.date)}
-              </span>
-              <span className="text-[15px] font-semibold tabular-nums">{formatSteps(e.steps)}</span>
-              {pct !== null && (
-                <span
-                  className="w-11 text-right text-[12px] font-medium tabular-nums"
-                  style={{ color: hit ? "var(--success)" : "var(--muted)" }}
-                >
-                  {pct}%
-                </span>
-              )}
-              <div className="inline-flex items-center gap-1">
-                <IconButton aria-label="Edit steps" tone="muted" onClick={() => onEdit(e)}>
-                  <PencilIcon />
-                </IconButton>
-                <IconButton
-                  aria-label="Delete steps"
-                  tone="danger"
-                  onClick={() => {
-                    void onDelete(e.date);
-                  }}
-                >
-                  <TrashIcon />
-                </IconButton>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      {hasMore && (
-        <div className="pt-1 text-center">
-          <button
-            type="button"
-            onClick={onLoadMore}
-            disabled={loadingMore}
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs hover:opacity-80 disabled:opacity-50"
-          >
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+// --- Log accordion (day rows live in steps-log-accordion.tsx) ------------
 
 function EmptyState({ onLog }: { onLog: () => void }) {
   return (
@@ -1030,33 +949,6 @@ function GoalAffordance({ goal, onClick }: { goal: number | null; onClick: () =>
   );
 }
 
-function IconButton({
-  tone,
-  onClick,
-  "aria-label": ariaLabel,
-  children,
-}: {
-  tone: "muted" | "danger";
-  onClick: () => void;
-  "aria-label": string;
-  children: React.ReactNode;
-}) {
-  const toneClass =
-    tone === "danger"
-      ? "text-[var(--danger)] hover:text-[var(--danger)]"
-      : "text-[var(--muted)] hover:text-[var(--foreground)]";
-  return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      onClick={onClick}
-      className={`inline-flex items-center justify-center rounded p-1 transition hover:bg-white/5 ${toneClass}`}
-    >
-      {children}
-    </button>
-  );
-}
-
 function PencilIcon() {
   return (
     <svg
@@ -1071,27 +963,6 @@ function PencilIcon() {
     >
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4"
-      aria-hidden="true"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
     </svg>
   );
 }
@@ -1139,13 +1010,5 @@ function formatTooltipDate(date: string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
-}
-
-function formatRowDate(date: string): string {
-  return parseLocalDate(date).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
   });
 }
