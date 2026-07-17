@@ -24,6 +24,7 @@ import { formatStartDateTime, runFallbackName } from "../_components/RunListRow"
 import { TreadmillBadge } from "../_components/TreadmillBadge";
 import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
 import { RunHeaderBand } from "./_components/RunHeaderBand";
+import { RunRouteMap } from "./_components/RunRouteMap";
 import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceRecap } from "./_components/PaceRecap";
 import { HeartRateZones } from "./_components/HeartRateZones";
@@ -364,6 +365,7 @@ export default function RunningDetailPage() {
               )}
             </div>
           )}
+          <RunRouteMap route={session.route} />
           <SplitsSpine
             splits={session.splits ?? []}
             intervals={

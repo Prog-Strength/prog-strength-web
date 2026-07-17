@@ -94,6 +94,27 @@ vi.mock("@/components/toast", () => ({
   useToast: () => ({ success: toastSuccessMock, error: toastErrorMock }),
 }));
 
+// The page mounts RunRouteMap, which imports maplibre-gl. The real module
+// touches browser APIs (window.URL.createObjectURL) at import time that jsdom
+// lacks, so stub it out — mirroring RunRouteMap.test.tsx. This page suite
+// doesn't assert on the map; RunRouteMap has its own dedicated test.
+const mapCtor = vi.hoisted(() =>
+  vi.fn(() => ({
+    addSource: vi.fn(),
+    addLayer: vi.fn(),
+    fitBounds: vi.fn(),
+    on: vi.fn((event: string, cb: () => void) => {
+      if (event === "load") cb();
+    }),
+    remove: vi.fn(),
+  })),
+);
+vi.mock("maplibre-gl", () => ({
+  default: { Map: mapCtor },
+  Map: mapCtor,
+}));
+vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
+
 import RunningDetailPage from "./page";
 
 import { intervalTrackpoints, synthesize } from "@/lib/test-fixtures/running-trackpoints";
