@@ -1677,6 +1677,28 @@ export type HeartRateZones = {
   zones: HeartRateZone[];
 };
 
+// A simplified GPS route as a GeoJSON Feature (RFC 7946): a MultiLineString
+// whose coordinates are [longitude, latitude] pairs, plus a pre-computed
+// bounding box the map fits its camera to. Present on the activity-detail
+// response only for runs recorded with GPS; absent for indoor / no-GPS runs.
+export type RouteBounds = {
+  min_lat: number;
+  min_lng: number;
+  max_lat: number;
+  max_lng: number;
+};
+
+export type RouteFeature = {
+  type: "Feature";
+  geometry: {
+    type: "MultiLineString";
+    coordinates: number[][][]; // [segment][point][lng, lat]
+  };
+  properties: {
+    bounds: RouteBounds;
+  };
+};
+
 export type RunningSession = {
   id: string;
   activity_type: ActivityType;
@@ -1704,6 +1726,9 @@ export type RunningSession = {
   trackpoints?: RunningTrackpoint[];
   // Backend-computed time-in-zone breakdown; absent when the run has no HR.
   heart_rate_zones?: HeartRateZones;
+  // Simplified GPS route for the map; present only on the detail GET for
+  // GPS-recorded runs. Absent for indoor / no-GPS activities.
+  route?: RouteFeature;
   // Server-derived detail blocks (running only; absent on list responses).
   // The page renders these verbatim — no client-side re-derivation.
   unit?: "mi" | "km";
