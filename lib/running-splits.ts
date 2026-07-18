@@ -11,8 +11,8 @@
 
 import type { RunningTrackpoint } from "./api";
 
-const METERS_PER_MILE = 1609.344;
-const METERS_PER_KM = 1000;
+export const METERS_PER_MILE = 1609.344;
+export const METERS_PER_KM = 1000;
 const KM_PER_MILE = METERS_PER_MILE / METERS_PER_KM; // 1.609344
 
 export type DistanceUnit = "mi" | "km";

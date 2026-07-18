@@ -17,6 +17,7 @@ import {
   requestFollow,
   setRunningSessionEnvironment,
   unlinkPlannedWorkout,
+  updateRunningSessionNotes,
 } from "@/lib/api";
 
 // Unit tests for the running best-efforts + 1RM history client methods.
@@ -780,6 +781,50 @@ describe("setRunningSessionEnvironment", () => {
   it("throws when the API returns no activity", async () => {
     mockFetchOk(null);
     await expect(setRunningSessionEnvironment(TOKEN, "run-9", "outdoor")).rejects.toThrow(
+      "did not return the updated activity",
+    );
+  });
+});
+
+describe("updateRunningSessionNotes", () => {
+  const updated = {
+    id: "run-9",
+    activity_type: "running",
+    environment: "outdoor",
+    notes: "felt strong on the back half",
+  };
+
+  it("PATCHes with only the notes body + bearer and returns the session", async () => {
+    const fetchMock = mockFetchOk(updated);
+
+    const result = await updateRunningSessionNotes(TOKEN, "run-9", "felt strong on the back half");
+
+    expect(result).toEqual(updated);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/run-9`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ notes: "felt strong on the back half" }),
+    });
+    // The body carries exactly the notes key — no name/other fields.
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).toEqual({ notes: "felt strong on the back half" });
+  });
+
+  it("sends an empty string to clear the notes", async () => {
+    const fetchMock = mockFetchOk({ ...updated, notes: null });
+
+    await updateRunningSessionNotes(TOKEN, "run-9", "");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).toEqual({ notes: "" });
+  });
+
+  it("throws when the API returns no activity", async () => {
+    mockFetchOk(null);
+    await expect(updateRunningSessionNotes(TOKEN, "run-9", "hi")).rejects.toThrow(
       "did not return the updated activity",
     );
   });
