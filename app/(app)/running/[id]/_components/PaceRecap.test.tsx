@@ -28,7 +28,7 @@ function summary(dropouts: number): RunningStripSummary {
 
 function lineStrokePaths(container: HTMLElement): SVGPathElement[] {
   return Array.from(container.querySelectorAll("path")).filter(
-    (p) => p.getAttribute("stroke") === "var(--accent)",
+    (p) => p.getAttribute("stroke") === "var(--discipline-run-dot)",
   );
 }
 
