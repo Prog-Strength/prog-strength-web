@@ -12,21 +12,25 @@ import {
   renameRunningSession,
   setRunningSessionEnvironment,
   unlinkPlannedWorkout,
+  updateRunningSessionNotes,
   type PlannedWorkout,
   type RunningSession,
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
-import { formatPaceClock } from "@/lib/pace-format";
 import { buildPaceStrip, parseTargetPace } from "@/lib/running-splits";
+import { buildHeartRateStrip, buildElevationStrip, hasPlottableSeries } from "@/lib/running-traces";
 import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
 import { TreadmillBadge } from "../_components/TreadmillBadge";
 import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
-import { RunHeaderBand } from "./_components/RunHeaderBand";
+import { NotesEditor } from "./_components/NotesEditor";
 import { RunRouteMap } from "./_components/RunRouteMap";
+import { SectionKicker } from "./_components/SectionKicker";
 import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceRecap } from "./_components/PaceRecap";
+import { HeartRateRecap } from "./_components/HeartRateRecap";
+import { ElevationRecap } from "./_components/ElevationRecap";
 import { HeartRateZones } from "./_components/HeartRateZones";
 
 /**
@@ -101,6 +105,14 @@ export default function RunningDetailPage() {
     () => buildPaceStrip(session?.trackpoints ?? [], unit),
     [session, unit],
   );
+  const hrStrip = useMemo(
+    () => buildHeartRateStrip(session?.trackpoints ?? [], unit),
+    [session, unit],
+  );
+  const elevStrip = useMemo(
+    () => buildElevationStrip(session?.trackpoints ?? [], unit),
+    [session, unit],
+  );
   const targetPace = useMemo(
     () => parseTargetPace(completesPlan?.run_details ?? null, unit),
     [completesPlan, unit],
@@ -126,6 +138,28 @@ export default function RunningDetailPage() {
       setSession(prev);
       if (handleAuthError(err)) return;
       toast.error(err instanceof Error ? err.message : "Rename failed");
+    }
+  }
+
+  async function handleSaveNotes(next: string) {
+    if (!session) return;
+    const current = session.notes ?? "";
+    if (next === current) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    const prev = session;
+    // Optimistic — splice the new note in, roll back on failure.
+    setSession({ ...session, notes: next });
+    try {
+      const updated = await updateRunningSessionNotes(token, id, next);
+      setSession((s) => (s ? { ...s, ...updated, trackpoints: s.trackpoints } : updated));
+    } catch (err) {
+      setSession(prev);
+      if (handleAuthError(err)) return;
+      toast.error(err instanceof Error ? err.message : "Failed to save note");
     }
   }
 
@@ -257,84 +291,102 @@ export default function RunningDetailPage() {
   const isRun = session.activity_type === "running";
   const isIndoorRun = isRun && session.environment === "indoor";
 
+  const planName = completesPlan?.name ?? (completesPlan ? "Planned run" : null);
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex flex-col gap-2 border-b border-[var(--border)] px-6 py-4">
+      {/* Slim utility chrome: back link + delete. The title/date/notes move
+          into the editorial body below. */}
+      <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3">
         <Link
           href="/activities?view=running"
           className="w-fit text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
         >
           ← Runs
         </Link>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setConfirmingDelete(true)}
+          className="shrink-0 rounded-md border border-[var(--danger)]/40 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
+        >
+          Delete
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-6 py-8">
+        <div className="mx-auto flex max-w-2xl flex-col gap-10">
+          {/* 1 — Editorial lead: date kicker → 4xl title → notes as prose. */}
+          <div className="flex flex-col gap-4">
+            <p className="text-[11px] uppercase tracking-wider text-[var(--faint)]">
+              {formatStartDateTime(session.start_time)}
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
               <EditableName
                 name={session.name}
                 fallback={runFallbackName(session.start_time)}
                 onSave={handleRename}
+                textClass="text-4xl"
               />
               {isIndoorRun && <TreadmillBadge />}
             </div>
-            <p className="text-xs text-[var(--muted)]">
-              {formatStartDateTime(session.start_time)} · {formatDuration(session.duration_seconds)}
-            </p>
+            <NotesEditor notes={session.notes} onSave={handleSaveNotes} />
           </div>
-          <button
-            type="button"
-            onClick={() => setConfirmingDelete(true)}
-            className="shrink-0 rounded-md border border-[var(--danger)]/40 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
-          >
-            Delete
-          </button>
-        </div>
-      </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6">
-          <RunHeaderBand
-            cells={[
-              {
-                label: "Distance",
-                value: `${formatDistance(session.distance_meters)} ${unitLabel}`,
-              },
-              { label: "Time", value: formatDuration(session.duration_seconds) },
-              {
-                label: "Avg pace",
-                value: `${formatPace(session.avg_pace_sec_per_km)} /${unitLabel}`,
-              },
-              {
-                label: "Best",
-                value:
-                  session.best_pace_sec_per_unit != null
-                    ? `${formatPaceClock(session.best_pace_sec_per_unit)} /${unitLabel}`
-                    : "—",
-              },
-              {
-                label: "Avg HR",
-                value: session.avg_heart_rate_bpm != null ? `${session.avg_heart_rate_bpm}` : "—",
-              },
-              {
-                label: "Max HR",
-                value: session.max_heart_rate_bpm != null ? `${session.max_heart_rate_bpm}` : "—",
-              },
-              {
-                label: "Calories",
-                value: session.total_calories != null ? String(session.total_calories) : "—",
-              },
-              {
-                label: "Elev",
-                value:
-                  session.elevation_gain_meters != null
-                    ? `${session.elevation_gain_meters.toFixed(0)} m`
-                    : "—",
-              },
-            ]}
-            planName={completesPlan?.name ?? (completesPlan ? "Planned run" : null)}
-            prescription={completesPlan?.run_details ?? null}
-            onUnlink={completesPlan ? handleUnlink : undefined}
-            unlinking={unlinking}
-          />
+          {/* 2 — Quiet inline strip: numbers support, they don't lead. */}
+          <dl className="flex flex-wrap gap-x-8 gap-y-3 border-y border-[var(--border)] py-4">
+            <StripEntry
+              label="Distance"
+              value={`${formatDistance(session.distance_meters)} ${unitLabel}`}
+            />
+            <StripEntry label="Time" value={formatDuration(session.duration_seconds)} />
+            <StripEntry
+              label="Avg pace"
+              value={`${formatPace(session.avg_pace_sec_per_km)} /${unitLabel}`}
+            />
+            {session.elevation_gain_meters != null && (
+              <StripEntry
+                label="Elev gain"
+                value={`${session.elevation_gain_meters.toFixed(0)} m`}
+              />
+            )}
+            {session.avg_heart_rate_bpm != null && (
+              <StripEntry label="Avg HR" value={`${session.avg_heart_rate_bpm}`} />
+            )}
+            {session.total_calories != null && (
+              <StripEntry label="Calories" value={String(session.total_calories)} />
+            )}
+          </dl>
+
+          {/* 3 — Plan context: ✓ pill + unlink + prescription, directly under
+              the strip (SOW Resolved Q1). */}
+          {completesPlan && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                  style={{
+                    background: "var(--discipline-run-bg)",
+                    color: "var(--discipline-run-fg)",
+                  }}
+                >
+                  ✓ {planName}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleUnlink}
+                  disabled={unlinking}
+                  className="text-xs text-[var(--muted)] transition hover:text-[var(--danger)] disabled:opacity-50"
+                >
+                  {unlinking ? "Unlinking…" : "Unlink"}
+                </button>
+              </div>
+              {completesPlan.run_details && (
+                <p className="text-xs text-[var(--muted)]">{completesPlan.run_details}</p>
+              )}
+            </div>
+          )}
+
+          {/* 4 — Operational chrome: quiet editorial line (run only). */}
           {isRun && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <EnvironmentToggle
@@ -365,22 +417,53 @@ export default function RunningDetailPage() {
               )}
             </div>
           )}
+
+          {/* 5 — Route map (self-hides when route is undefined). */}
           <RunRouteMap route={session.route} />
-          <SplitsSpine
-            splits={session.splits ?? []}
-            intervals={
-              // The run-type gate stays client-side: the server always
-              // computes candidate intervals; show them only when the linked
-              // plan says intervals.
-              completesPlan?.run_type === "intervals" ? (session.intervals ?? null) : null
-            }
-            unitLabel={unitLabel}
-            formatDistance={formatDistance}
-            hasTargetColumn={targetPace != null}
-            targetPaceSecPerUnit={targetPace}
-          />
+
+          {/* 6 — The Miles. */}
+          <section className="flex flex-col gap-3">
+            <SectionKicker>The Miles</SectionKicker>
+            <SplitsSpine
+              splits={session.splits ?? []}
+              intervals={
+                // The run-type gate stays client-side: the server always
+                // computes candidate intervals; show them only when the linked
+                // plan says intervals.
+                completesPlan?.run_type === "intervals" ? (session.intervals ?? null) : null
+              }
+              unitLabel={unitLabel}
+              formatDistance={formatDistance}
+              hasTargetColumn={targetPace != null}
+              targetPaceSecPerUnit={targetPace}
+            />
+          </section>
+
+          {/* 7 — Sibling recaps. */}
           <PaceRecap points={paceStrip} stripSummary={session.strip_summary ?? null} unit={unit} />
-          <HeartRateZones zones={session.heart_rate_zones} />
+          {hasPlottableSeries(hrStrip) && (
+            <HeartRateRecap
+              points={hrStrip}
+              avgBpm={session.avg_heart_rate_bpm}
+              maxBpm={session.max_heart_rate_bpm}
+              unit={unit}
+            />
+          )}
+          {hasPlottableSeries(elevStrip) && (
+            <ElevationRecap
+              points={elevStrip}
+              gainMeters={session.elevation_gain_meters}
+              unit={unit}
+            />
+          )}
+
+          {/* 8 — Time in heart-rate zones (gate the whole section). */}
+          {session.heart_rate_zones && session.heart_rate_zones.zones.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <SectionKicker>Time in heart-rate zones</SectionKicker>
+              <HeartRateZones zones={session.heart_rate_zones} />
+            </section>
+          )}
         </div>
       </div>
 
@@ -451,6 +534,22 @@ function EnvironmentToggle({
   );
 }
 
+/**
+ * One entry of the quiet inline strip: a value over a small uppercase label.
+ * Numbers SUPPORT — they don't lead — so the value sits at reading size, the
+ * label as faint metadata beneath it.
+ */
+function StripEntry({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <dd className="text-base font-semibold tabular-nums tracking-[-0.03em] text-[var(--foreground)]">
+        {value}
+      </dd>
+      <dt className="text-[10px] uppercase tracking-wider text-[var(--faint)]">{label}</dt>
+    </div>
+  );
+}
+
 function CenteredMessage({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-1 px-6 py-10 text-center">
@@ -468,10 +567,12 @@ function EditableName({
   name,
   fallback,
   onSave,
+  textClass = "text-lg",
 }: {
   name: string | null;
   fallback: string;
   onSave: (name: string) => void;
+  textClass?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -509,7 +610,7 @@ function EditableName({
             setEditing(false);
           }
         }}
-        className="w-full max-w-sm rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-lg font-semibold tracking-tight outline-none focus:border-[var(--accent)]"
+        className={`w-full max-w-xl rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 font-semibold tracking-tight outline-none focus:border-[var(--accent)] ${textClass}`}
       />
     );
   }
@@ -519,7 +620,7 @@ function EditableName({
       type="button"
       onClick={start}
       title="Click to rename"
-      className="group flex w-fit items-center gap-2 text-left text-lg font-semibold tracking-tight"
+      className={`group flex w-fit items-center gap-2 text-left font-semibold tracking-tight ${textClass}`}
     >
       <span className="truncate">{name?.trim() || fallback}</span>
       <PencilIcon />
