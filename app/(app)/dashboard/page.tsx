@@ -22,6 +22,7 @@ import { MacroBar } from "./_components/macro-bar";
 import { Kpi, type KpiDelta } from "./_components/kpi";
 import { CommandBar } from "./_components/command-bar";
 import { MiniCard, MiniCardEmpty, MiniCardSkeleton } from "./_components/mini-card";
+import { RecoveryCard } from "./_components/whoop-card";
 
 /**
  * Dashboard — the command-center surface.
@@ -48,6 +49,7 @@ const DEEP_LINKS = {
   steps: "/activities?view=steps",
   nutrition: "/nutrition",
   bodyweight: "/bodyweight",
+  recovery: "/settings?tab=integrations",
   streak: "/activities",
 } as const;
 
@@ -146,6 +148,9 @@ export default function DashboardPage() {
                 <StepsCard section={data.steps} />
                 <NutritionCard section={data.nutrition} />
                 <BodyweightCard section={data.bodyweight} />
+                {data.recovery.present && (
+                  <RecoveryCard section={data.recovery} href={DEEP_LINKS.recovery} />
+                )}
                 <StreakCard streak={data.streak} />
               </CardGrid>
             </>

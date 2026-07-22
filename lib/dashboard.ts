@@ -24,6 +24,7 @@ import type {
   DashboardLifting,
   DashboardMacros,
   DashboardNutrition,
+  DashboardRecovery,
   DashboardRunning,
   DashboardSteps,
   DashboardStreak,
@@ -112,6 +113,17 @@ export type BodyweightView = {
 };
 
 /**
+ * Display view-model for the recovery widget (Whoop-sourced). Present only
+ * for a connected user; the page renders NO card when absent. `restingToday`
+ * / `recoveryScore` are null when Whoop has no reading yet today.
+ */
+export type RecoveryView = {
+  restingToday: number | null;
+  recoveryScore: number | null;
+  spark: number[]; // resting-HR trend, oldest→newest
+};
+
+/**
  * Display view-model for the streak widget. Always present; `isNew`
  * distinguishes a brand-new (all-zero) streak from a present-but-zero
  * week so the page can render a distinct welcome state.
@@ -136,6 +148,7 @@ export type DashboardData = {
   steps: Section<StepsView>;
   nutrition: Section<NutritionView>;
   bodyweight: Section<BodyweightView>;
+  recovery: Section<RecoveryView>;
   streak: StreakView; // always present
 };
 
@@ -213,6 +226,14 @@ function adaptBodyweight(bodyweight: DashboardBodyweight): BodyweightView {
   };
 }
 
+function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
+  return {
+    restingToday: recovery.today?.resting_heart_rate ?? null,
+    recoveryScore: recovery.today?.recovery_score ?? null,
+    spark: sanitizeSpark(recovery.resting_hr_spark),
+  };
+}
+
 function adaptStreak(streak: DashboardStreak): StreakView {
   const isNew =
     streak.weeks === 0 &&
@@ -245,6 +266,7 @@ export function adaptDashboard(
       steps: { present: false },
       nutrition: { present: false },
       bodyweight: { present: false },
+      recovery: { present: false },
       streak: { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
     };
   }
@@ -262,6 +284,9 @@ export function adaptDashboard(
       : { present: false },
     bodyweight: summary.bodyweight
       ? { present: true, ...adaptBodyweight(summary.bodyweight) }
+      : { present: false },
+    recovery: summary.recovery
+      ? { present: true, ...adaptRecovery(summary.recovery) }
       : { present: false },
     streak: adaptStreak(summary.streak),
   };
