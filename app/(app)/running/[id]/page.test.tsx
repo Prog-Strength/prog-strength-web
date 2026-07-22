@@ -40,6 +40,7 @@ const deleteRunningSessionMock = vi.hoisted(() => vi.fn());
 const unlinkPlannedWorkoutMock = vi.hoisted(() => vi.fn());
 const calibrateRunningSessionMock = vi.hoisted(() => vi.fn());
 const setRunningSessionEnvironmentMock = vi.hoisted(() => vi.fn());
+const updateRunningSessionNotesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
@@ -50,6 +51,7 @@ vi.mock("@/lib/api", async (orig) => ({
   unlinkPlannedWorkout: unlinkPlannedWorkoutMock,
   calibrateRunningSession: calibrateRunningSessionMock,
   setRunningSessionEnvironment: setRunningSessionEnvironmentMock,
+  updateRunningSessionNotes: updateRunningSessionNotesMock,
 }));
 
 // Distance-unit + toast contexts are mocked directly (matching the running
@@ -355,6 +357,10 @@ beforeEach(() => {
   unlinkPlannedWorkoutMock.mockResolvedValue({ ...intervalsPlan(), status: "planned" });
   calibrateRunningSessionMock.mockReset();
   setRunningSessionEnvironmentMock.mockReset();
+  updateRunningSessionNotesMock.mockImplementation(async (_t, _id, notes) => ({
+    ...runningSession([]),
+    notes,
+  }));
 });
 
 afterEach(() => {
@@ -380,16 +386,16 @@ describe("RunningDetailPage — splits ledger", () => {
     const partialRow = screen.getByText("0.2 mi").closest("tr")!;
     expect(within(partialRow).getAllByText("8:00").length).toBeGreaterThan(0); // partial split pace
 
-    // Header band shows the session distance: 5000 m / 1609.344 ≈ "3.1 mi".
+    // The quiet strip shows the session distance: 5000 m / 1609.344 ≈ "3.1 mi".
     const distanceLabel = screen.getByText("Distance");
     const distanceCell = distanceLabel.closest("div");
     expect(distanceCell).not.toBeNull();
     expect(within(distanceCell!).getByText(/3\.1\s*mi/)).toBeInTheDocument();
 
-    // The Best tile renders the display-unit best pace (386 → 6:26 /mi).
-    const bestLabel = screen.getByText("Best");
-    const bestCell = bestLabel.closest("div");
-    expect(within(bestCell!).getByText(/6:26\s*\/mi/)).toBeInTheDocument();
+    // Best pace is NOT in the strip anymore — it moved to the Pace recap's
+    // subtitle (386 → 6:26 /mi as "Fastest").
+    expect(screen.queryByText("Best")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Fastest 6:26/).length).toBeGreaterThan(0);
   });
 
   it("Step 2a: shows the intervals toggle when the linked plan is an intervals run", async () => {
@@ -597,6 +603,120 @@ describe("RunningDetailPage — treadmill badge + environment", () => {
 
     expect(setRunningSessionEnvironmentMock).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+});
+
+describe("RunningDetailPage — notes", () => {
+  it("empty note shows the affordance; adding text saves it and renders it as prose", async () => {
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      notes: null,
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    const affordance = await screen.findByRole("button", { name: "How did this run feel?" });
+    fireEvent.click(affordance);
+
+    const textarea = screen.getByPlaceholderText("How did this run feel?");
+    fireEvent.change(textarea, { target: { value: "Felt smooth and controlled" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(updateRunningSessionNotesMock).toHaveBeenCalledWith(
+        "test-token",
+        "run-1",
+        "Felt smooth and controlled",
+      );
+    });
+    // The saved note renders as prose (whitespace-pre-wrap, click-to-edit).
+    const prose = await screen.findByText("Felt smooth and controlled");
+    expect(prose).toHaveClass("whitespace-pre-wrap");
+  });
+
+  it("rolls back and toasts when the note save fails", async () => {
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      notes: null,
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+    updateRunningSessionNotesMock.mockRejectedValue(new Error("nope"));
+
+    render(<RunningDetailPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "How did this run feel?" }));
+    const textarea = screen.getByPlaceholderText("How did this run feel?");
+    fireEvent.change(textarea, { target: { value: "Rolled back" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith("nope");
+    });
+    // The optimistic note reverts: the empty affordance is back, no prose.
+    expect(
+      await screen.findByRole("button", { name: "How did this run feel?" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Rolled back")).not.toBeInTheDocument();
+  });
+});
+
+describe("RunningDetailPage — conditional recaps + map", () => {
+  it("indoor run with no route renders no map slot", async () => {
+    getRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "indoor",
+      route: undefined,
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.queryByLabelText("Run route map")).not.toBeInTheDocument();
+  });
+
+  it("no-HR run hides the Heart rate recap and the zones section (pace + splits remain)", async () => {
+    const noHr = {
+      ...runningSession(
+        synthesize([{ meters: 2.2 * METERS_PER_MILE, paceSecPerKm: 300, sampleMeters: 10 }]),
+      ),
+      avg_heart_rate_bpm: null,
+      max_heart_rate_bpm: null,
+    };
+    delete noHr.heart_rate_zones;
+    getRunningSessionMock.mockResolvedValue(noHr);
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    // No HR recap (its <h3>Heart rate</h3>) and no zones widget/section.
+    expect(screen.queryByRole("heading", { name: "Heart rate" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Heart rate zones")).not.toBeInTheDocument();
+    expect(screen.queryByText("Time in heart-rate zones")).not.toBeInTheDocument();
+    // Pace recap and splits still render.
+    expect(screen.getByRole("heading", { name: "Pace" })).toBeInTheDocument();
+  });
+
+  it("no-elevation run hides the Elevation recap (no empty frame)", async () => {
+    const noElev = {
+      ...runningSession(
+        synthesize([
+          { meters: 2.2 * METERS_PER_MILE, paceSecPerKm: 300, hr: 150, sampleMeters: 10 },
+        ]).map((t) => ({ ...t, elevation_meters: null })),
+      ),
+      elevation_gain_meters: null,
+    };
+    getRunningSessionMock.mockResolvedValue(noElev);
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.queryByRole("heading", { name: "Elevation" })).not.toBeInTheDocument();
+    // Pace still renders.
+    expect(screen.getByRole("heading", { name: "Pace" })).toBeInTheDocument();
   });
 });
 

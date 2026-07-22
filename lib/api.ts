@@ -1724,6 +1724,9 @@ export type RunningSession = {
   created_at: string;
   // Present only on the detail GET; absent in list responses.
   trackpoints?: RunningTrackpoint[];
+  // Free-text notes. Present only on the detail GET; omitted on list
+  // responses, mirroring `trackpoints`. Null when the run has no notes.
+  notes?: string | null;
   // Backend-computed time-in-zone breakdown; absent when the run has no HR.
   heart_rate_zones?: HeartRateZones;
   // Simplified GPS route for the map; present only on the detail GET for
@@ -1915,6 +1918,31 @@ export async function renameRunningSession(
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ name }),
+  });
+  const updated = await unwrap<RunningSession | null>(resp, null);
+  if (!updated) {
+    throw new Error("API did not return the updated activity");
+  }
+  return updated;
+}
+
+/**
+ * PATCH /activities/{id}. Sets the free-text `notes` field (partial update;
+ * an empty string clears it); returns the updated row so the caller can
+ * splice it into local state.
+ */
+export async function updateRunningSessionNotes(
+  token: string,
+  id: string,
+  notes: string,
+): Promise<RunningSession> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ notes }),
   });
   const updated = await unwrap<RunningSession | null>(resp, null);
   if (!updated) {
