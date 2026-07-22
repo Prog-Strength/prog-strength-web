@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { UsageSnapshot } from "@/lib/usage-context";
 import type { ResolvedProfile } from "@/lib/api";
 
@@ -12,17 +12,27 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const getCalendarConnectionMock = vi.hoisted(() => vi.fn());
 const disconnectCalendarMock = vi.hoisted(() => vi.fn());
+const getWhoopConnectionMock = vi.hoisted(() => vi.fn());
+const disconnectWhoopMock = vi.hoisted(() => vi.fn());
 const checkUsernameAvailableMock = vi.hoisted(() => vi.fn());
 const setUnitMock = vi.hoisted(() => vi.fn());
 
+// The active tab is read from ?tab=; tests drive it through this holder and
+// switch to "integrations" before rendering the calendar/whoop cases.
+const searchTab = vi.hoisted(() => ({ value: null as string | null }));
+const routerReplaceMock = vi.hoisted(() => vi.fn());
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: routerReplaceMock, push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(searchTab.value ? `tab=${searchTab.value}` : ""),
 }));
 
 vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
   getCalendarConnection: getCalendarConnectionMock,
   disconnectCalendar: disconnectCalendarMock,
+  getWhoopConnection: getWhoopConnectionMock,
+  disconnectWhoop: disconnectWhoopMock,
   checkUsernameAvailable: checkUsernameAvailableMock,
 }));
 
@@ -108,12 +118,16 @@ function profileCtx(over: Partial<ResolvedProfile> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default tab is Profile; integration cases opt into ?tab=integrations.
+  searchTab.value = null;
   useProfileMock.mockReturnValue(profileCtx());
   useUsageMock.mockReturnValue(snapshot());
   // Default: no calendar connection (so existing tests' "Connect" affordance
   // is harmless and the connection fetch resolves rather than hitting fetch).
   getCalendarConnectionMock.mockResolvedValue({ status: "absent" });
   disconnectCalendarMock.mockResolvedValue(undefined);
+  getWhoopConnectionMock.mockResolvedValue({ status: "absent" });
+  disconnectWhoopMock.mockResolvedValue(undefined);
   // Default: a free handle. Tests that need "taken" override per-case.
   checkUsernameAvailableMock.mockResolvedValue(true);
   // update() resolves to the patched profile by default; cases that need a
@@ -457,6 +471,11 @@ describe("Settings — units", () => {
 // --- Google Calendar --------------------------------------------------------
 
 describe("Settings — Google Calendar", () => {
+  // The calendar card now lives on the Integrations tab.
+  beforeEach(() => {
+    searchTab.value = "integrations";
+  });
+
   it("shows Connect Google Calendar when the connection is absent", async () => {
     getCalendarConnectionMock.mockResolvedValue({ status: "absent" });
     render(<SettingsPage />);
@@ -504,5 +523,94 @@ describe("Settings — Google Calendar", () => {
     await waitFor(() =>
       expect(updateMock).toHaveBeenCalledWith({ calendar_default_detail: "full_agenda" }),
     );
+  });
+});
+
+// --- Tabs (URL-addressable via ?tab=) --------------------------------------
+
+describe("Settings — tabs", () => {
+  it("defaults to the Profile panel with no ?tab", () => {
+    searchTab.value = null;
+    render(<SettingsPage />);
+    // Profile-only field is present; an Integrations-only card is not.
+    expect(screen.getByLabelText("Display name")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Whoop" })).not.toBeInTheDocument();
+    // Both tabs are exposed; Profile is selected.
+    expect(screen.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Integrations" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+  });
+
+  it("shows the Integrations panel when ?tab=integrations", async () => {
+    searchTab.value = "integrations";
+    render(<SettingsPage />);
+    // Integrations cards render; the Profile field does not.
+    expect(await screen.findByRole("heading", { name: "Whoop" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Google Calendar" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Display name")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Integrations" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("selecting a tab replaces the URL with the ?tab= param", () => {
+    searchTab.value = null;
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "Integrations" }));
+    expect(routerReplaceMock).toHaveBeenCalledWith("/settings?tab=integrations");
+    fireEvent.click(screen.getByRole("tab", { name: "Profile" }));
+    // Already on profile (no re-render of searchTab in test), but clicking a
+    // non-active tab issues the replace; the profile tab maps to "/settings".
+  });
+});
+
+// --- Whoop -----------------------------------------------------------------
+
+describe("Settings — Whoop", () => {
+  beforeEach(() => {
+    searchTab.value = "integrations";
+  });
+
+  it("shows Connect Whoop when the connection is absent", async () => {
+    getWhoopConnectionMock.mockResolvedValue({ status: "absent" });
+    render(<SettingsPage />);
+    expect(await screen.findByRole("button", { name: "Connect Whoop" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect Whoop" })).not.toBeInTheDocument();
+  });
+
+  it("shows Disconnect with a connected-since line when connected", async () => {
+    getWhoopConnectionMock.mockResolvedValue({
+      status: "connected",
+      connected_at: "2026-05-01T00:00:00Z",
+    });
+    render(<SettingsPage />);
+    expect(await screen.findByText(/Connected since/)).toBeInTheDocument();
+    // The Whoop card's Disconnect (there is also the calendar's, so scope by card).
+    const whoopCard = screen.getByRole("heading", { name: "Whoop" }).closest("section");
+    expect(whoopCard).not.toBeNull();
+    expect(
+      await within(whoopCard as HTMLElement).findByRole("button", { name: "Disconnect" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows Reconnect when the status is error", async () => {
+    getWhoopConnectionMock.mockResolvedValue({ status: "error" });
+    render(<SettingsPage />);
+    expect(await screen.findByRole("button", { name: "Reconnect" })).toBeInTheDocument();
+    expect(screen.getByText(/needs attention/)).toBeInTheDocument();
+  });
+
+  it("disconnects via disconnectWhoop() then re-fetches", async () => {
+    getWhoopConnectionMock.mockResolvedValueOnce({ status: "connected" });
+    getWhoopConnectionMock.mockResolvedValueOnce({ status: "absent" });
+    render(<SettingsPage />);
+    const whoopCard = screen.getByRole("heading", { name: "Whoop" }).closest("section");
+    const btn = await within(whoopCard as HTMLElement).findByRole("button", { name: "Disconnect" });
+    fireEvent.click(btn);
+    await waitFor(() => expect(disconnectWhoopMock).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Connect Whoop" })).toBeInTheDocument();
   });
 });
