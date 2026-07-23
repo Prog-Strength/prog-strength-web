@@ -837,8 +837,11 @@ describe("listWhoopRecovery", () => {
     { date: "2026-07-02", recovery_score: null, resting_heart_rate: null, hrv_rmssd_milli: null },
   ];
 
-  it("sends timezone + local since/until dates and returns the rows", async () => {
-    const fetchMock = mockFetchOk(rows);
+  it("sends timezone + local since/until dates and unwraps the keyed list envelope", async () => {
+    // The API wraps lists in a keyed object: data = {recovery: [...]}, NOT the
+    // bare array. This test previously mocked the bare-array shape the client
+    // wished for, so the suite passed while prod threw rows.find-on-object.
+    const fetchMock = mockFetchOk({ recovery: rows });
     const result = await listWhoopRecovery(TOKEN, {
       timezone: "America/Denver",
       since: "2026-06-03",
@@ -852,7 +855,7 @@ describe("listWhoopRecovery", () => {
   });
 
   it("omits since/until when not provided", async () => {
-    const fetchMock = mockFetchOk(rows);
+    const fetchMock = mockFetchOk({ recovery: rows });
     await listWhoopRecovery(TOKEN, { timezone: "America/Denver" });
     expect(fetchMock).toHaveBeenCalledWith(`${BASE}/whoop/recovery?timezone=America%2FDenver`, {
       headers: { Authorization: `Bearer ${TOKEN}` },
@@ -861,6 +864,13 @@ describe("listWhoopRecovery", () => {
 
   it("returns an empty list when the envelope data is missing", async () => {
     mockFetchOk(undefined);
+    expect(await listWhoopRecovery(TOKEN, { timezone: "America/Denver" })).toEqual([]);
+  });
+
+  it("returns an empty list when the keyed field is missing or not an array", async () => {
+    mockFetchOk({});
+    expect(await listWhoopRecovery(TOKEN, { timezone: "America/Denver" })).toEqual([]);
+    mockFetchOk({ recovery: "not-an-array" });
     expect(await listWhoopRecovery(TOKEN, { timezone: "America/Denver" })).toEqual([]);
   });
 
