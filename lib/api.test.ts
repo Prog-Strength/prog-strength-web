@@ -13,6 +13,7 @@ import {
   getRunningSession,
   listProgression,
   listRunningBestEfforts,
+  listWhoopRecovery,
   removeFollower,
   requestFollow,
   setRunningSessionEnvironment,
@@ -827,5 +828,44 @@ describe("updateRunningSessionNotes", () => {
     await expect(updateRunningSessionNotes(TOKEN, "run-9", "hi")).rejects.toThrow(
       "did not return the updated activity",
     );
+  });
+});
+
+describe("listWhoopRecovery", () => {
+  const rows = [
+    { date: "2026-07-01", recovery_score: 72, resting_heart_rate: 54, hrv_rmssd_milli: 88.4 },
+    { date: "2026-07-02", recovery_score: null, resting_heart_rate: null, hrv_rmssd_milli: null },
+  ];
+
+  it("sends timezone + local since/until dates and returns the rows", async () => {
+    const fetchMock = mockFetchOk(rows);
+    const result = await listWhoopRecovery(TOKEN, {
+      timezone: "America/Denver",
+      since: "2026-06-03",
+      until: "2026-07-02",
+    });
+    expect(result).toEqual(rows);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${BASE}/whoop/recovery?timezone=America%2FDenver&since=2026-06-03&until=2026-07-02`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+    );
+  });
+
+  it("omits since/until when not provided", async () => {
+    const fetchMock = mockFetchOk(rows);
+    await listWhoopRecovery(TOKEN, { timezone: "America/Denver" });
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/whoop/recovery?timezone=America%2FDenver`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("returns an empty list when the envelope data is missing", async () => {
+    mockFetchOk(undefined);
+    expect(await listWhoopRecovery(TOKEN, { timezone: "America/Denver" })).toEqual([]);
+  });
+
+  it("rejects with the API error text on a non-ok response", async () => {
+    mockFetchError("boom");
+    await expect(listWhoopRecovery(TOKEN, { timezone: "America/Denver" })).rejects.toThrow("boom");
   });
 });
