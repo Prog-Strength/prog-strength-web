@@ -29,7 +29,8 @@ import {
   patchFromDraft,
   runeLength,
 } from "./_components/draft";
-import { Card, Field, SegmentedToggle, inputClass } from "./_components/primitives";
+import { Card, Field, inputClass } from "./_components/primitives";
+import { SegmentedToggle } from "@/components/segmented-toggle";
 import { SaveBar } from "./_components/SaveBar";
 import { UsernameField } from "./_components/UsernameField";
 import { WhoopConnectionRow } from "./_components/whoop-connection-row";
