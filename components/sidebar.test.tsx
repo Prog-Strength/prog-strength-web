@@ -105,7 +105,7 @@ describe("Sidebar — account anchor", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
   });
 
-  it("renders all 10 nav destinations including Dashboard", () => {
+  it("renders all 11 nav destinations including Recovery", () => {
     render(<Sidebar />);
     for (const label of [
       "Dashboard",
@@ -115,6 +115,7 @@ describe("Sidebar — account anchor", () => {
       "Calendar",
       "Nutrition",
       "Bodyweight",
+      "Recovery",
       "Progress",
       "Personal Records",
       "Settings",
@@ -162,5 +163,24 @@ describe("Sidebar — account anchor", () => {
     expect(screen.getByText("SL")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Account" }));
     expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+});
+
+describe("Sidebar — Recovery tab", () => {
+  it("renders a Recovery link pointing at /recovery, after Bodyweight and before Progress", () => {
+    render(<Sidebar />);
+    const links = screen.getAllByRole("link");
+    const recovery = screen.getByRole("link", { name: "Recovery" });
+    expect(recovery).toHaveAttribute("href", "/recovery");
+    const bodyweight = screen.getByRole("link", { name: "Bodyweight" });
+    const progress = screen.getByRole("link", { name: "Progress" });
+    expect(links.indexOf(bodyweight)).toBeLessThan(links.indexOf(recovery));
+    expect(links.indexOf(recovery)).toBeLessThan(links.indexOf(progress));
+  });
+
+  it("marks Recovery active on /recovery", () => {
+    pathnameRef.current = "/recovery";
+    render(<Sidebar />);
+    expect(screen.getByRole("link", { name: "Recovery" })).toHaveAttribute("aria-current", "page");
   });
 });

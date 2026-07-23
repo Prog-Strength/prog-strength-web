@@ -49,6 +49,7 @@ const NAV: NavItem[] = [
   // weigh the right amount today?" loop. Slotted right after the
   // food pair so the daily-tracking views cluster together.
   { href: "/bodyweight", label: "Bodyweight", icon: <ScaleIcon /> },
+  { href: "/recovery", label: "Recovery", icon: <RecoveryIcon /> },
   // Progress = analysis layered on top of the logged data — slots
   // after the raw-data views (Activities/Calendar) since it depends
   // on them conceptually.
@@ -518,6 +519,24 @@ function ScaleIcon() {
       <rect x="3" y="6" width="18" height="14" rx="2" />
       <circle cx="12" cy="13" r="3" />
       <path d="M9 10h6" />
+    </svg>
+  );
+}
+
+function RecoveryIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20.5 8.5a4.5 4.5 0 0 0-8.5-2 4.5 4.5 0 0 0-8.5 2c0 1.6 1 3.2 2.6 4.6H9l1.5-2.5 2 4 1.5-2.5h4.4C19.5 11.7 20.5 10.1 20.5 8.5Z" />
     </svg>
   );
 }

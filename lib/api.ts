@@ -3139,6 +3139,41 @@ export async function disconnectWhoop(token: string): Promise<void> {
   }
 }
 
+/**
+ * A single day's Whoop recovery row. `date` is the user-local calendar day
+ * (YYYY-MM-DD) the reading belongs to; all three metrics are nullable because
+ * Whoop may have no scored recovery for a day (PENDING/UNSCORABLE, or a night
+ * with no sleep). `hrv_rmssd_milli` is HRV in milliseconds.
+ */
+export type WhoopRecoveryDay = {
+  date: string; // YYYY-MM-DD
+  recovery_score: number | null;
+  resting_heart_rate: number | null;
+  hrv_rmssd_milli: number | null;
+};
+
+/**
+ * GET /whoop/recovery. Returns the user's daily recovery rows ordered by date
+ * for the local-date window implied by `since`/`until` (inclusive, YYYY-MM-DD)
+ * in `timezone` (IANA name, e.g. "America/Denver"), per the house
+ * timezone+local-date convention. Call sites pass local dates + the browser
+ * timezone; the client never constructs UTC instants. A user with no Whoop
+ * connection simply yields an empty list.
+ */
+export async function listWhoopRecovery(
+  token: string,
+  opts: { timezone: string; since?: string; until?: string },
+): Promise<WhoopRecoveryDay[]> {
+  const params = new URLSearchParams();
+  params.set("timezone", opts.timezone);
+  if (opts.since) params.set("since", opts.since);
+  if (opts.until) params.set("until", opts.until);
+  const resp = await fetch(`${config.apiUrl}/whoop/recovery?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<WhoopRecoveryDay[]>(resp, []);
+}
+
 // --- Social graph: profiles, follows, search ---------------------
 //
 // The social layer adds public profiles addressable by `username`, a
