@@ -188,6 +188,24 @@ describe("DashboardPage — full payload", () => {
     expect(hrefFor(/Streak/i)).toBe("/activities");
   });
 
+  it("deep-links the recovery card to /recovery", async () => {
+    summaryToReturn = {
+      ...FULL_SUMMARY,
+      recovery: {
+        today: {
+          date: "2026-07-02",
+          resting_heart_rate: 54,
+          recovery_score: 72,
+          hrv_rmssd_milli: 88,
+        },
+        resting_hr_spark: [55, 54, 56, 54],
+      },
+    };
+    render(<DashboardPage />);
+    const recovery = await screen.findByRole("link", { name: /Recovery/i });
+    expect(recovery).toHaveAttribute("href", "/recovery");
+  });
+
   it("renders the steps tile as goal-relative bars with the today headline and avg · goal meta", async () => {
     render(<DashboardPage />);
     const stepsCard = await screen.findByRole("link", { name: /Steps/i });

@@ -49,7 +49,7 @@ const DEEP_LINKS = {
   steps: "/activities?view=steps",
   nutrition: "/nutrition",
   bodyweight: "/bodyweight",
-  recovery: "/settings?tab=integrations",
+  recovery: "/recovery",
   streak: "/activities",
 } as const;
 
