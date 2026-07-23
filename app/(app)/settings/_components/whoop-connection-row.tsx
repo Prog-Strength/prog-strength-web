@@ -1,0 +1,135 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useToast } from "@/components/toast";
+import { getToken } from "@/lib/auth";
+import { config } from "@/lib/config";
+import { disconnectWhoop, getWhoopConnection, type WhoopConnection } from "@/lib/api";
+
+/**
+ * Whoop connection row. Mirrors GoogleCalendarConnectionRow: reads the
+ * connection state on mount, then offers connect / disconnect / reconnect as
+ * immediate, out-of-band actions (never governed by the profile draft/SaveBar).
+ *
+ * States:
+ *   - connected → "Connected." (+ connected-since date when present) + Disconnect.
+ *   - error → an "attention" line + Reconnect (same OAuth navigation as Connect).
+ *   - absent / revoked → recovery-sync copy + Connect Whoop.
+ *
+ * Connect/Reconnect navigate the browser to the API's OAuth connect endpoint
+ * with a return_to that lands back on the Integrations tab, so the OAuth
+ * round-trip returns the user to where they started.
+ */
+export function WhoopConnectionRow() {
+  const toast = useToast();
+  const [conn, setConn] = useState<WhoopConnection | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  // `isCancelled` lets the mount effect drop late updates after unmount
+  // (mirrors GoogleCalendarConnectionRow's idiom); `disconnect()` calls it
+  // without a guard, so it defaults to never-cancelled.
+  const load = useCallback(async (isCancelled: () => boolean = () => false) => {
+    const token = getToken();
+    if (!token) {
+      if (isCancelled()) return;
+      setLoading(false);
+      return;
+    }
+    try {
+      const next = await getWhoopConnection(token);
+      if (isCancelled()) return;
+      setConn(next);
+    } catch {
+      // Treat a read failure as "not connected" — the Connect button is a
+      // safe default and re-running the OAuth flow is idempotent.
+      if (isCancelled()) return;
+      setConn({ status: "absent" });
+    } finally {
+      if (!isCancelled()) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [load]);
+
+  // Same OAuth navigation for both Connect and Reconnect: return to the
+  // Integrations tab so the ?tab= round-trips through the flow.
+  function connect() {
+    const returnTo = `${window.location.origin}/settings?tab=integrations`;
+    window.location.href = `${config.apiUrl}/auth/whoop/connect?return_to=${encodeURIComponent(
+      returnTo,
+    )}`;
+  }
+
+  async function disconnect() {
+    const token = getToken();
+    if (!token) return;
+    setBusy(true);
+    try {
+      await disconnectWhoop(token);
+      await load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to disconnect Whoop");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const status = conn?.status;
+  const connected = status === "connected";
+  const errored = status === "error";
+
+  const statusCopy = loading
+    ? "Checking connection…"
+    : connected
+      ? connectedCopy(conn?.connected_at)
+      : errored
+        ? "Your Whoop connection needs attention — reconnect to resume syncing."
+        : "Connect Whoop to sync your daily recovery and strain.";
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">Recovery sync</p>
+        <p className="text-xs text-[var(--muted)]">{statusCopy}</p>
+      </div>
+      <div className="shrink-0">
+        {connected ? (
+          <button
+            type="button"
+            onClick={disconnect}
+            disabled={busy}
+            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+          >
+            {busy ? "Working…" : "Disconnect"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={connect}
+            disabled={loading}
+            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
+          >
+            {errored ? "Reconnect" : "Connect Whoop"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "Connected." plus a friendly since-date when the API reports one. */
+function connectedCopy(connectedAt: string | undefined): string {
+  if (!connectedAt) return "Connected. Your daily recovery and strain sync automatically.";
+  const d = new Date(connectedAt);
+  if (Number.isNaN(d.getTime()))
+    return "Connected. Your daily recovery and strain sync automatically.";
+  const since = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return `Connected since ${since}. Your daily recovery and strain sync automatically.`;
+}

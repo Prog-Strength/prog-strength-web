@@ -3108,6 +3108,37 @@ export async function disconnectCalendar(token: string): Promise<void> {
   }
 }
 
+/** The user's Whoop connection state. */
+export type WhoopConnection = {
+  status: "connected" | "revoked" | "error" | "absent";
+  connected_at?: string;
+};
+
+/** GET /me/whoop/connection. */
+export async function getWhoopConnection(token: string): Promise<WhoopConnection> {
+  const resp = await fetch(`${config.apiUrl}/me/whoop/connection`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<WhoopConnection>(resp, { status: "absent" });
+}
+
+/** DELETE /me/whoop/connection. Revokes the Whoop connection. */
+export async function disconnectWhoop(token: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/me/whoop/connection`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
 // --- Social graph: profiles, follows, search ---------------------
 //
 // The social layer adds public profiles addressable by `username`, a
@@ -3558,6 +3589,23 @@ export type DashboardBodyweight = {
 };
 
 /**
+ * The dashboard's recovery widget, sourced from Whoop. Present only for
+ * users with a connected Whoop account (omitted → null otherwise).
+ * `today` is the latest daily recovery snapshot (null when Whoop has no
+ * reading yet); `resting_hr_spark` is the recent resting-HR trend,
+ * oldest→newest.
+ */
+export type DashboardRecovery = {
+  today: {
+    date: string;
+    resting_heart_rate: number | null;
+    recovery_score: number | null;
+    hrv_rmssd_milli: number | null;
+  } | null;
+  resting_hr_spark: number[];
+};
+
+/**
  * The dashboard's streak widget. ALWAYS present (zeroed for a brand-new
  * user). `week` is 7 booleans Mon→Sun marking which days had activity.
  */
@@ -3581,6 +3629,7 @@ export type DashboardSummary = {
   steps: DashboardSteps | null;
   nutrition: DashboardNutrition | null;
   bodyweight: DashboardBodyweight | null;
+  recovery: DashboardRecovery | null;
   streak: DashboardStreak;
 };
 

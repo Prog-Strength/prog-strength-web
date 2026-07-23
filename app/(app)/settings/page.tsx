@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useProfile } from "@/lib/profile-context";
 import { useToast } from "@/components/toast";
@@ -31,6 +32,7 @@ import {
 import { Card, Field, SegmentedToggle, inputClass } from "./_components/primitives";
 import { SaveBar } from "./_components/SaveBar";
 import { UsernameField } from "./_components/UsernameField";
+import { WhoopConnectionRow } from "./_components/whoop-connection-row";
 
 /**
  * Settings. A single page-level `draft` holds every editable profile field,
@@ -76,9 +78,41 @@ function reexpressHeight(display: string, fromUnit: HeightUnit, toUnit: HeightUn
   }
 }
 
+type SettingsTab = "profile" | "integrations";
+
+const TABS: { id: SettingsTab; label: string }[] = [
+  { id: "profile", label: "Profile" },
+  { id: "integrations", label: "Integrations" },
+];
+
+/**
+ * Outer Suspense wrapper so the inner component can call `useSearchParams`
+ * without tripping Next 16's prerender requirement (mirrors the validated
+ * activities/nutrition page pattern).
+ */
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SettingsPageInner />
+    </Suspense>
+  );
+}
+
+function SettingsPageInner() {
   const toast = useToast();
+  const router = useRouter();
+  const search = useSearchParams();
   const { setUnit } = useDistanceUnit();
+
+  // URL-addressable tabs: the active tab is read from ?tab= (default profile),
+  // so `return_to=/settings?tab=integrations` round-trips through OAuth and
+  // lands the user back on Integrations. Selecting a tab replaces the URL
+  // (shallow) rather than pushing, keeping the back button out of the tabs.
+  const rawTab = search.get("tab");
+  const tab: SettingsTab = rawTab === "integrations" ? "integrations" : "profile";
+  const selectTab = (next: SettingsTab) => {
+    router.replace(next === "profile" ? "/settings" : "/settings?tab=integrations");
+  };
   const { profile, update, uploadAvatar, removeAvatar } = useProfile();
 
   // The baseline we re-seed from: only updated (a) on first load and (b) right
@@ -191,210 +225,234 @@ export default function SettingsPage() {
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
-      <header className="border-b border-[var(--border)] px-6 py-4">
+      <header className="flex flex-col gap-3 border-b border-[var(--border)] px-6 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
+        <SettingsTabs value={tab} onChange={selectTab} />
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6 pb-24">
         <div className="mx-auto flex max-w-2xl flex-col gap-6">
-          {/* Profile: avatar, display name, username, bio, and height (its unit
+          {/* Profile panel: profile fields, AI allowance, and units. The
+              draft lives on the parent, so switching tabs never drops
+              in-progress edits and the SaveBar (rendered below the panels)
+              still surfaces a dirty calendar default-detail change made on
+              the Integrations tab. */}
+          {tab === "profile" && (
+            <>
+              {/* Profile: avatar, display name, username, bio, and height (its unit
               follows the distance toggle per the plan's decision note). */}
-          <Card title="Profile">
-            <AvatarRow
-              avatarUrl={profile?.avatar_url ?? null}
-              displayName={draft.display_name}
-              disabled={disabled}
-              onPick={async (file) => {
-                if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
-                  toast.error("Use PNG, JPG, or WebP.");
-                  return;
-                }
-                if (file.size > MAX_AVATAR_BYTES) {
-                  toast.error("Image must be under 2 MB.");
-                  return;
-                }
-                try {
-                  await uploadAvatar(file);
-                } catch (err: unknown) {
-                  toast.error(err instanceof Error ? err.message : "Failed to upload avatar");
-                }
-              }}
-              onRemove={async () => {
-                try {
-                  await removeAvatar();
-                } catch (err: unknown) {
-                  toast.error(err instanceof Error ? err.message : "Failed to remove avatar");
-                }
-              }}
-            />
-
-            <Field
-              label="Display name"
-              htmlFor="settings-display-name"
-              hint={
-                nameTouched && nameEmpty ? (
-                  <span className="text-[var(--danger)]">Display name is required.</span>
-                ) : (
-                  "The name your coach calls you by."
-                )
-              }
-            >
-              <input
-                id="settings-display-name"
-                type="text"
-                aria-label="Display name"
-                value={draft.display_name}
-                maxLength={60}
-                disabled={disabled}
-                onChange={(e) => set("display_name", e.target.value)}
-                onBlur={() => setNameTouched(true)}
-                className={`${inputClass} w-full`}
-              />
-            </Field>
-
-            <Field
-              label="Username"
-              hint="Your public handle and profile URL. Changing it changes your profile link — the old one stops working (there's no redirect)."
-            >
-              <UsernameField
-                value={draft.username}
-                original={initial.username}
-                disabled={disabled}
-                onChange={(next) => set("username", next)}
-                onBlockedChange={handleOnBlocked}
-              />
-            </Field>
-
-            <Field
-              label="Bio"
-              hint={
-                <span className="flex items-center justify-between gap-2">
-                  <span>A short blurb shown on your public profile.</span>
-                  <span className="tabular-nums text-[var(--muted)]">
-                    {runeLength(draft.bio)}/{BIO_MAX_RUNES}
-                  </span>
-                </span>
-              }
-            >
-              <textarea
-                aria-label="Bio"
-                rows={3}
-                value={draft.bio}
-                disabled={disabled}
-                onChange={(e) => set("bio", clampRunes(e.target.value, BIO_MAX_RUNES))}
-                className={`${inputClass} w-full resize-none`}
-              />
-            </Field>
-
-            <Field
-              label={`Height (${heightUnit})`}
-              hint={`Shown in ${heightUnit === "in" ? "inches" : "centimeters"}; leave blank to clear.`}
-            >
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  step="any"
-                  min={0}
-                  aria-label={`Height (${heightUnit})`}
-                  placeholder={heightUnit === "in" ? "e.g. 71" : "e.g. 180"}
-                  value={draft.height}
+              <Card title="Profile">
+                <AvatarRow
+                  avatarUrl={profile?.avatar_url ?? null}
+                  displayName={draft.display_name}
                   disabled={disabled}
-                  onChange={(e) => set("height", e.target.value)}
-                  className={`${inputClass} min-w-0 flex-1 tabular-nums`}
+                  onPick={async (file) => {
+                    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+                      toast.error("Use PNG, JPG, or WebP.");
+                      return;
+                    }
+                    if (file.size > MAX_AVATAR_BYTES) {
+                      toast.error("Image must be under 2 MB.");
+                      return;
+                    }
+                    try {
+                      await uploadAvatar(file);
+                    } catch (err: unknown) {
+                      toast.error(err instanceof Error ? err.message : "Failed to upload avatar");
+                    }
+                  }}
+                  onRemove={async () => {
+                    try {
+                      await removeAvatar();
+                    } catch (err: unknown) {
+                      toast.error(err instanceof Error ? err.message : "Failed to remove avatar");
+                    }
+                  }}
                 />
-                <span className="shrink-0 text-xs text-[var(--muted)]">{heightUnit}</span>
-              </div>
-            </Field>
 
-            <Field
-              label="Birthdate"
-              hint="Optional. Improves running max-effort estimates (YYYY-MM-DD)."
-            >
-              <input
-                type="date"
-                aria-label="Birthdate"
-                value={draft.birthdate}
-                disabled={disabled}
-                onChange={(e) => set("birthdate", e.target.value)}
-                className={`${inputClass} w-full tabular-nums`}
-              />
-            </Field>
+                <Field
+                  label="Display name"
+                  htmlFor="settings-display-name"
+                  hint={
+                    nameTouched && nameEmpty ? (
+                      <span className="text-[var(--danger)]">Display name is required.</span>
+                    ) : (
+                      "The name your coach calls you by."
+                    )
+                  }
+                >
+                  <input
+                    id="settings-display-name"
+                    type="text"
+                    aria-label="Display name"
+                    value={draft.display_name}
+                    maxLength={60}
+                    disabled={disabled}
+                    onChange={(e) => set("display_name", e.target.value)}
+                    onBlur={() => setNameTouched(true)}
+                    className={`${inputClass} w-full`}
+                  />
+                </Field>
 
-            <Field
-              label="Sex (for running estimates)"
-              hint="Optional. Used only for running pace projections."
-            >
-              <select
-                aria-label="Sex for running estimates"
-                value={draft.sex}
-                disabled={disabled}
-                onChange={(e) => set("sex", e.target.value as Draft["sex"])}
-                className={`${inputClass} w-full`}
-              >
-                <option value="">Not set</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-              </select>
-            </Field>
-          </Card>
+                <Field
+                  label="Username"
+                  hint="Your public handle and profile URL. Changing it changes your profile link — the old one stops working (there's no redirect)."
+                >
+                  <UsernameField
+                    value={draft.username}
+                    original={initial.username}
+                    disabled={disabled}
+                    onChange={(next) => set("username", next)}
+                    onBlockedChange={handleOnBlocked}
+                  />
+                </Field>
 
-          {/* Daily AI allowance: read-only, excluded from the draft/dirty set. */}
-          <Card title="Daily AI allowance">
-            <UsageBar />
-            <p className="text-xs text-[var(--muted)]">
-              This resets daily and isn&apos;t something you can change here.
-            </p>
-          </Card>
+                <Field
+                  label="Bio"
+                  hint={
+                    <span className="flex items-center justify-between gap-2">
+                      <span>A short blurb shown on your public profile.</span>
+                      <span className="tabular-nums text-[var(--muted)]">
+                        {runeLength(draft.bio)}/{BIO_MAX_RUNES}
+                      </span>
+                    </span>
+                  }
+                >
+                  <textarea
+                    aria-label="Bio"
+                    rows={3}
+                    value={draft.bio}
+                    disabled={disabled}
+                    onChange={(e) => set("bio", clampRunes(e.target.value, BIO_MAX_RUNES))}
+                    className={`${inputClass} w-full resize-none`}
+                  />
+                </Field>
 
-          {/* Units: distance + weight. Distance also drives the height unit. */}
-          <Card title="Units">
-            <Field
-              label="Distance"
-              hint="Used across the Running views for distances and paces — and for your height unit."
-            >
-              <SegmentedToggle
-                value={draft.distance_unit}
-                disabled={disabled}
-                options={[
-                  { value: "mi", label: "Miles" },
-                  { value: "km", label: "Kilometers" },
-                ]}
-                onChange={setDistance}
-              />
-            </Field>
+                <Field
+                  label={`Height (${heightUnit})`}
+                  hint={`Shown in ${heightUnit === "in" ? "inches" : "centimeters"}; leave blank to clear.`}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      step="any"
+                      min={0}
+                      aria-label={`Height (${heightUnit})`}
+                      placeholder={heightUnit === "in" ? "e.g. 71" : "e.g. 180"}
+                      value={draft.height}
+                      disabled={disabled}
+                      onChange={(e) => set("height", e.target.value)}
+                      className={`${inputClass} min-w-0 flex-1 tabular-nums`}
+                    />
+                    <span className="shrink-0 text-xs text-[var(--muted)]">{heightUnit}</span>
+                  </div>
+                </Field>
 
-            <Field label="Weight" hint="Used for bodyweight and workout volume.">
-              <SegmentedToggle
-                value={draft.weight_unit}
-                disabled={disabled}
-                options={[
-                  { value: "lb", label: "Pounds" },
-                  { value: "kg", label: "Kilograms" },
-                ]}
-                onChange={(v) => set("weight_unit", v)}
-              />
-            </Field>
-          </Card>
+                <Field
+                  label="Birthdate"
+                  hint="Optional. Improves running max-effort estimates (YYYY-MM-DD)."
+                >
+                  <input
+                    type="date"
+                    aria-label="Birthdate"
+                    value={draft.birthdate}
+                    disabled={disabled}
+                    onChange={(e) => set("birthdate", e.target.value)}
+                    className={`${inputClass} w-full tabular-nums`}
+                  />
+                </Field>
 
-          {/* Google Calendar: connect/disconnect immediate; default detail draftable. */}
-          <Card title="Google Calendar">
-            <GoogleCalendarConnectionRow />
+                <Field
+                  label="Sex (for running estimates)"
+                  hint="Optional. Used only for running pace projections."
+                >
+                  <select
+                    aria-label="Sex for running estimates"
+                    value={draft.sex}
+                    disabled={disabled}
+                    onChange={(e) => set("sex", e.target.value as Draft["sex"])}
+                    className={`${inputClass} w-full`}
+                  >
+                    <option value="">Not set</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </Field>
+              </Card>
 
-            <Field
-              label="Default event detail"
-              hint="What a synced calendar event shows for a planned workout."
-            >
-              <SegmentedToggle
-                value={draft.calendar_default_detail}
-                disabled={disabled}
-                options={[
-                  { value: "time_block", label: "Time block" },
-                  { value: "full_agenda", label: "Full agenda" },
-                ]}
-                onChange={(v) => set("calendar_default_detail", v)}
-              />
-            </Field>
-          </Card>
+              {/* Daily AI allowance: read-only, excluded from the draft/dirty set. */}
+              <Card title="Daily AI allowance">
+                <UsageBar />
+                <p className="text-xs text-[var(--muted)]">
+                  This resets daily and isn&apos;t something you can change here.
+                </p>
+              </Card>
+
+              {/* Units: distance + weight. Distance also drives the height unit. */}
+              <Card title="Units">
+                <Field
+                  label="Distance"
+                  hint="Used across the Running views for distances and paces — and for your height unit."
+                >
+                  <SegmentedToggle
+                    value={draft.distance_unit}
+                    disabled={disabled}
+                    options={[
+                      { value: "mi", label: "Miles" },
+                      { value: "km", label: "Kilometers" },
+                    ]}
+                    onChange={setDistance}
+                  />
+                </Field>
+
+                <Field label="Weight" hint="Used for bodyweight and workout volume.">
+                  <SegmentedToggle
+                    value={draft.weight_unit}
+                    disabled={disabled}
+                    options={[
+                      { value: "lb", label: "Pounds" },
+                      { value: "kg", label: "Kilograms" },
+                    ]}
+                    onChange={(v) => set("weight_unit", v)}
+                  />
+                </Field>
+              </Card>
+            </>
+          )}
+
+          {/* Integrations panel: calendar (moved unchanged, incl. its
+              default-detail draft field) + Whoop. Connect/disconnect are
+              immediate/out-of-band; the calendar default-detail toggle stays a
+              draft field, so a change here surfaces the page-level SaveBar. */}
+          {tab === "integrations" && (
+            <>
+              {/* Google Calendar: connect/disconnect immediate; default detail draftable. */}
+              <Card title="Google Calendar">
+                <GoogleCalendarConnectionRow />
+
+                <Field
+                  label="Default event detail"
+                  hint="What a synced calendar event shows for a planned workout."
+                >
+                  <SegmentedToggle
+                    value={draft.calendar_default_detail}
+                    disabled={disabled}
+                    options={[
+                      { value: "time_block", label: "Time block" },
+                      { value: "full_agenda", label: "Full agenda" },
+                    ]}
+                    onChange={(v) => set("calendar_default_detail", v)}
+                  />
+                </Field>
+              </Card>
+
+              {/* Whoop: recovery/strain sync. Connect/disconnect/reconnect are
+              immediate/out-of-band, mirroring the calendar row. */}
+              <Card title="Whoop">
+                <WhoopConnectionRow />
+              </Card>
+            </>
+          )}
 
           <SaveBar
             dirtyCount={dirtyCount}
@@ -408,6 +466,51 @@ export default function SettingsPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Settings tab header. The first tab control in Settings, so it borrows the
+ * existing full-pill segmented-control idiom (a `--surface` track with a
+ * hairline border; active segment = `--accent` fill + `--accent-fg` text;
+ * inactive = `--muted`, brightening to `--foreground` on hover) rather than
+ * inventing a new pattern. Tabs are exposed as a tablist for accessibility.
+ */
+function SettingsTabs({
+  value,
+  onChange,
+}: {
+  value: SettingsTab;
+  onChange: (next: SettingsTab) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Settings sections"
+      className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5"
+    >
+      {TABS.map((t) => {
+        const active = t.id === value;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => {
+              if (!active) onChange(t.id);
+            }}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+              active
+                ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                : "text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

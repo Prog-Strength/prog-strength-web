@@ -78,6 +78,7 @@ const FULL_SUMMARY: DashboardSummary = {
     goal: { weight: 175, unit: "lb" },
     trend_spark: [186, 185.5, 185, 184],
   },
+  recovery: null,
   streak: {
     weeks: 6,
     active_days_this_week: 4,
@@ -91,6 +92,7 @@ const EMPTY_SUMMARY: DashboardSummary = {
   steps: null,
   nutrition: null,
   bodyweight: null,
+  recovery: null,
   streak: {
     weeks: 0,
     active_days_this_week: 0,

@@ -58,6 +58,7 @@ const fullSummary: DashboardSummary = {
     goal: { weight: 178.0, unit: "lb" },
     trend_spark: [184.1, 183.6, 182.9, 182.4],
   },
+  recovery: null,
   streak: {
     weeks: 25,
     active_days_this_week: 3,
@@ -185,6 +186,7 @@ describe("adaptDashboard — null sections", () => {
       steps: null,
       nutrition: null,
       bodyweight: null,
+      recovery: null,
       streak: {
         weeks: 0,
         active_days_this_week: 0,
@@ -198,6 +200,7 @@ describe("adaptDashboard — null sections", () => {
     expect(data.steps).toEqual({ present: false });
     expect(data.nutrition).toEqual({ present: false });
     expect(data.bodyweight).toEqual({ present: false });
+    expect(data.recovery).toEqual({ present: false });
   });
 
   it("collapses a null summary to all-empty sections and a brand-new streak", () => {
@@ -207,7 +210,70 @@ describe("adaptDashboard — null sections", () => {
     expect(data.steps).toEqual({ present: false });
     expect(data.nutrition).toEqual({ present: false });
     expect(data.bodyweight).toEqual({ present: false });
+    expect(data.recovery).toEqual({ present: false });
     expect(data.streak).toEqual({ weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true });
+  });
+});
+
+describe("adaptDashboard — recovery (Whoop)", () => {
+  it("marks a null recovery section as not present (unconnected user)", () => {
+    const data = adaptDashboard(fullSummary, profile());
+    expect(data.recovery).toEqual({ present: false });
+  });
+
+  it("maps a recovery block's resting HR, score, and spark", () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: {
+        today: {
+          date: "2026-07-22",
+          resting_heart_rate: 52,
+          recovery_score: 78,
+          hrv_rmssd_milli: 64.5,
+        },
+        resting_hr_spark: [55, 54, 53, 52, 52, 51, 52],
+      },
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+
+    expect(data.recovery.restingToday).toBe(52);
+    expect(data.recovery.recoveryScore).toBe(78);
+    expect(data.recovery.spark).toEqual([55, 54, 53, 52, 52, 51, 52]);
+  });
+
+  it("keeps recovery present with null fields when Whoop has no reading yet today", () => {
+    const noReading: DashboardSummary = {
+      ...fullSummary,
+      recovery: { today: null, resting_hr_spark: [55, 54] },
+    };
+    const data = adaptDashboard(noReading, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+
+    expect(data.recovery.restingToday).toBeNull();
+    expect(data.recovery.recoveryScore).toBeNull();
+    expect(data.recovery.spark).toEqual([55, 54]);
+  });
+
+  it("sanitizes NaN/Infinity out of the resting-HR spark", () => {
+    const dirty: DashboardSummary = {
+      ...fullSummary,
+      recovery: {
+        today: {
+          date: "2026-07-22",
+          resting_heart_rate: 52,
+          recovery_score: null,
+          hrv_rmssd_milli: null,
+        },
+        resting_hr_spark: [Number.NaN, Number.POSITIVE_INFINITY, 52],
+      },
+    };
+    const data = adaptDashboard(dirty, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+    for (const n of data.recovery.spark) {
+      expect(Number.isFinite(n)).toBe(true);
+    }
+    expect(data.recovery.spark).toEqual([0, 0, 52]);
   });
 });
 
