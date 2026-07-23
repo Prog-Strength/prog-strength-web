@@ -3171,7 +3171,12 @@ export async function listWhoopRecovery(
   const resp = await fetch(`${config.apiUrl}/whoop/recovery?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return unwrap<WhoopRecoveryDay[]>(resp, []);
+  // The API wraps list payloads in a keyed object — data is {recovery: [...]},
+  // not the bare array (same convention as GET /steps). Unwrapping it as a
+  // bare array shipped the /recovery page calling rows.find on an object,
+  // which threw straight to Next's error page.
+  const body = await unwrap<{ recovery: WhoopRecoveryDay[] }>(resp, { recovery: [] });
+  return Array.isArray(body.recovery) ? body.recovery : [];
 }
 
 // --- Social graph: profiles, follows, search ---------------------
