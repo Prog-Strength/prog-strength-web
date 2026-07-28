@@ -95,10 +95,7 @@ const EMPTY_PROGRESSION: MuscleGroupProgression = {
 
 const WORKOUTS: WorkoutsPage = {
   items: [],
-  total: 0,
-  limit: 100,
-  offset: 0,
-  has_more: false,
+  next_before: null,
 };
 
 function renderPage() {

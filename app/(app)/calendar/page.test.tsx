@@ -225,10 +225,7 @@ beforeEach(() => {
   // mockResolvedValueOnce overrides.
   vi.mocked(listWorkouts).mockResolvedValue({
     items: WORKOUTS,
-    total: WORKOUTS.length,
-    limit: 100,
-    offset: 0,
-    has_more: false,
+    next_before: null,
   });
   vi.mocked(listRunningSessions).mockResolvedValue({ activities: RUNS, next_before: null });
   vi.mocked(listPlannedWorkouts).mockResolvedValue(PLANNED);

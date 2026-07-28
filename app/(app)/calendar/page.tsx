@@ -116,7 +116,7 @@ export default function CalendarPage() {
     const stepsSince = isoDateKey(grid[0]);
     const stepsUntil = isoDateKey(grid[grid.length - 1]);
     Promise.all([
-      listWorkouts(token, { since: sinceISO, until: untilISO, limit: 100 }),
+      listWorkouts(token, { since: sinceISO, until: untilISO }),
       listRunningSessions(token, { since: sinceISO, until: untilISO }),
       listSteps(token, { since: stepsSince, until: stepsUntil }),
       listPlannedWorkouts(token, { since: sinceISO, until: untilISO }),

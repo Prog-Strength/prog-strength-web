@@ -26,13 +26,12 @@ import { workoutVolume } from "@/lib/workout-volume";
  */
 
 const PAGE_SIZE = 25;
-// Single fetch budget per timeframe. Capped at 100 because that's the
-// API's hard limit (see workout.handler.parseWorkoutListOptions). At
-// 3–5 sessions/week that's ~5 months of training, which covers the
-// 7d/30d/90d timeframes comfortably; the "all" timeframe truncates at
-// 100 and the chart shows a "Showing the most recent 100 sessions"
-// note so the user sees what's been cut. Raise on both sides
-// together if/when single-user volume exceeds this.
+// Fetch budget for the "all" timeframe's cursor fetch — 100 is the
+// unified /activities page cap. Windowed timeframes (7d/30d/90d) use the
+// range form instead, which is uncapped server-side (the window bounds
+// the result), so only "all" can truncate; the chart then shows a
+// "Showing the most recent 100 sessions" note so the user sees what's
+// been cut.
 const FETCH_LIMIT = 100;
 
 export function WorkoutsView({
@@ -75,7 +74,9 @@ export function WorkoutsView({
       days !== null ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString() : undefined;
 
     setPage(1);
-    listWorkouts(token, { since, limit: FETCH_LIMIT })
+    // Range form when windowed (uncapped; /activities forbids mixing
+    // since/until with limit), cursor form with the page cap for "all".
+    listWorkouts(token, since ? { since, until: new Date().toISOString() } : { limit: FETCH_LIMIT })
       .then((p) => setWorkouts(p.items))
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
@@ -97,7 +98,9 @@ export function WorkoutsView({
 
   const total = workouts?.length ?? 0;
   const hasMore = workouts ? page * PAGE_SIZE < workouts.length : false;
-  const truncated = workouts ? workouts.length >= FETCH_LIMIT : false;
+  // Only the "all" timeframe's capped cursor fetch can truncate; the
+  // windowed range form is uncapped, so a big window is complete data.
+  const truncated = days === null && workouts !== null && workouts.length >= FETCH_LIMIT;
 
   // Group the *visible page* by week, not the full timeframe. The chart
   // shows the full-timeframe summary; the list's per-week headers

@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
+  activityToWorkout,
   getStepsGoal,
-  listRunningSessions,
+  listActivities,
   listSteps,
-  listWorkouts,
   type RunningSession,
   type StepsEntry,
   type Workout,
@@ -25,10 +25,11 @@ import { deriveOverviewStats, formatHm } from "@/lib/activities-overview-stats";
 import { formatPaceValue } from "@/lib/distance-unit-context";
 import { isoDate, parseLocalDate, rangeSinceIso } from "@/lib/steps-stats";
 
-// Workouts cap at the API's hard limit of 100; when hit the combined
-// chart surfaces a truncation note. Running uses /activities range mode
-// instead (uncapped server-side), so no equivalent SESSIONS_LIMIT here.
-const WORKOUTS_LIMIT = 100;
+// Fetch budget for the cursor form (the "all" timeframe, which has no
+// since/until window). 100 is the API's hard page cap; when hit the
+// combined chart surfaces a truncation note. Windowed timeframes use
+// /activities range mode instead (uncapped server-side).
+const ACTIVITIES_LIMIT = 100;
 const KM_PER_MILE = 1.609344;
 
 /**
@@ -81,21 +82,29 @@ export function ActivitiesOverviewView({
     setWorkouts(null);
     setSessions(null);
     setSteps(null);
-    // /activities forbids mixing since/until with limit/before, and the
-    // range form is uncapped server-side, so the running fetch omits
-    // `limit` and trusts the window to bound the result. The steps-goal
-    // fetch is kept to preserve the tab's load orchestration even though
-    // the instrument panel no longer surfaces a goal-% readout.
+    // ONE unified fetch covers every activity type (stage 3): windowed
+    // timeframes use the uncapped range form; "all" uses the cursor form
+    // with the page cap. Items partition by activity_type — strength rows
+    // adapt onto the legacy Workout shape (their exercises + PR events
+    // ride along in `details`), everything else is the endurance view the
+    // run instruments consume. The steps-goal fetch is kept to preserve
+    // the tab's load orchestration even though the instrument panel no
+    // longer surfaces a goal-% readout.
     Promise.all([
-      listWorkouts(token, { since, limit: WORKOUTS_LIMIT }),
-      listRunningSessions(token, { since, until }),
+      since
+        ? listActivities(token, { since, until })
+        : listActivities(token, { limit: ACTIVITIES_LIMIT }),
       listSteps(token, { since: stepsSince, until: stepsUntil }),
       getStepsGoal(token),
     ])
-      .then(([wp, sp, stp]) => {
+      .then(([ap, stp]) => {
         setError(null);
-        setWorkouts(wp.items);
-        setSessions(sp.activities);
+        setWorkouts(
+          ap.activities
+            .filter((a) => a.activity_type === "strength_training")
+            .map(activityToWorkout),
+        );
+        setSessions(ap.activities.filter((a) => a.activity_type !== "strength_training"));
         setSteps(stp.steps);
       })
       .catch((err: unknown) => {
@@ -120,8 +129,10 @@ export function ActivitiesOverviewView({
   // All fetches resolve together (Promise.all), so any being null means
   // the panel is still loading.
   const loading = workouts === null || sessions === null || steps === null;
-  // Only workouts can truncate — running uses range mode (uncapped).
-  const truncated = (workouts?.length ?? 0) >= WORKOUTS_LIMIT;
+  // Only the "all" timeframe's cursor fetch can truncate (range mode is
+  // uncapped); the cap now spans every type, so compare the combined count.
+  const truncated =
+    days === null && (workouts?.length ?? 0) + (sessions?.length ?? 0) >= ACTIVITIES_LIMIT;
 
   // Avg run pace is derived in sec/mi; honor the active unit on display.
   const avgPaceLabel = formatPaceValue(
@@ -177,7 +188,7 @@ export function ActivitiesOverviewView({
                 sessions={sessions}
                 days={days}
                 truncated={truncated}
-                fetchLimit={WORKOUTS_LIMIT}
+                fetchLimit={ACTIVITIES_LIMIT}
               />
             </Instrument>
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getToken } from "@/lib/auth";
-import { listRunningSessions, listWorkouts } from "@/lib/api";
+import { listActivities } from "@/lib/api";
 import { useProfile } from "@/lib/profile-context";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { Avatar } from "@/components/social/Avatar";
@@ -41,24 +41,17 @@ export function YourWeekRail() {
       now.getDate() - HISTORY_DAYS,
     ).toISOString();
     const until = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
-    Promise.all([
-      listWorkouts(token, { since, until, limit: 100 })
-        .then((p) => p.items)
-        .catch(() => []),
-      listRunningSessions(token, { since, until })
-        .then((p) => p.activities)
-        .catch(() => []),
-    ])
-      .then(([workouts, runs]) => {
+    // ONE unified ranged fetch covers every type (stage 3): strength rows
+    // map to "lift", everything else (runs — and any walk/ride, matching
+    // the prior merge's behavior) maps to "run" with its distance.
+    listActivities(token, { since, until })
+      .then((page) => {
         if (cancelled) return;
-        const mapped: DatedActivity[] = [
-          ...workouts.map((w) => ({ at: w.performed_at, kind: "lift" as const })),
-          ...runs.map((r) => ({
-            at: r.start_time,
-            kind: "run" as const,
-            distanceMeters: r.distance_meters,
-          })),
-        ];
+        const mapped: DatedActivity[] = page.activities.map((a) =>
+          a.activity_type === "strength_training"
+            ? { at: a.start_time, kind: "lift" as const }
+            : { at: a.start_time, kind: "run" as const, distanceMeters: a.distance_meters },
+        );
         setActs(mapped);
       })
       .catch(() => {
