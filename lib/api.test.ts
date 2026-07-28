@@ -13,6 +13,7 @@ import {
   getRunningSession,
   listProgression,
   listRunningBestEfforts,
+  listRunningSessions,
   listWhoopRecovery,
   removeFollower,
   requestFollow,
@@ -697,6 +698,36 @@ describe("getRunningSession", () => {
   it("throws when the API returns no activity", async () => {
     mockFetchOk(null);
     await expect(getRunningSession(TOKEN, "a1")).rejects.toThrow("activity not found");
+  });
+});
+
+describe("listRunningSessions", () => {
+  // Ahead of the unified-activity-model migration (api PR #79), GET
+  // /activities starts returning every activity type, including
+  // strength_training rows. These assert the client-side guard drops
+  // strength_training while passing running/walking/cycling through
+  // unchanged — the same filter must be a no-op against today's
+  // endurance-only API and correct against the post-#79 API.
+  it("filters out strength_training activities from the page", async () => {
+    const run = { id: "r1", activity_type: "running" };
+    const walk = { id: "w1", activity_type: "walking" };
+    const lift = { id: "s1", activity_type: "strength_training" };
+    mockFetchOk({ activities: [run, walk, lift], next_before: null });
+
+    const result = await listRunningSessions(TOKEN);
+
+    expect(result.activities).toEqual([run, walk]);
+  });
+
+  it("passes running, walking, and cycling activities through untouched", async () => {
+    const run = { id: "r1", activity_type: "running" };
+    const walk = { id: "w1", activity_type: "walking" };
+    const ride = { id: "c1", activity_type: "cycling" };
+    mockFetchOk({ activities: [run, walk, ride], next_before: "cursor-1" });
+
+    const result = await listRunningSessions(TOKEN);
+
+    expect(result).toEqual({ activities: [run, walk, ride], next_before: "cursor-1" });
   });
 });
 
