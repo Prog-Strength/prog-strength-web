@@ -4,7 +4,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 const listActivitiesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({ getToken: () => "test-token" }));
-vi.mock("@/lib/api", () => ({
+// Keep the real activityToWorkout: the rail partitions the unified page
+// through lib/partition-activities, which adapts strength rows with it.
+vi.mock("@/lib/api", async (importOriginal) => ({
+  activityToWorkout: (await importOriginal<typeof import("@/lib/api")>()).activityToWorkout,
   listActivities: listActivitiesMock,
 }));
 vi.mock("@/lib/profile-context", () => ({

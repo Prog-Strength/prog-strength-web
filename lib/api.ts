@@ -118,6 +118,17 @@ export type Exercise = {
   equipment: string[];
 };
 
+// --- Workout compat adapters (legacy surface over /activities) -----
+//
+// Every fetcher in this group is a thin compat adapter over the unified
+// /activities surface: same exported name and consumer-facing shape as the
+// old /workouts fetchers, implemented via listActivities/getActivity/
+// createActivity/updateActivity/deleteActivity + activityToWorkout.
+// PREFER THE UNIFIED FETCHERS FOR NEW CODE — these wrappers exist so the
+// existing workout surfaces didn't have to migrate types in stage 3, and
+// they're slated for removal once those surfaces consume Activity
+// directly.
+
 /**
  * Optional filters and pagination params for the workouts list. Mirrors
  * `ListActivitiesOptions` minus the type (fixed to strength_training):
@@ -147,7 +158,8 @@ export type WorkoutsPage = {
 };
 
 /**
- * Lists the authed user's strength sessions, most recent first, via
+ * Compat adapter (prefer `listActivities` for new code). Lists the authed
+ * user's strength sessions, most recent first, via
  * `GET /activities?type=strength_training` — the stage-3 replacement for
  * the deprecated `GET /workouts` shim. Each unified item's strength
  * `details` (exercises + personal_records_set, embedded per item by the
@@ -176,8 +188,9 @@ export async function listExercises(): Promise<Exercise[]> {
 }
 
 /**
- * Fetches a single strength session via `GET /activities/{id}` (the
- * stage-3 replacement for `GET /workouts/{id}`) and adapts it onto the
+ * Compat adapter (prefer `getActivity` for new code). Fetches a single
+ * strength session via `GET /activities/{id}` (the stage-3 replacement
+ * for `GET /workouts/{id}`) and adapts it onto the
  * legacy `Workout` shape — exercises + personal_records_set from the
  * strength `details`, TCX enrichment (with HR trackpoints) from the base
  * row. 404s and non-strength ids both surface as "workout not found"
@@ -689,7 +702,9 @@ export type WorkoutPayload = {
 };
 
 /**
- * Soft-deletes a strength session via `DELETE /activities/{id}` (204;
+ * Compat adapter (prefer `deleteActivity` for new code — this is a bare
+ * delegation). Soft-deletes a strength session via
+ * `DELETE /activities/{id}` (204;
  * subsequent reads treat the row as gone). Throws the API's `error`
  * envelope on non-2xx — typically a 404 if the ID doesn't exist or
  * isn't owned by this user.
@@ -702,7 +717,9 @@ export async function deleteWorkout(token: string, id: string): Promise<void> {
  * Maps the legacy WorkoutPayload (what every edit surface builds) onto the
  * unified create/update body: performed_at → start_time, ended_at →
  * duration_seconds, exercises → the strength `details` blob. The API
- * re-derives ended_at as start_time + duration on read.
+ * re-derives ended_at as start_time + duration on read. This is the WRITE
+ * direction of the compat seam; `activityToWorkout` (in the unified
+ * section below) is the READ direction.
  */
 function workoutPayloadToActivityPayload(payload: WorkoutPayload): ActivityPayload {
   const body: ActivityPayload = {
@@ -721,7 +738,8 @@ function workoutPayloadToActivityPayload(payload: WorkoutPayload): ActivityPaylo
 }
 
 /**
- * Creates a strength session via the typed `POST /activities`. Returns
+ * Compat adapter (prefer `createActivity` for new code). Creates a
+ * strength session via the typed `POST /activities`. Returns
  * the created Workout (including any personal_records_set the save
  * triggered — the unified response embeds them in the strength details)
  * so the caller can route to it and surface PRs without a follow-up
@@ -733,8 +751,8 @@ export async function createWorkout(token: string, payload: WorkoutPayload): Pro
 }
 
 /**
- * Full-replacement update of a strength session via the typed
- * `PUT /activities/{id}` — same semantics as the legacy PUT /workouts/{id}
+ * Compat adapter (prefer `updateActivity` for new code). Full-replacement
+ * update of a strength session via the typed `PUT /activities/{id}` — same semantics as the legacy PUT /workouts/{id}
  * (PRs recompute; TCX-enrichment vitals survive). Returns the updated
  * Workout so callers can splice it into local state without a refetch.
  */
@@ -1842,11 +1860,20 @@ export type RunningSessionsPage = {
 // model). `Activity` mirrors the Go unifiedReadDTO: the base-row fields
 // (which `RunningSession` above already models — that type stays as the
 // endurance-detail view of the same wire shape) plus the registry-driven
-// `summary` card and the type-keyed `details` payload. The workout
-// fetchers adapt strength activities back onto the legacy `Workout` shape
-// via `activityToWorkout` so components keep their types.
+// `summary` card and the type-keyed `details` payload. The workout compat
+// adapters bridge in both directions: `activityToWorkout` (below) reads a
+// unified strength row back into the legacy `Workout` shape, and
+// `workoutPayloadToActivityPayload` (beside createWorkout above) writes a
+// legacy WorkoutPayload as a typed /activities body — so components keep
+// their types.
 
-/** The registry-rendered card for a list row: title, subtitle, metric chips. */
+/**
+ * The registry-rendered card for a list row: title, subtitle, metric
+ * chips. No web surface renders it yet (the current views derive their
+ * own rollups); kept because it's part of the wire DTO `Activity`
+ * mirrors, and the mobile twin's unified-surface port (mobile parity
+ * phases) consumes the same shape.
+ */
 export type ActivitySummary = {
   title: string;
   subtitle: string;
@@ -1871,7 +1898,10 @@ export type StrengthActivityDetails = {
  * The endurance `details` payload (activity_run_details etc. projected
  * through the endurance detail store). Detail reads only; the running
  * surfaces read these same fields off the flattened base DTO instead, so
- * no web consumer needs this today — typed for completeness.
+ * no web consumer reads it today. Kept (not YAGNI-deleted) because it
+ * completes the `details` union — the `"exercises" in details` narrowing
+ * is only type-safe with the non-strength branch typed — and the mobile
+ * twin's unified-surface port consumes the same wire shape.
  */
 export type EnduranceActivityDetails = {
   distance_meters: number;

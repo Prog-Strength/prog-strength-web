@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
-  activityToWorkout,
   getCalendarConnection,
   listActivities,
   listExercises,
@@ -17,6 +16,7 @@ import {
   type StepsEntry,
   type Workout,
 } from "@/lib/api";
+import { partitionActivities } from "@/lib/partition-activities";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useActiveWorkoutSession } from "@/lib/active-workout-session";
 import { plannedToDraftExercises } from "@/lib/workout-draft";
@@ -99,8 +99,8 @@ export default function CalendarPage() {
       .catch(() => setCalendarConnected(false));
   }, [router]);
 
-  // Refetch workouts + runs each time the cursor changes, scoped to the
-  // visible 6-week grid. Bounds are computed in *local* time then
+  // Refetch the unified activity window each time the cursor changes,
+  // scoped to the visible 6-week grid. Bounds are computed in *local* time then
   // serialized to UTC — start_time is stored UTC but the grid is
   // bucketed by local-date, and we want the bounds to comfortably cover
   // the visible cells including the prev/next-month trailing days.
@@ -118,21 +118,18 @@ export default function CalendarPage() {
     const stepsSince = isoDateKey(grid[0]);
     const stepsUntil = isoDateKey(grid[grid.length - 1]);
     Promise.all([
-      // ONE unified ranged fetch covers every session type; partitioned
-      // below by activity_type — strength → the workout pills (adapted to
-      // the legacy shape), everything else (runs, walks, rides) → the
-      // activity pills, matching the pre-migration two-fetch behavior.
+      // ONE unified ranged fetch covers every session type; the shared
+      // partitionActivities split feeds strength rows to the workout pills
+      // (adapted to the legacy shape) and everything else (runs, walks,
+      // rides) to the activity pills — pre-migration behavior preserved.
       listActivities(token, { since: sinceISO, until: untilISO }),
       listSteps(token, { since: stepsSince, until: stepsUntil }),
       listPlannedWorkouts(token, { since: sinceISO, until: untilISO }),
     ])
       .then(([aPage, sPage, pList]) => {
-        setWorkouts(
-          aPage.activities
-            .filter((a) => a.activity_type === "strength_training")
-            .map(activityToWorkout),
-        );
-        setRuns(aPage.activities.filter((a) => a.activity_type !== "strength_training"));
+        const { workouts: lifts, sessions } = partitionActivities(aPage.activities);
+        setWorkouts(lifts);
+        setRuns(sessions);
         setSteps(sPage.steps);
         setPlanned(pList);
       })

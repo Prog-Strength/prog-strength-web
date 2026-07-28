@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
-  activityToWorkout,
   getStepsGoal,
   listActivities,
   listSteps,
@@ -12,6 +11,7 @@ import {
   type StepsEntry,
   type Workout,
 } from "@/lib/api";
+import { partitionActivities } from "@/lib/partition-activities";
 import { ActivitiesCombinedChart } from "@/components/activities/activities-combined-chart";
 import {
   EffortReadout,
@@ -99,12 +99,9 @@ export function ActivitiesOverviewView({
     ])
       .then(([ap, stp]) => {
         setError(null);
-        setWorkouts(
-          ap.activities
-            .filter((a) => a.activity_type === "strength_training")
-            .map(activityToWorkout),
-        );
-        setSessions(ap.activities.filter((a) => a.activity_type !== "strength_training"));
+        const { workouts: lifts, sessions: endurance } = partitionActivities(ap.activities);
+        setWorkouts(lifts);
+        setSessions(endurance);
         setSteps(stp.steps);
       })
       .catch((err: unknown) => {
