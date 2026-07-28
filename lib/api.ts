@@ -1624,8 +1624,16 @@ export async function appendChatTurn(
 // in the API but the UI treats anything non-running as out of scope until
 // a follow-up.
 
-/** Sport-agnostic activity type stored on every API row. */
-export type ActivityType = "running" | "walking" | "cycling" | "other";
+/**
+ * Sport-agnostic activity type stored on every API row. `strength_training`
+ * is included because the unified-activity-model migration (api PR #79)
+ * makes `GET /activities` return every activity type, not just endurance
+ * ones — the type needs the literal so call sites can filter it out under
+ * `strict` without a same-type-required-for-comparison tsc error. The web
+ * app doesn't otherwise render strength rows through this domain (workouts
+ * cover that); see `listRunningSessions` below for the guard.
+ */
+export type ActivityType = "running" | "walking" | "cycling" | "other" | "strength_training";
 
 /** How an activity entered the system. */
 export type IngestSource = "manual_tcx" | "garmin_api";
@@ -1858,7 +1866,24 @@ export async function listRunningSessions(
   const resp = await fetch(`${config.apiUrl}/activities${qs ? `?${qs}` : ""}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return unwrap<RunningSessionsPage>(resp, { activities: [], next_before: null });
+  const page = await unwrap<RunningSessionsPage>(resp, { activities: [], next_before: null });
+  // Guard ahead of the unified-activity-model migration (api PR #79): once
+  // deployed, this same GET /activities returns every activity type,
+  // including strength_training rows (workouts logged via the lifting
+  // side of the app), not just endurance ones. This client ships first, so
+  // it must tolerate both the current endurance-only response (where this
+  // filter is a no-op) and the post-#79 response. Walks/rides pass through
+  // unchanged — only strength_training is out of scope for the running
+  // surfaces. Filtering client-side (not a query param) keeps one code
+  // path correct against both API versions. The mobile twin
+  // (prog-strength-mobile lib/api.ts) carries the identical guard in its
+  // own PR so the two stay in lockstep. This becomes moot once the running
+  // pages are migrated to the full unified model (stage 3), but is
+  // harmless to leave in place after that.
+  return {
+    ...page,
+    activities: page.activities.filter((a) => a.activity_type !== "strength_training"),
+  };
 }
 
 /**
@@ -1866,6 +1891,9 @@ export async function listRunningSessions(
  * user, including its `trackpoints`. 404 if the ID doesn't exist or
  * belongs to another user. `unit` selects the display unit for the
  * server-derived splits/strip-summary/best-pace blocks.
+ * No strength_training guard here (unlike `listRunningSessions`): every
+ * call site passes an id already known to be an endurance activity (run
+ * detail routes), so there's nothing to filter.
  */
 export async function getRunningSession(
   token: string,
