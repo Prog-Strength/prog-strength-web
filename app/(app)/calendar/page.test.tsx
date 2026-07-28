@@ -169,7 +169,6 @@ function makePlanned(id: string, name: string, day: number): PlannedWorkout {
     status: "planned",
     notes: null,
     completed_session_id: null,
-    completed_session_kind: null,
     calendar_detail: null,
     google_event_id: null,
     google_sync_status: null,
@@ -455,8 +454,9 @@ describe("CalendarPage", () => {
     // — not the dashed planned pill stacked on the solid logged pill.
     const linkedPlan = makePlanned("p-linked", "W7 D1 - Easy Run", DISTINCT_DAY);
     linkedPlan.status = "completed";
+    // No completed_session_kind on the wire (api #81): the merge derives
+    // the kind by resolving the id against the fetched workouts.
     linkedPlan.completed_session_id = "w-distinct";
-    linkedPlan.completed_session_kind = "workout";
     vi.mocked(listPlannedWorkouts).mockResolvedValue([linkedPlan]);
 
     renderPage();

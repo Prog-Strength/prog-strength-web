@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   deletePlannedWorkout,
+  getActivity,
   getCalendarConnection,
   getPlannedWorkout,
   listExercises,
@@ -39,6 +40,11 @@ export default function PlannedWorkoutDetailPage() {
   const id = params?.id;
 
   const [plan, setPlan] = useState<PlannedWorkout | null>(null);
+  // The completed plan's logged-session kind, derived from the session's
+  // own activity_type (the API no longer sends completed_session_kind).
+  // null until (unless) the best-effort lookup resolves; gates the
+  // banner's "View logged run/workout →" link.
+  const [completedKind, setCompletedKind] = useState<CompletedSessionKind | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +63,18 @@ export default function PlannedWorkoutDetailPage() {
       .then(([p, es]) => {
         setPlan(p);
         setExercises(es);
+        // Best-effort: resolve the completed session to learn its kind
+        // (strength row → workout, anything else → activity). A failed
+        // lookup just leaves the "View logged" link hidden.
+        if (p.status === "completed" && p.completed_session_id) {
+          getActivity(token, p.completed_session_id)
+            .then((a) =>
+              setCompletedKind(a.activity_type === "strength_training" ? "workout" : "activity"),
+            )
+            .catch(() => setCompletedKind(null));
+        } else {
+          setCompletedKind(null);
+        }
       })
       .catch((err: Error) => {
         if (err.message.toLowerCase().includes("401")) {
@@ -192,6 +210,7 @@ export default function PlannedWorkoutDetailPage() {
             <div className="flex flex-col gap-4">
               <PlannedBanner
                 planned={plan}
+                completedSessionKind={completedKind}
                 onResync={handleResync}
                 onNavigateSession={handleNavigateSession}
                 onUnlink={handleUnlink}

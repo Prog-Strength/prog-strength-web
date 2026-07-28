@@ -3155,7 +3155,13 @@ export type PlannedWorkout = {
   status: PlannedWorkoutStatus;
   notes: string | null;
   completed_session_id: string | null;
-  completed_session_kind: CompletedSessionKind | null;
+  // Removed from API responses in unified-cleanup (api #81) — derive the
+  // kind from the completed session's own activity_type client-side
+  // instead (see components/calendar/merge-events.ts and the planned
+  // detail page). Optional so both wire shapes parse during the deploy
+  // overlap; CompletedSessionKind itself stays: the complete/lookup
+  // REQUEST params still carry it.
+  completed_session_kind?: CompletedSessionKind | null;
   calendar_detail: CalendarDetail | null;
   google_event_id: string | null;
   google_sync_status: GoogleSyncStatus | null;

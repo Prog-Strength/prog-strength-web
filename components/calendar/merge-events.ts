@@ -1,4 +1,4 @@
-import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
+import type { CompletedSessionKind, PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 import type { CalendarEvent } from "@/components/calendar/types";
 
 /**
@@ -59,15 +59,20 @@ export function buildEventsByDate(
   const mergedPlannedIds = new Set<string>();
 
   // First pass: find same-day linked pairs and emit the merged event.
+  // The linked session's KIND is derived by resolving its id against the
+  // supplied data (a workout id resolves in workoutsById, an endurance
+  // session in runsById) — the API no longer sends completed_session_kind
+  // (dropped in unified-cleanup). An id resolving in neither map behaves
+  // exactly like the old missing-session guard: nothing collapses and the
+  // plan stays a standalone `planned` event.
   for (const p of planned) {
-    if (p.status !== "completed" || !p.completed_session_id || !p.completed_session_kind) {
+    if (p.status !== "completed" || !p.completed_session_id) {
       continue;
     }
     const plannedKey = localDateKey(new Date(p.scheduled_start));
 
-    if (p.completed_session_kind === "workout") {
-      const w = workoutsById.get(p.completed_session_id);
-      if (!w) continue;
+    const w = workoutsById.get(p.completed_session_id);
+    if (w) {
       const start = new Date(w.performed_at);
       if (localDateKey(start) !== plannedKey) continue; // cross-day: don't collapse
       consumedWorkoutIds.add(w.id);
@@ -78,10 +83,10 @@ export function buildEventsByDate(
         planned: p,
         logged: { kind: "workout", workout: w },
       });
-    } else {
-      // completed_session_kind === "activity" → a RunningSession
-      const r = runsById.get(p.completed_session_id);
-      if (!r) continue;
+      continue;
+    }
+    const r = runsById.get(p.completed_session_id);
+    if (r) {
       const start = new Date(r.start_time);
       if (localDateKey(start) !== plannedKey) continue; // cross-day: don't collapse
       consumedRunIds.add(r.id);
@@ -109,7 +114,21 @@ export function buildEventsByDate(
   for (const p of planned) {
     if (mergedPlannedIds.has(p.id)) continue;
     const start = new Date(p.scheduled_start);
-    push(localDateKey(start), { kind: "planned", startMs: start.getTime(), planned: p });
+    // A completed-but-not-collapsed plan (cross-day within the window)
+    // still gets its logged session's kind derived by id resolution, so
+    // the digest's "View logged run/workout →" link keeps working. An
+    // out-of-window session leaves it undefined (link hidden).
+    let completedSessionKind: CompletedSessionKind | undefined;
+    if (p.status === "completed" && p.completed_session_id) {
+      if (workoutsById.has(p.completed_session_id)) completedSessionKind = "workout";
+      else if (runsById.has(p.completed_session_id)) completedSessionKind = "activity";
+    }
+    push(localDateKey(start), {
+      kind: "planned",
+      startMs: start.getTime(),
+      planned: p,
+      completedSessionKind,
+    });
   }
 
   // Within each day, sort by start time so morning shows above evening.

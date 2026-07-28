@@ -14,7 +14,6 @@ function makePlanned(overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
     status: "planned",
     notes: null,
     completed_session_id: null,
-    completed_session_kind: null,
     calendar_detail: null,
     google_event_id: null,
     last_sync_error: null,
@@ -62,21 +61,23 @@ describe("PlannedBanner", () => {
 });
 
 describe("PlannedBanner — completed (cross-day fallback)", () => {
+  // Post-#81 wire shape: the plan carries no completed_session_kind — the
+  // caller derives it from the logged session and passes it as a prop.
   const COMPLETED = makePlanned({
     name: "Easy Run",
     activity_kind: "run",
     status: "completed",
     completed_session_id: "act1",
-    completed_session_kind: "activity",
     run_type: "easy",
   });
 
-  it("links to the logged session and shows Unlink when wired", () => {
+  it("links to the logged run when the caller-derived kind is activity", () => {
     const onUnlink = vi.fn();
     const onNavigateSession = vi.fn();
     render(
       <PlannedBanner
         planned={COMPLETED}
+        completedSessionKind="activity"
         onUnlink={onUnlink}
         onNavigateSession={onNavigateSession}
       />,
@@ -87,8 +88,35 @@ describe("PlannedBanner — completed (cross-day fallback)", () => {
     expect(onUnlink).toHaveBeenCalled();
   });
 
+  it("links to the logged workout when the caller-derived kind is workout", () => {
+    const onNavigateSession = vi.fn();
+    const lift = makePlanned({
+      name: "Upper 1",
+      status: "completed",
+      completed_session_id: "wk1",
+    });
+    render(
+      <PlannedBanner
+        planned={lift}
+        completedSessionKind="workout"
+        onNavigateSession={onNavigateSession}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /View logged workout/i }));
+    expect(onNavigateSession).toHaveBeenCalledWith("workout", "wk1");
+  });
+
+  it("hides the View-logged link when the kind can't be derived", () => {
+    render(<PlannedBanner planned={COMPLETED} onNavigateSession={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /View logged/i })).not.toBeInTheDocument();
+    // The Completed footer itself still renders.
+    expect(
+      screen.getByText("Completed", { selector: "span:not([class*=uppercase])" }),
+    ).toBeInTheDocument();
+  });
+
   it("hides Unlink when onUnlink absent", () => {
-    render(<PlannedBanner planned={COMPLETED} />);
+    render(<PlannedBanner planned={COMPLETED} completedSessionKind="activity" />);
     expect(screen.queryByRole("button", { name: "Unlink" })).not.toBeInTheDocument();
   });
 });
