@@ -2,7 +2,7 @@
 
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { DistanceUnitProvider } from "@/lib/distance-unit-context";
-import type { Workout, RunningSession, StepsEntry } from "@/lib/api";
+import type { Activity, RunningSession, StepsEntry } from "@/lib/api";
 
 // --- module mocks ----------------------------------------------------------
 
@@ -31,19 +31,14 @@ vi.mock("@/lib/profile-context", () => ({
   useProfile: () => ({ profile: { display_name: "Sam" } }),
 }));
 
-// Keep the real type exports (Workout, RunningSession, etc.) resolving by
-// spreading the actual module, then overriding only the three data fns.
+// Keep the real exports resolving (types + the real activityToWorkout the
+// page adapts strength rows through) by spreading the actual module, then
+// overriding only the data fns. ONE unified listActivities feeds workouts
+// AND endurance sessions since stage 3.
 vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
   listExercises: vi.fn(async () => []),
-  listWorkouts: vi.fn(async () => ({
-    items: WORKOUTS,
-    total: WORKOUTS.length,
-    limit: 100,
-    offset: 0,
-    has_more: false,
-  })),
-  listRunningSessions: vi.fn(async () => ({ activities: RUNS, next_before: null })),
+  listActivities: vi.fn(async () => ({ activities: ACTIVITIES, next_before: null })),
   listSteps: vi.fn(async () => ({ steps: STEPS, next_before: null })),
   listPlannedWorkouts: vi.fn(async () => PLANNED),
   getCalendarConnection: vi.fn(async () => ({ status: "connected" })),
@@ -51,12 +46,7 @@ vi.mock("@/lib/api", async (orig) => ({
   deletePlannedWorkout: vi.fn(async () => {}),
 }));
 
-import {
-  listWorkouts,
-  listRunningSessions,
-  listPlannedWorkouts,
-  deletePlannedWorkout,
-} from "@/lib/api";
+import { listActivities, listPlannedWorkouts, deletePlannedWorkout } from "@/lib/api";
 import type { PlannedWorkout } from "@/lib/api";
 import CalendarPage from "./page";
 
@@ -86,23 +76,39 @@ const TODAY = new Date(YEAR, MONTH, TODAY_DAY);
 const DISTINCT_DAY = TODAY_DAY === 15 ? 16 : 15;
 const DISTINCT_DATE = new Date(YEAR, MONTH, DISTINCT_DAY);
 
-function makeWorkout(id: string, name: string, day: number): Workout {
+// A unified strength activity as GET /activities returns it. The page
+// adapts it via the real activityToWorkout, so performed_at = start_time
+// (08:00) and ended_at = start_time + duration (09:00) — the same times
+// the legacy fixture carried.
+function makeLift(id: string, name: string, day: number): Activity {
   return {
     id,
-    user_id: "u1",
+    activity_type: "strength_training",
+    ingest_source: "manual",
+    source_activity_id: "",
     name,
-    performed_at: iso(day, 8),
-    ended_at: iso(day, 9), // ~1h later
-    exercises: [
-      {
-        exercise_id: "back-squat",
-        order: 0,
-        sets: [{ reps: 5, weight: 100, unit: "kg" }],
-      },
-    ],
+    start_time: iso(day, 8),
+    distance_meters: 0,
+    raw_distance_meters: 0,
+    environment: "outdoor",
+    duration_seconds: 3600, // ends 09:00
+    avg_pace_sec_per_km: null,
+    best_pace_sec_per_km: null,
+    avg_heart_rate_bpm: null,
+    max_heart_rate_bpm: null,
+    total_calories: null,
+    elevation_gain_meters: null,
     created_at: iso(day, 8),
-    updated_at: iso(day, 8),
-    personal_records_set: [],
+    details: {
+      exercises: [
+        {
+          exercise_id: "back-squat",
+          order: 0,
+          sets: [{ reps: 5, weight: 100, unit: "kg" }],
+        },
+      ],
+      personal_records_set: [],
+    },
   };
 }
 
@@ -134,9 +140,9 @@ function makeRun(id: string, name: string, day: number): RunningSession {
 // workout for the select-a-day and pill navigation tests. The 1st also gets a
 // run so the month's running tiles always have data even when today isn't the
 // 1st (and so the re-anchor-to-1st test lands on a populated day).
-const TODAY_WORKOUT = makeWorkout("w-today", "Today Lift", TODAY_DAY);
+const TODAY_WORKOUT = makeLift("w-today", "Today Lift", TODAY_DAY);
 const TODAY_RUN = makeRun("r-today", "Today Run", TODAY_DAY);
-const DISTINCT_WORKOUT = makeWorkout("w-distinct", "Midmonth Lift", DISTINCT_DAY);
+const DISTINCT_WORKOUT = makeLift("w-distinct", "Midmonth Lift", DISTINCT_DAY);
 const FIRST_RUN = makeRun("r-1", "First Run", 1);
 
 // Build the fixture lists so each seeded day appears exactly once. When today
@@ -145,8 +151,9 @@ const FIRST_RUN = makeRun("r-1", "First Run", 1);
 // land on that day. They never share an id, so no double-seed occurs. The
 // DISTINCT_DAY is computed to never equal today, so its workout is always its
 // own day.
-const WORKOUTS: Workout[] = [TODAY_WORKOUT, DISTINCT_WORKOUT];
-const RUNS: RunningSession[] = [TODAY_RUN, FIRST_RUN];
+// One mixed unified page — lifts and runs together, as GET /activities
+// returns them; the page partitions by activity_type.
+const ACTIVITIES: Activity[] = [TODAY_WORKOUT, DISTINCT_WORKOUT, TODAY_RUN, FIRST_RUN];
 
 // A planned workout on the DISTINCT day so it renders alongside that day's
 // logged workout — the "distinct from a logged pill" assertion compares the
@@ -223,11 +230,7 @@ beforeEach(() => {
   pushMock.mockClear();
   // Restore the default (loaded) mock implementations after any per-test
   // mockResolvedValueOnce overrides.
-  vi.mocked(listWorkouts).mockResolvedValue({
-    items: WORKOUTS,
-    next_before: null,
-  });
-  vi.mocked(listRunningSessions).mockResolvedValue({ activities: RUNS, next_before: null });
+  vi.mocked(listActivities).mockResolvedValue({ activities: ACTIVITIES, next_before: null });
   vi.mocked(listPlannedWorkouts).mockResolvedValue(PLANNED);
   // Run rAF synchronously so the deferred scrollIntoView fires in-test.
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -469,8 +472,37 @@ describe("CalendarPage", () => {
     expect(within(cell).getAllByText(/W7 D1 - Easy Run|Midmonth Lift/)).toHaveLength(1);
   });
 
+  it("renders a walk and a lift on the same day as two distinct markers", async () => {
+    // A non-running, non-strength endurance session must keep its calendar
+    // marker after the unified migration — walks/rides land in the same
+    // activity bucket runs use (the Running TAB is runs-only; the calendar
+    // shows every session type).
+    const walk: Activity = {
+      ...makeRun("a-walk", "Lunch Walk", DISTINCT_DAY),
+      activity_type: "walking",
+      avg_pace_sec_per_km: null,
+      best_pace_sec_per_km: null,
+    };
+    vi.mocked(listActivities).mockResolvedValue({
+      activities: [...ACTIVITIES, walk],
+      next_before: null,
+    });
+
+    renderPage();
+    await findDigest(TODAY);
+
+    const cell = screen.getByLabelText(new RegExp(`^${longDate(DISTINCT_DATE)}`));
+    // Both markers render on the one cell: the lift pill and the walk pill.
+    expect(await within(cell).findByRole("button", { name: "Midmonth Lift" })).toBeInTheDocument();
+    expect(await within(cell).findByRole("button", { name: "Lunch Walk" })).toBeInTheDocument();
+  });
+
   it("hides Avg Pace and Longest Run tiles when the month has no runs", async () => {
-    vi.mocked(listRunningSessions).mockResolvedValue({ activities: [], next_before: null });
+    // Lifts only — every endurance row absent from the window.
+    vi.mocked(listActivities).mockResolvedValue({
+      activities: [TODAY_WORKOUT, DISTINCT_WORKOUT],
+      next_before: null,
+    });
     renderPage();
     // Digest still renders (today has a workout) — wait for data to settle.
     await findDigest(TODAY);

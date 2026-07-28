@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
+  activityToWorkout,
   getCalendarConnection,
+  listActivities,
   listExercises,
   listPlannedWorkouts,
-  listRunningSessions,
   listSteps,
-  listWorkouts,
   resyncPlannedWorkout,
   type Exercise,
   type PlannedWorkout,
@@ -29,14 +29,16 @@ import { useProfile } from "@/lib/profile-context";
 import { PlannedWorkoutModal } from "@/components/planned-workout-modal";
 
 /**
- * Month-grid calendar. Renders BOTH workouts (lifting) and running
- * sessions on the same day cells, with distinct pill colors so a
- * two-a-day reads as "lift + run stacked" at a glance.
+ * Month-grid calendar. Renders BOTH workouts (lifting) and endurance
+ * sessions (runs, walks, rides) on the same day cells, with distinct pill
+ * colors so a two-a-day reads as "lift + run stacked" at a glance.
  *
- * Both endpoints support `since`/`until`, so each cursor change refetches
- * exactly the visible window (the 4–6 whole weeks intersecting the month)
- * — older months no longer come back empty just because the unbounded
- * first page didn't reach them.
+ * One ranged `listActivities` fetch covers every session type (stage 3 of
+ * the unified-activity model), partitioned client-side: strength rows
+ * adapt onto the legacy Workout shape, everything else feeds the activity
+ * bucket. Each cursor change refetches exactly the visible window (the
+ * 4–6 whole weeks intersecting the month) — older months no longer come
+ * back empty just because an unbounded first page didn't reach them.
  */
 
 // Monday-first ordering. Keep this in sync with buildMonthGrid's
@@ -116,14 +118,21 @@ export default function CalendarPage() {
     const stepsSince = isoDateKey(grid[0]);
     const stepsUntil = isoDateKey(grid[grid.length - 1]);
     Promise.all([
-      listWorkouts(token, { since: sinceISO, until: untilISO }),
-      listRunningSessions(token, { since: sinceISO, until: untilISO }),
+      // ONE unified ranged fetch covers every session type; partitioned
+      // below by activity_type — strength → the workout pills (adapted to
+      // the legacy shape), everything else (runs, walks, rides) → the
+      // activity pills, matching the pre-migration two-fetch behavior.
+      listActivities(token, { since: sinceISO, until: untilISO }),
       listSteps(token, { since: stepsSince, until: stepsUntil }),
       listPlannedWorkouts(token, { since: sinceISO, until: untilISO }),
     ])
-      .then(([wPage, rPage, sPage, pList]) => {
-        setWorkouts(wPage.items);
-        setRuns(rPage.activities);
+      .then(([aPage, sPage, pList]) => {
+        setWorkouts(
+          aPage.activities
+            .filter((a) => a.activity_type === "strength_training")
+            .map(activityToWorkout),
+        );
+        setRuns(aPage.activities.filter((a) => a.activity_type !== "strength_training"));
         setSteps(sPage.steps);
         setPlanned(pList);
       })
