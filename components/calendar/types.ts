@@ -1,4 +1,4 @@
-import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
+import type { CompletedSessionKind, PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 
 /**
  * One thing the user did — or plans to do — on a given day. The
@@ -20,7 +20,17 @@ import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 export type CalendarEvent =
   | { kind: "workout"; startMs: number; workout: Workout }
   | { kind: "run"; startMs: number; run: RunningSession }
-  | { kind: "planned"; startMs: number; planned: PlannedWorkout }
+  | {
+      kind: "planned";
+      startMs: number;
+      planned: PlannedWorkout;
+      // For a completed plan that didn't collapse (cross-day), the kind of
+      // its logged session — derived by resolving completed_session_id
+      // against the fetched workouts/runs (the API no longer sends
+      // completed_session_kind). Absent when the session isn't in the
+      // fetched window, which hides the digest's "View logged" link.
+      completedSessionKind?: CompletedSessionKind;
+    }
   | {
       kind: "completed-planned";
       startMs: number;

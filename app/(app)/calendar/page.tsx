@@ -5,11 +5,10 @@ import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   getCalendarConnection,
+  listActivities,
   listExercises,
   listPlannedWorkouts,
-  listRunningSessions,
   listSteps,
-  listWorkouts,
   resyncPlannedWorkout,
   type Exercise,
   type PlannedWorkout,
@@ -17,6 +16,7 @@ import {
   type StepsEntry,
   type Workout,
 } from "@/lib/api";
+import { partitionActivities } from "@/lib/partition-activities";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useActiveWorkoutSession } from "@/lib/active-workout-session";
 import { plannedToDraftExercises } from "@/lib/workout-draft";
@@ -29,14 +29,16 @@ import { useProfile } from "@/lib/profile-context";
 import { PlannedWorkoutModal } from "@/components/planned-workout-modal";
 
 /**
- * Month-grid calendar. Renders BOTH workouts (lifting) and running
- * sessions on the same day cells, with distinct pill colors so a
- * two-a-day reads as "lift + run stacked" at a glance.
+ * Month-grid calendar. Renders BOTH workouts (lifting) and endurance
+ * sessions (runs, walks, rides) on the same day cells, with distinct pill
+ * colors so a two-a-day reads as "lift + run stacked" at a glance.
  *
- * Both endpoints support `since`/`until`, so each cursor change refetches
- * exactly the visible window (the 4–6 whole weeks intersecting the month)
- * — older months no longer come back empty just because the unbounded
- * first page didn't reach them.
+ * One ranged `listActivities` fetch covers every session type (stage 3 of
+ * the unified-activity model), partitioned client-side: strength rows
+ * adapt onto the legacy Workout shape, everything else feeds the activity
+ * bucket. Each cursor change refetches exactly the visible window (the
+ * 4–6 whole weeks intersecting the month) — older months no longer come
+ * back empty just because an unbounded first page didn't reach them.
  */
 
 // Monday-first ordering. Keep this in sync with buildMonthGrid's
@@ -97,8 +99,8 @@ export default function CalendarPage() {
       .catch(() => setCalendarConnected(false));
   }, [router]);
 
-  // Refetch workouts + runs each time the cursor changes, scoped to the
-  // visible 6-week grid. Bounds are computed in *local* time then
+  // Refetch the unified activity window each time the cursor changes,
+  // scoped to the visible 6-week grid. Bounds are computed in *local* time then
   // serialized to UTC — start_time is stored UTC but the grid is
   // bucketed by local-date, and we want the bounds to comfortably cover
   // the visible cells including the prev/next-month trailing days.
@@ -116,14 +118,18 @@ export default function CalendarPage() {
     const stepsSince = isoDateKey(grid[0]);
     const stepsUntil = isoDateKey(grid[grid.length - 1]);
     Promise.all([
-      listWorkouts(token, { since: sinceISO, until: untilISO, limit: 100 }),
-      listRunningSessions(token, { since: sinceISO, until: untilISO }),
+      // ONE unified ranged fetch covers every session type; the shared
+      // partitionActivities split feeds strength rows to the workout pills
+      // (adapted to the legacy shape) and everything else (runs, walks,
+      // rides) to the activity pills — pre-migration behavior preserved.
+      listActivities(token, { since: sinceISO, until: untilISO }),
       listSteps(token, { since: stepsSince, until: stepsUntil }),
       listPlannedWorkouts(token, { since: sinceISO, until: untilISO }),
     ])
-      .then(([wPage, rPage, sPage, pList]) => {
-        setWorkouts(wPage.items);
-        setRuns(rPage.activities);
+      .then(([aPage, sPage, pList]) => {
+        const { workouts: lifts, sessions } = partitionActivities(aPage.activities);
+        setWorkouts(lifts);
+        setRuns(sessions);
         setSteps(sPage.steps);
         setPlanned(pList);
       })

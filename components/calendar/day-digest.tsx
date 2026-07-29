@@ -99,6 +99,7 @@ export function DayDigest({
                 <PlannedBanner
                   key={`p-${ev.planned.id}`}
                   planned={ev.planned}
+                  completedSessionKind={ev.completedSessionKind}
                   onOpen={onOpenPlanned ? () => onOpenPlanned(ev.planned) : undefined}
                   onResync={onResyncPlanned ? () => onResyncPlanned(ev.planned.id) : undefined}
                   onNavigateSession={onNavigateSession}

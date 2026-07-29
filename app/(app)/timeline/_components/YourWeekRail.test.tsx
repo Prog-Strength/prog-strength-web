@@ -1,13 +1,14 @@
 /// <reference types="vitest/globals" />
 import { render, screen, waitFor } from "@testing-library/react";
 
-const listWorkoutsMock = vi.hoisted(() => vi.fn());
-const listRunsMock = vi.hoisted(() => vi.fn());
+const listActivitiesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({ getToken: () => "test-token" }));
-vi.mock("@/lib/api", () => ({
-  listWorkouts: listWorkoutsMock,
-  listRunningSessions: listRunsMock,
+// Keep the real activityToWorkout: the rail partitions the unified page
+// through lib/partition-activities, which adapts strength rows with it.
+vi.mock("@/lib/api", async (importOriginal) => ({
+  activityToWorkout: (await importOriginal<typeof import("@/lib/api")>()).activityToWorkout,
+  listActivities: listActivitiesMock,
 }));
 vi.mock("@/lib/profile-context", () => ({
   useProfile: () => ({
@@ -30,15 +31,18 @@ beforeEach(() => {
   const now = new Date();
   const iso = (daysAgo: number) =>
     new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 9).toISOString();
-  listWorkoutsMock.mockResolvedValue({
-    items: [{ id: "w1", performed_at: iso(0) }],
-    total: 1,
-    limit: 50,
-    offset: 0,
-    has_more: false,
-  });
-  listRunsMock.mockResolvedValue({
-    activities: [{ id: "r1", start_time: iso(0), distance_meters: 5000, duration_seconds: 1500 }],
+  // ONE unified ranged page carries the lift and the run together.
+  listActivitiesMock.mockResolvedValue({
+    activities: [
+      { id: "w1", activity_type: "strength_training", start_time: iso(0) },
+      {
+        id: "r1",
+        activity_type: "running",
+        start_time: iso(0),
+        distance_meters: 5000,
+        duration_seconds: 1500,
+      },
+    ],
     next_before: null,
   });
 });
@@ -51,7 +55,7 @@ describe("YourWeekRail", () => {
 
   it("derives and shows this week's run and lift counts from fetched data", async () => {
     render(<YourWeekRail />);
-    await waitFor(() => expect(listWorkoutsMock).toHaveBeenCalled());
+    await waitFor(() => expect(listActivitiesMock).toHaveBeenCalled());
     // 1 run + 1 lift this week — assert both stat labels surface. Use exact
     // matches so the "Sam Lifter" display name doesn't satisfy a /lifts?/ regex.
     expect(await screen.findByText("Run")).toBeInTheDocument();

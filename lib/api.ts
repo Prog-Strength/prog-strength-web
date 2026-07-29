@@ -77,17 +77,25 @@ export type WorkoutEnrichment = {
   trackpoints?: WorkoutHRTrackpoint[];
 };
 
-/** A logged training session. */
+/**
+ * A logged training session.
+ *
+ * Since stage 3 of the unified-activity-model migration this shape is
+ * produced by `activityToWorkout` from the unified `/activities` DTO for
+ * the list/detail/create/update paths. `user_id`/`updated_at` are optional
+ * because the unified DTO doesn't carry them (no web surface consumes
+ * them); the workout-TCX endpoints still return the legacy DTO, which does.
+ */
 export type Workout = {
   id: string;
-  user_id: string;
+  user_id?: string;
   name?: string;
   performed_at: string; // RFC3339
   ended_at?: string | null;
   notes?: string;
   exercises: WorkoutExercise[];
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
   // PR break events this workout produced. Always present in API
   // responses (empty array when no PRs); the field is non-optional so
   // UIs can iterate without a null check.
@@ -110,56 +118,63 @@ export type Exercise = {
   equipment: string[];
 };
 
-/** Optional filters and pagination params for GET /workouts. */
+// --- Workout compat adapters (legacy surface over /activities) -----
+//
+// Every fetcher in this group is a thin compat adapter over the unified
+// /activities surface: same exported name and consumer-facing shape as the
+// old /workouts fetchers, implemented via listActivities/getActivity/
+// createActivity/updateActivity/deleteActivity + activityToWorkout.
+// PREFER THE UNIFIED FETCHERS FOR NEW CODE — these wrappers exist so the
+// existing workout surfaces didn't have to migrate types in stage 3, and
+// they're slated for removal once those surfaces consume Activity
+// directly.
+
+/**
+ * Optional filters and pagination params for the workouts list. Mirrors
+ * `ListActivitiesOptions` minus the type (fixed to strength_training):
+ * two mutually exclusive query patterns — cursor (`limit`/`before`) or
+ * range (`since`/`until`) — because the unified `/activities` endpoint
+ * forbids mixing them. The prior offset pagination is gone with the
+ * legacy `/workouts` shim.
+ */
 export type ListWorkoutsOptions = {
-  // RFC3339 lower/upper bounds on performed_at.
+  // RFC3339 lower/upper bounds on performed_at (range form, uncapped).
   since?: string;
   until?: string;
-  // Page size, 1–100. The API defaults to 50 when omitted.
+  // Cursor form: page size (1–100, API default 50) + a prior page's
+  // `next_before`.
   limit?: number;
-  // Rows to skip, ≥ 0. Defaults to 0.
-  offset?: number;
+  before?: string;
 };
 
 /**
- * One page of workouts plus the metadata callers need to render
- * pagination controls. Mirrors the API's data envelope shape.
+ * One page of workouts plus the keyset cursor for the next page —
+ * the unified list's pagination model. `next_before` is null on the
+ * last page (and always null in the range form).
  */
 export type WorkoutsPage = {
   items: Workout[];
-  total: number;
-  limit: number;
-  offset: number;
-  has_more: boolean;
+  next_before: string | null;
 };
 
 /**
- * GET /workouts. Returns one page of the authed user's workouts,
- * most recent first. Pass `since`/`until` for server-side timeframe
- * filtering; pass `limit`/`offset` for pagination.
+ * Compat adapter (prefer `listActivities` for new code). Lists the authed
+ * user's strength sessions, most recent first, via
+ * `GET /activities?type=strength_training` — the stage-3 replacement for
+ * the deprecated `GET /workouts` shim. Each unified item's strength
+ * `details` (exercises + personal_records_set, embedded per item by the
+ * API's bulk loader) is adapted onto the legacy `Workout` shape so
+ * consumers render unchanged.
  */
 export async function listWorkouts(
   token: string,
   options: ListWorkoutsOptions = {},
 ): Promise<WorkoutsPage> {
-  const params = new URLSearchParams();
-  if (options.since) params.set("since", options.since);
-  if (options.until) params.set("until", options.until);
-  if (options.limit !== undefined) params.set("limit", String(options.limit));
-  if (options.offset !== undefined) params.set("offset", String(options.offset));
-  const qs = params.toString();
-  const resp = await fetch(`${config.apiUrl}/workouts${qs ? `?${qs}` : ""}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  // Empty page fallback so callers can render a clean empty state
-  // rather than throw on missing payload.
-  return await unwrap<WorkoutsPage>(resp, {
-    items: [],
-    total: 0,
-    limit: options.limit ?? 50,
-    offset: options.offset ?? 0,
-    has_more: false,
-  });
+  const page = await listActivities(token, { ...options, type: "strength_training" });
+  return {
+    items: page.activities.map(activityToWorkout),
+    next_before: page.next_before,
+  };
 }
 
 /**
@@ -173,20 +188,28 @@ export async function listExercises(): Promise<Exercise[]> {
 }
 
 /**
- * GET /workouts/{id}. Returns a single workout owned by the authed
- * user. Used by the workout detail route reachable from the Personal
- * Records page. 404 if the ID doesn't exist or belongs to another
- * user (deliberately indistinguishable so IDs can't be enumerated).
+ * Compat adapter (prefer `getActivity` for new code). Fetches a single
+ * strength session via `GET /activities/{id}` (the stage-3 replacement
+ * for `GET /workouts/{id}`) and adapts it onto the
+ * legacy `Workout` shape — exercises + personal_records_set from the
+ * strength `details`, TCX enrichment (with HR trackpoints) from the base
+ * row. 404s and non-strength ids both surface as "workout not found"
+ * (deliberately indistinguishable, matching the legacy endpoint).
  */
 export async function getWorkout(token: string, id: string): Promise<Workout> {
-  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(id)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const got = await unwrap<Workout | null>(resp, null);
-  if (!got) {
+  let activity: Activity;
+  try {
+    activity = await getActivity(token, id);
+  } catch (err) {
+    if (err instanceof Error && err.message === "activity not found") {
+      throw new Error("workout not found");
+    }
+    throw err;
+  }
+  if (activity.activity_type !== "strength_training") {
     throw new Error("workout not found");
   }
-  return got;
+  return activityToWorkout(activity);
 }
 
 /**
@@ -609,7 +632,9 @@ export type MuscleGroupProgression = {
 export type ProgressionFilter = { movementPattern: string } | { muscleGroup: string };
 
 /**
- * GET /workouts/progression?{movement_pattern|muscle_group}=...&since=...&until=...
+ * GET /activities/progression?{movement_pattern|muscle_group}=...&since=...&until=...
+ * (the progression endpoint's canonical unified path; response shape
+ * unchanged from its /workouts/progression days).
  *
  * Requires auth. The backend resolves the filter into every exercise
  * that targets it, reads each exercise's 1RM history, computes a
@@ -634,7 +659,7 @@ export async function listProgression(
   }
   if (since) params.set("since", since);
   if (until) params.set("until", until);
-  const resp = await fetch(`${config.apiUrl}/workouts/progression?${params.toString()}`, {
+  const resp = await fetch(`${config.apiUrl}/activities/progression?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   // Force a non-null default — empty progression rather than throwing
@@ -677,73 +702,67 @@ export type WorkoutPayload = {
 };
 
 /**
- * DELETE /workouts/{id}. Soft-deletes the workout server-side (sets
- * deleted_at; subsequent reads treat the row as gone). Throws on non-
- * 2xx with the API's `error` envelope as the message — typically a
- * 404 if the ID doesn't exist or isn't owned by this user.
+ * Compat adapter (prefer `deleteActivity` for new code — this is a bare
+ * delegation). Soft-deletes a strength session via
+ * `DELETE /activities/{id}` (204;
+ * subsequent reads treat the row as gone). Throws the API's `error`
+ * envelope on non-2xx — typically a 404 if the ID doesn't exist or
+ * isn't owned by this user.
  */
 export async function deleteWorkout(token: string, id: string): Promise<void> {
-  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!resp.ok) {
-    let detail: string;
-    try {
-      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
-    } catch {
-      detail = `HTTP ${resp.status}`;
-    }
-    throw new Error(detail);
-  }
+  return deleteActivity(token, id);
 }
 
 /**
- * POST /workouts. Creates a workout from the full draft payload. Returns
+ * Maps the legacy WorkoutPayload (what every edit surface builds) onto the
+ * unified create/update body: performed_at → start_time, ended_at →
+ * duration_seconds, exercises → the strength `details` blob. The API
+ * re-derives ended_at as start_time + duration on read. This is the WRITE
+ * direction of the compat seam; `activityToWorkout` (in the unified
+ * section below) is the READ direction.
+ */
+function workoutPayloadToActivityPayload(payload: WorkoutPayload): ActivityPayload {
+  const body: ActivityPayload = {
+    activity_type: "strength_training",
+    start_time: payload.performed_at,
+    details: { exercises: payload.exercises },
+  };
+  if (payload.ended_at) {
+    body.duration_seconds = Math.round(
+      (new Date(payload.ended_at).getTime() - new Date(payload.performed_at).getTime()) / 1000,
+    );
+  }
+  if (payload.name) body.name = payload.name;
+  if (payload.notes) body.notes = payload.notes;
+  return body;
+}
+
+/**
+ * Compat adapter (prefer `createActivity` for new code). Creates a
+ * strength session via the typed `POST /activities`. Returns
  * the created Workout (including any personal_records_set the save
- * triggered) so the caller can route to it and surface PRs without a
- * follow-up fetch. Throws the API's `error` envelope on non-2xx.
+ * triggered — the unified response embeds them in the strength details)
+ * so the caller can route to it and surface PRs without a follow-up
+ * fetch. Throws the API's `error` envelope on non-2xx.
  */
 export async function createWorkout(token: string, payload: WorkoutPayload): Promise<Workout> {
-  const resp = await fetch(`${config.apiUrl}/workouts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload),
-  });
-  const created = await unwrap<Workout | null>(resp, null);
-  if (!created) throw new Error("API did not return the created workout");
-  return created;
+  const created = await createActivity(token, workoutPayloadToActivityPayload(payload));
+  return activityToWorkout(created);
 }
 
 /**
- * PUT /workouts/{id}. Full replacement — the body is the complete
- * workout state, not a partial diff. Ownership is enforced server-side;
- * a non-2xx response means the API rejected the payload (validation
- * error) or the workout doesn't belong to this user.
- *
- * Returns the updated Workout from the API response so callers can
- * splice it into local state without a follow-up refetch.
+ * Compat adapter (prefer `updateActivity` for new code). Full-replacement
+ * update of a strength session via the typed `PUT /activities/{id}` — same semantics as the legacy PUT /workouts/{id}
+ * (PRs recompute; TCX-enrichment vitals survive). Returns the updated
+ * Workout so callers can splice it into local state without a refetch.
  */
 export async function updateWorkout(
   token: string,
   id: string,
   payload: WorkoutPayload,
 ): Promise<Workout> {
-  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  // For mutations we don't fall back to an empty value — if the
-  // response shape is wrong, that's a bug worth surfacing as an error.
-  const updated = await unwrap<Workout | null>(resp, null);
-  if (!updated) {
-    throw new Error("API did not return the updated workout");
-  }
-  return updated;
+  const updated = await updateActivity(token, id, workoutPayloadToActivityPayload(payload));
+  return activityToWorkout(updated);
 }
 
 // --- Nutrition (pantry + log) -------------------------------------
@@ -1635,8 +1654,13 @@ export async function appendChatTurn(
  */
 export type ActivityType = "running" | "walking" | "cycling" | "other" | "strength_training";
 
-/** How an activity entered the system. */
-export type IngestSource = "manual_tcx" | "garmin_api";
+/**
+ * How an activity entered the system. `manual` covers rows written by the
+ * unified manual create surface (every strength session logged in-app);
+ * the TCX/Garmin values cover imported endurance rows and TCX-enriched
+ * lifts.
+ */
+export type IngestSource = "manual" | "manual_tcx" | "garmin_api";
 
 /**
  * One imported activity (today: a run; tomorrow: also walks/rides).
@@ -1830,6 +1854,272 @@ export type RunningSessionsPage = {
   next_before: string | null;
 };
 
+// --- Unified /activities surface (stage 3) ------------------------
+//
+// The one typed surface over every activity type (SOW: unified-activity-
+// model). `Activity` mirrors the Go unifiedReadDTO: the base-row fields
+// (which `RunningSession` above already models — that type stays as the
+// endurance-detail view of the same wire shape) plus the registry-driven
+// `summary` card and the type-keyed `details` payload. The workout compat
+// adapters bridge in both directions: `activityToWorkout` (below) reads a
+// unified strength row back into the legacy `Workout` shape, and
+// `workoutPayloadToActivityPayload` (beside createWorkout above) writes a
+// legacy WorkoutPayload as a typed /activities body — so components keep
+// their types.
+
+/**
+ * The registry-rendered card for a list row: title, subtitle, metric
+ * chips. No web surface renders it yet (the current views derive their
+ * own rollups); kept because it's part of the wire DTO `Activity`
+ * mirrors, and the mobile twin's unified-surface port (mobile parity
+ * phases) consumes the same shape.
+ */
+export type ActivitySummary = {
+  title: string;
+  subtitle: string;
+  metrics: string[];
+};
+
+/**
+ * The strength `details` payload: the session's exercises plus the PR
+ * break events it produced, in the exact legacy /workouts DTO shape
+ * (`personal_records_set` is never null — [] when no PRs). Embedded on
+ * detail reads AND per-item on list responses (the API bulk-loads them).
+ * `exercises` serializes as null for a zero-exercise session (e.g. a
+ * fresh TCX import awaiting its exercises) — `activityToWorkout`
+ * normalizes it to [].
+ */
+export type StrengthActivityDetails = {
+  exercises: WorkoutExercise[] | null;
+  personal_records_set: PersonalRecordEvent[];
+};
+
+/**
+ * The endurance `details` payload (activity_run_details etc. projected
+ * through the endurance detail store). Detail reads only; the running
+ * surfaces read these same fields off the flattened base DTO instead, so
+ * no web consumer reads it today. Kept (not YAGNI-deleted) because it
+ * completes the `details` union — the `"exercises" in details` narrowing
+ * is only type-safe with the non-strength branch typed — and the mobile
+ * twin's unified-surface port consumes the same wire shape.
+ */
+export type EnduranceActivityDetails = {
+  distance_meters: number;
+  raw_distance_meters?: number;
+  avg_pace_sec_per_km?: number;
+  best_pace_sec_per_km?: number;
+  elevation_gain_meters?: number;
+  environment?: "outdoor" | "indoor";
+  route_geojson?: string;
+};
+
+/**
+ * One unified activity as GET /activities returns it. Structurally the
+ * base DTO `RunningSession` already models (same wire fields — see the
+ * comment above), plus `summary` and `details`. `details` is present on
+ * detail reads and, for strength items, on list rows too; discriminate
+ * with `"exercises" in details` (or `activity_type`).
+ */
+export type Activity = RunningSession & {
+  summary?: ActivitySummary;
+  details?: StrengthActivityDetails | EnduranceActivityDetails;
+};
+
+/** One page of unified activities plus the keyset cursor for the next. */
+export type ActivitiesPage = {
+  activities: Activity[];
+  next_before: string | null;
+};
+
+/**
+ * Query params for GET /activities. Two mutually exclusive patterns:
+ * cursor (`limit` + `before`) or range (`since` + `until`, half-open,
+ * uncapped server-side). `type` narrows to one registered activity type.
+ */
+export type ListActivitiesOptions = {
+  limit?: number;
+  before?: string;
+  since?: string;
+  until?: string;
+  type?: ActivityType;
+};
+
+/**
+ * The typed POST/PUT /activities body: the base columns plus the
+ * type-keyed `details` blob. Strength is the only type web writes through
+ * this surface today, so `details` is typed as its exercises list (the
+ * same shape POST /workouts accepted; the API assigns order from array
+ * position).
+ */
+export type ActivityPayload = {
+  activity_type: ActivityType;
+  start_time: string; // RFC3339
+  duration_seconds?: number;
+  name?: string;
+  notes?: string;
+  avg_heart_rate_bpm?: number;
+  max_heart_rate_bpm?: number;
+  total_calories?: number;
+  details?: { exercises: WorkoutPayload["exercises"] };
+};
+
+/**
+ * GET /activities. Returns one page of the authed user's activities of
+ * every type, most recent first. The API forbids mixing the range params
+ * with the cursor params, so when `since`/`until` are present the cursor
+ * params are dropped here — the range form is uncapped server-side and
+ * the window itself bounds the result.
+ */
+export async function listActivities(
+  token: string,
+  opts: ListActivitiesOptions = {},
+): Promise<ActivitiesPage> {
+  const params = new URLSearchParams();
+  if (opts.type) params.set("type", opts.type);
+  const range = Boolean(opts.since || opts.until);
+  if (opts.since) params.set("since", opts.since);
+  if (opts.until) params.set("until", opts.until);
+  if (!range && opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (!range && opts.before) params.set("before", opts.before);
+  const qs = params.toString();
+  const resp = await fetch(`${config.apiUrl}/activities${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<ActivitiesPage>(resp, { activities: [], next_before: null });
+}
+
+/**
+ * GET /activities/{id}. Returns a single activity of any type, including
+ * detail-only blocks (trackpoints, strength/endurance `details`, and the
+ * running-derived splits for runs). `unit` selects the display unit for
+ * the running-derived blocks; irrelevant (but harmless) for other types.
+ * 404s surface as a thrown "activity not found".
+ */
+export async function getActivity(
+  token: string,
+  id: string,
+  unit: "mi" | "km" = "mi",
+): Promise<Activity> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}?unit=${unit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const got = await unwrap<Activity | null>(resp, null);
+  if (!got) {
+    throw new Error("activity not found");
+  }
+  return got;
+}
+
+/**
+ * POST /activities. Creates an activity through the typed unified
+ * surface; the descriptor for `activity_type` owns validation and the
+ * write path (strength routes through the workout machinery: PR
+ * detection, 1RM history, timeline posts). Returns the created row in
+ * the unified read shape — for strength, `details` embeds any PR events
+ * the save produced.
+ */
+export async function createActivity(token: string, payload: ActivityPayload): Promise<Activity> {
+  const resp = await fetch(`${config.apiUrl}/activities`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<Activity | null>(resp, null);
+  if (!created) throw new Error("API did not return the created activity");
+  return created;
+}
+
+/**
+ * PUT /activities/{id}. Full-replacement typed update; the row's stored
+ * type must match `activity_type` (a PUT can't change a session's type).
+ * Returns the updated row in the unified read shape.
+ */
+export async function updateActivity(
+  token: string,
+  id: string,
+  payload: ActivityPayload,
+): Promise<Activity> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const updated = await unwrap<Activity | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated activity");
+  return updated;
+}
+
+/**
+ * DELETE /activities/{id}. Soft-deletes any activity type (204, no
+ * body); throws the API's `error` envelope on non-2xx.
+ */
+export async function deleteActivity(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
+ * Adapts one unified strength activity onto the legacy `Workout` shape
+ * every workout surface consumes:
+ *
+ * - `performed_at`/`ended_at` ← `start_time` + `duration_seconds` (the
+ *   unified model stores duration; 0 means an end-less lift → null).
+ * - `exercises`/`personal_records_set` ← the strength `details` payload
+ *   (absent details — a base-only read — degrade to empty arrays).
+ * - `activity_id`/`enrichment` ← the base row's own TCX enrichment: since
+ *   the single-row model, "has a TCX" is `source_activity_id` non-empty
+ *   and the enrichment activity IS the workout row, so `activity_id`
+ *   echoes the workout's own id (exactly what the legacy DTO returned).
+ *   HR trackpoints ride along on detail reads only, projected onto the
+ *   elapsed-time HR axis the workout chart consumes.
+ */
+export function activityToWorkout(a: Activity): Workout {
+  const details = a.details && "exercises" in a.details ? a.details : undefined;
+  const hasTcx = a.source_activity_id !== "";
+  return {
+    id: a.id,
+    name: a.name ?? undefined,
+    performed_at: a.start_time,
+    ended_at:
+      a.duration_seconds > 0
+        ? new Date(new Date(a.start_time).getTime() + a.duration_seconds * 1000).toISOString()
+        : null,
+    notes: a.notes ?? undefined,
+    exercises: details?.exercises ?? [],
+    created_at: a.created_at,
+    personal_records_set: details?.personal_records_set ?? [],
+    activity_id: hasTcx ? a.id : null,
+    enrichment: hasTcx
+      ? {
+          source_activity_id: a.source_activity_id,
+          start_time: a.start_time,
+          duration_seconds: a.duration_seconds,
+          avg_heart_rate_bpm: a.avg_heart_rate_bpm,
+          max_heart_rate_bpm: a.max_heart_rate_bpm,
+          total_calories: a.total_calories,
+          ...(a.trackpoints && {
+            trackpoints: a.trackpoints.map((tp) => ({
+              sequence: tp.sequence,
+              elapsed_seconds: tp.elapsed_seconds,
+              heart_rate_bpm: tp.heart_rate_bpm,
+            })),
+          }),
+        }
+      : null,
+  };
+}
+
 /**
  * Thrown by `importRunningTcx` when the API returns 409 — the activity
  * was already imported. Carries the existing activity's id so the import
@@ -1857,29 +2147,12 @@ export async function listRunningSessions(
   token: string,
   opts: { limit?: number; before?: string; since?: string; until?: string } = {},
 ): Promise<RunningSessionsPage> {
-  const params = new URLSearchParams();
-  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
-  if (opts.before) params.set("before", opts.before);
-  if (opts.since) params.set("since", opts.since);
-  if (opts.until) params.set("until", opts.until);
-  const qs = params.toString();
-  const resp = await fetch(`${config.apiUrl}/activities${qs ? `?${qs}` : ""}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const page = await unwrap<RunningSessionsPage>(resp, { activities: [], next_before: null });
-  // Guard ahead of the unified-activity-model migration (api PR #79): once
-  // deployed, this same GET /activities returns every activity type,
-  // including strength_training rows (workouts logged via the lifting
-  // side of the app), not just endurance ones. This client ships first, so
-  // it must tolerate both the current endurance-only response (where this
-  // filter is a no-op) and the post-#79 response. Walks/rides pass through
-  // unchanged — only strength_training is out of scope for the running
-  // surfaces. Filtering client-side (not a query param) keeps one code
-  // path correct against both API versions. The mobile twin
-  // (prog-strength-mobile lib/api.ts) carries the identical guard in its
-  // own PR so the two stay in lockstep. This becomes moot once the running
-  // pages are migrated to the full unified model (stage 3), but is
-  // harmless to leave in place after that.
+  // Stage 3 of the unified-activity-model migration: the running surfaces
+  // filter server-side via ?type=running rather than pulling every type
+  // and discarding. The client-side strength_training guard from the
+  // hardening PR stays as a one-line belt in case an older API version
+  // (which ignores unknown params) serves this client.
+  const page = await listActivities(token, { ...opts, type: "running" });
   return {
     ...page,
     activities: page.activities.filter((a) => a.activity_type !== "strength_training"),
@@ -2209,7 +2482,7 @@ async function unwrapWorkoutTcxResponse(resp: Response): Promise<Workout> {
 export async function createWorkoutFromTCX(token: string, file: File): Promise<Workout> {
   const form = new FormData();
   form.append("file", file);
-  const resp = await fetch(`${config.apiUrl}/workouts/imports`, {
+  const resp = await fetch(`${config.apiUrl}/activities/imports`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -2225,7 +2498,7 @@ export async function attachWorkoutTCX(
 ): Promise<Workout> {
   const form = new FormData();
   form.append("file", file);
-  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(workoutId)}/tcx`, {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(workoutId)}/tcx`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -2235,7 +2508,7 @@ export async function attachWorkoutTCX(
 
 /** Detach a workout's TCX (clears the link, soft-deletes the activity). */
 export async function detachWorkoutTCX(token: string, workoutId: string): Promise<void> {
-  const resp = await fetch(`${config.apiUrl}/workouts/${encodeURIComponent(workoutId)}/tcx`, {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(workoutId)}/tcx`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -2522,16 +2795,18 @@ export async function getRunningMaxEffort(
 }
 
 /**
- * GET /personal-records/{exercise_id}/history. Returns the per-workout
- * estimated-1RM series for one exercise. 404 (surfaced as a thrown Error)
- * if the slug isn't in the exercise catalog.
+ * GET /activities/personal-records/{exercise_id}/history — the unified
+ * alias for the legacy /personal-records/{exercise_id}/history (identical
+ * payload). Returns the per-workout estimated-1RM series for one
+ * exercise. 404 (surfaced as a thrown Error) if the slug isn't in the
+ * exercise catalog.
  */
 export async function getExerciseOneRMHistory(
   token: string,
   exerciseId: string,
 ): Promise<ExerciseOneRMHistory> {
   const resp = await fetch(
-    `${config.apiUrl}/personal-records/${encodeURIComponent(exerciseId)}/history`,
+    `${config.apiUrl}/activities/personal-records/${encodeURIComponent(exerciseId)}/history`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
@@ -2880,7 +3155,13 @@ export type PlannedWorkout = {
   status: PlannedWorkoutStatus;
   notes: string | null;
   completed_session_id: string | null;
-  completed_session_kind: CompletedSessionKind | null;
+  // Removed from API responses in unified-cleanup (api #81) — derive the
+  // kind from the completed session's own activity_type client-side
+  // instead (see components/calendar/merge-events.ts and the planned
+  // detail page). Optional so both wire shapes parse during the deploy
+  // overlap; CompletedSessionKind itself stays: the complete/lookup
+  // REQUEST params still carry it.
+  completed_session_kind?: CompletedSessionKind | null;
   calendar_detail: CalendarDetail | null;
   google_event_id: string | null;
   google_sync_status: GoogleSyncStatus | null;

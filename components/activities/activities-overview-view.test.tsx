@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen, waitFor } from "@testing-library/react";
-import type { RunningSession, StepsEntry, Workout } from "@/lib/api";
+import type { Activity, RunningSession, StepsEntry } from "@/lib/api";
 
 // --- module mocks ----------------------------------------------------------
 
@@ -9,8 +9,7 @@ const replaceMock = vi.hoisted(() => vi.fn());
 const getTokenMock = vi.hoisted(() => vi.fn(() => "tok"));
 const clearTokenMock = vi.hoisted(() => vi.fn());
 
-const listWorkoutsMock = vi.hoisted(() => vi.fn());
-const listRunningSessionsMock = vi.hoisted(() => vi.fn());
+const listActivitiesMock = vi.hoisted(() => vi.fn());
 const listStepsMock = vi.hoisted(() => vi.fn());
 const getStepsGoalMock = vi.hoisted(() => vi.fn());
 
@@ -23,9 +22,11 @@ vi.mock("@/lib/auth", () => ({
   clearToken: clearTokenMock,
 }));
 
-vi.mock("@/lib/api", () => ({
-  listWorkouts: listWorkoutsMock,
-  listRunningSessions: listRunningSessionsMock,
+// The view partitions ONE unified page and adapts strength items through
+// the real activityToWorkout, so the adapter stays under test here.
+vi.mock("@/lib/api", async (importOriginal) => ({
+  activityToWorkout: (await importOriginal<typeof import("@/lib/api")>()).activityToWorkout,
+  listActivities: listActivitiesMock,
   listSteps: listStepsMock,
   getStepsGoal: getStepsGoalMock,
 }));
@@ -57,19 +58,31 @@ function ymd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function workout(daysBack: number, minutes: number): Workout {
+// One unified strength activity as GET /activities returns it — the view
+// adapts it to the legacy Workout shape (performed_at/ended_at from
+// start_time + duration) before deriving stats.
+function lift(daysBack: number, minutes: number): Activity {
   const start = daysAgo(daysBack);
   start.setHours(8, 0, 0, 0);
-  const end = new Date(start.getTime() + minutes * 60_000);
   return {
     id: id(),
-    user_id: "u",
-    performed_at: start.toISOString(),
-    ended_at: end.toISOString(),
-    exercises: [],
+    activity_type: "strength_training",
+    ingest_source: "manual",
+    source_activity_id: "",
+    name: null,
+    start_time: start.toISOString(),
+    distance_meters: 0,
+    raw_distance_meters: 0,
+    environment: "outdoor",
+    duration_seconds: minutes * 60,
+    avg_pace_sec_per_km: null,
+    best_pace_sec_per_km: null,
+    avg_heart_rate_bpm: null,
+    max_heart_rate_bpm: null,
+    total_calories: null,
+    elevation_gain_meters: null,
     created_at: start.toISOString(),
-    updated_at: start.toISOString(),
-    personal_records_set: [],
+    details: { exercises: [], personal_records_set: [] },
   };
 }
 
@@ -104,16 +117,19 @@ function step(daysBack: number, steps: number): StepsEntry {
 }
 
 function setup({
-  workouts = [],
+  lifts = [],
   sessions = [],
   steps = [],
 }: {
-  workouts?: Workout[];
+  lifts?: Activity[];
   sessions?: RunningSession[];
   steps?: StepsEntry[];
 }) {
-  listWorkoutsMock.mockResolvedValue({ items: workouts });
-  listRunningSessionsMock.mockResolvedValue({ activities: sessions });
+  // One unified page carries every type; the view partitions it.
+  listActivitiesMock.mockResolvedValue({
+    activities: [...lifts, ...sessions],
+    next_before: null,
+  });
   listStepsMock.mockResolvedValue({ steps, next_before: null });
   getStepsGoalMock.mockResolvedValue({
     goal: 10000,
@@ -133,7 +149,7 @@ beforeEach(() => {
 describe("ActivitiesOverviewView — instrument panel", () => {
   it("shows the KPI row and every instrument for a mixed window", async () => {
     setup({
-      workouts: [workout(2, 60), workout(5, 45)],
+      lifts: [lift(2, 60), lift(5, 45)],
       sessions: [run(1, {}), run(3, { avg_pace_sec_per_km: 320 })],
       steps: [step(0, 9000), step(1, 8500), step(2, 9500)],
     });
@@ -185,7 +201,7 @@ describe("ActivitiesOverviewView — instrument panel", () => {
   });
 
   it("degrades a lifting-only window to a 100/0 donut with no run instruments", async () => {
-    setup({ workouts: [workout(2, 60), workout(5, 45)] });
+    setup({ lifts: [lift(2, 60), lift(5, 45)] });
     render(<ActivitiesOverviewView days={30} distanceUnit="mi" />);
     await waitFor(() => expect(screen.getByText("Time split")).toBeInTheDocument());
 

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { getToken } from "@/lib/auth";
-import { listRunningSessions, listWorkouts } from "@/lib/api";
+import { listActivities } from "@/lib/api";
+import { partitionActivities } from "@/lib/partition-activities";
 import { useProfile } from "@/lib/profile-context";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { Avatar } from "@/components/social/Avatar";
@@ -19,9 +20,10 @@ const HISTORY_DAYS = 35;
 /**
  * The timeline's left "your week" rail: the viewer's profile, a consecutive-day
  * streak figure, a this-week sparkline (WeekBars), and run/lift week totals.
- * Fetches the viewer's recent workouts + runs over a ~35-day window (wide
- * enough for the streak), maps them to source-agnostic DatedActivity[], and
- * composes the pure weekStats helpers. On any fetch error it degrades to the
+ * Makes ONE unified activities fetch over a ~35-day window (wide enough for
+ * the streak), partitions it via the shared partitionActivities split, maps
+ * both buckets to source-agnostic DatedActivity[], and composes the pure
+ * weekStats helpers. On any fetch error it degrades to the
  * profile + zeros rather than erroring the page — the page guard + feed own
  * auth/redirect.
  */
@@ -41,19 +43,17 @@ export function YourWeekRail() {
       now.getDate() - HISTORY_DAYS,
     ).toISOString();
     const until = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
-    Promise.all([
-      listWorkouts(token, { since, until, limit: 100 })
-        .then((p) => p.items)
-        .catch(() => []),
-      listRunningSessions(token, { since, until })
-        .then((p) => p.activities)
-        .catch(() => []),
-    ])
-      .then(([workouts, runs]) => {
+    // ONE unified ranged fetch covers every type (stage 3), split by the
+    // shared partitionActivities helper: strength rows map to "lift",
+    // everything else (runs — and any walk/ride, matching the prior
+    // merge's behavior) maps to "run" with its distance.
+    listActivities(token, { since, until })
+      .then((page) => {
         if (cancelled) return;
+        const { workouts, sessions } = partitionActivities(page.activities);
         const mapped: DatedActivity[] = [
           ...workouts.map((w) => ({ at: w.performed_at, kind: "lift" as const })),
-          ...runs.map((r) => ({
+          ...sessions.map((r) => ({
             at: r.start_time,
             kind: "run" as const,
             distanceMeters: r.distance_meters,

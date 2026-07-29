@@ -90,7 +90,7 @@ export default function ProgressPage() {
         router.replace("/login");
         return Promise.reject(new Error("not authenticated"));
       }
-      return listWorkouts(token, { since: sinceISO, until: untilISO, limit: 100 });
+      return listWorkouts(token, { since: sinceISO, until: untilISO });
     },
     staleTime: 60_000,
   });

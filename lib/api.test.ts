@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  activityToWorkout,
+  attachWorkoutTCX,
   calibrateRunningSession,
   checkUsernameAvailable,
+  createActivity,
+  createWorkout,
+  createWorkoutFromTCX,
+  deleteActivity,
   deletePlannedWorkout,
+  deleteWorkout,
+  detachWorkoutTCX,
+  getActivity,
   getDashboardSummary,
   getExerciseOneRMHistory,
   getPlannedWorkoutBySession,
@@ -11,15 +20,20 @@ import {
   getRunningMaxEffort,
   getRunningMaxEffortSummary,
   getRunningSession,
+  getWorkout,
+  listActivities,
   listProgression,
   listRunningBestEfforts,
   listRunningSessions,
   listWhoopRecovery,
+  listWorkouts,
   removeFollower,
   requestFollow,
   setRunningSessionEnvironment,
   unlinkPlannedWorkout,
+  updateActivity,
   updateRunningSessionNotes,
+  updateWorkout,
 } from "@/lib/api";
 
 // Unit tests for the running best-efforts + 1RM history client methods.
@@ -195,7 +209,7 @@ describe("listProgression", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("/workouts/progression?");
+    expect(url).toContain("/activities/progression?");
     expect(url).toContain("movement_pattern=push");
     expect(url).not.toContain("muscle_group=");
     expect(url).toContain("since=2026-03-11T00%3A00%3A00Z");
@@ -254,9 +268,10 @@ describe("getExerciseOneRMHistory", () => {
     const result = await getExerciseOneRMHistory(TOKEN, "barbell-bench-press");
 
     expect(result).toEqual(history);
-    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/personal-records/barbell-bench-press/history`, {
-      headers: { Authorization: `Bearer ${TOKEN}` },
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${BASE}/activities/personal-records/barbell-bench-press/history`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+    );
   });
 
   it("rejects with the API error text on a non-ok response", async () => {
@@ -702,32 +717,44 @@ describe("getRunningSession", () => {
 });
 
 describe("listRunningSessions", () => {
-  // Ahead of the unified-activity-model migration (api PR #79), GET
-  // /activities starts returning every activity type, including
-  // strength_training rows. These assert the client-side guard drops
-  // strength_training while passing running/walking/cycling through
-  // unchanged — the same filter must be a no-op against today's
-  // endurance-only API and correct against the post-#79 API.
-  it("filters out strength_training activities from the page", async () => {
-    const run = { id: "r1", activity_type: "running" };
-    const walk = { id: "w1", activity_type: "walking" };
-    const lift = { id: "s1", activity_type: "strength_training" };
-    mockFetchOk({ activities: [run, walk, lift], next_before: null });
+  // Stage 3 of the unified-activity-model migration: the running list
+  // filters server-side via ?type=running. The client-side
+  // strength_training guard from the hardening PR stays as a belt in case
+  // an older API ignores the param.
+  it("requests server-side type=running filtering", async () => {
+    const fetchMock = mockFetchOk({ activities: [], next_before: null });
 
-    const result = await listRunningSessions(TOKEN);
+    await listRunningSessions(TOKEN);
 
-    expect(result.activities).toEqual([run, walk]);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain(`${BASE}/activities?`);
+    expect(url).toContain("type=running");
   });
 
-  it("passes running, walking, and cycling activities through untouched", async () => {
+  it("keeps the client-side strength_training belt filter", async () => {
     const run = { id: "r1", activity_type: "running" };
-    const walk = { id: "w1", activity_type: "walking" };
-    const ride = { id: "c1", activity_type: "cycling" };
-    mockFetchOk({ activities: [run, walk, ride], next_before: "cursor-1" });
+    const lift = { id: "s1", activity_type: "strength_training" };
+    mockFetchOk({ activities: [run, lift], next_before: null });
 
     const result = await listRunningSessions(TOKEN);
 
-    expect(result).toEqual({ activities: [run, walk, ride], next_before: "cursor-1" });
+    expect(result.activities).toEqual([run]);
+  });
+
+  it("builds the range form without limit/before and passes the cursor through", async () => {
+    const run = { id: "r1", activity_type: "running" };
+    const fetchMock = mockFetchOk({ activities: [run], next_before: "cursor-1" });
+
+    const result = await listRunningSessions(TOKEN, {
+      since: "2026-06-01T00:00:00Z",
+      until: "2026-07-01T00:00:00Z",
+    });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("since=2026-06-01T00%3A00%3A00Z");
+    expect(url).toContain("until=2026-07-01T00%3A00%3A00Z");
+    expect(url).not.toContain("limit=");
+    expect(result).toEqual({ activities: [run], next_before: "cursor-1" });
   });
 });
 
@@ -908,5 +935,429 @@ describe("listWhoopRecovery", () => {
   it("rejects with the API error text on a non-ok response", async () => {
     mockFetchError("boom");
     await expect(listWhoopRecovery(TOKEN, { timezone: "America/Denver" })).rejects.toThrow("boom");
+  });
+});
+
+// --- Unified /activities surface (stage 3) ------------------------
+//
+// The workout fetchers now ride the unified /activities surface: cursor or
+// range list forms (never mixed with limit/before), the strength `details`
+// payload carrying exercises + personal_records_set, and an explicit
+// Activity → Workout adapter keeping every legacy consumer shape intact.
+
+// A unified strength activity as GET /activities returns it after the
+// api parity PR: base fields plus details.{exercises,personal_records_set}.
+const strengthActivity = {
+  id: "wk_1",
+  activity_type: "strength_training",
+  ingest_source: "manual",
+  source_activity_id: "",
+  name: "Push day",
+  notes: "felt strong",
+  start_time: "2026-07-01T10:00:00Z",
+  distance_meters: 0,
+  raw_distance_meters: 0,
+  environment: "outdoor",
+  duration_seconds: 3600,
+  avg_pace_sec_per_km: null,
+  best_pace_sec_per_km: null,
+  avg_heart_rate_bpm: null,
+  max_heart_rate_bpm: null,
+  total_calories: null,
+  elevation_gain_meters: null,
+  created_at: "2026-07-01T11:00:00Z",
+  summary: { title: "Push day", subtitle: "1 exercise", metrics: ["1 exercise", "5 sets"] },
+  details: {
+    exercises: [
+      {
+        exercise_id: "barbell-bench-press",
+        order: 0,
+        sets: [{ reps: 5, weight: 185, unit: "lb" }],
+      },
+    ],
+    personal_records_set: [
+      {
+        id: "pr_1",
+        exercise_id: "barbell-bench-press",
+        workout_id: "wk_1",
+        weight: 185,
+        reps: 5,
+        unit: "lb",
+        previous_weight: null,
+        previous_reps: null,
+        previous_unit: null,
+        achieved_at: "2026-07-01T10:00:00Z",
+      },
+    ],
+  },
+};
+
+// The Workout shape the adapter must produce from strengthActivity —
+// field-for-field what the legacy /workouts DTO consumers expect.
+const adaptedWorkout = {
+  id: "wk_1",
+  name: "Push day",
+  performed_at: "2026-07-01T10:00:00Z",
+  ended_at: "2026-07-01T11:00:00.000Z",
+  notes: "felt strong",
+  exercises: strengthActivity.details.exercises,
+  created_at: "2026-07-01T11:00:00Z",
+  personal_records_set: strengthActivity.details.personal_records_set,
+  activity_id: null,
+  enrichment: null,
+};
+
+describe("listActivities", () => {
+  it("builds the cursor form with limit/before and a type filter", async () => {
+    const fetchMock = mockFetchOk({ activities: [], next_before: null });
+
+    await listActivities(TOKEN, { limit: 100, before: "2026-07-01T00:00:00Z", type: "running" });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain(`${BASE}/activities?`);
+    expect(url).toContain("type=running");
+    expect(url).toContain("limit=100");
+    expect(url).toContain("before=2026-07-01T00%3A00%3A00Z");
+    expect(fetchMock.mock.calls[0][1]).toEqual({
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("drops limit/before in the range form (the API forbids mixing them)", async () => {
+    const fetchMock = mockFetchOk({ activities: [], next_before: null });
+
+    await listActivities(TOKEN, { since: "2026-06-01T00:00:00Z", limit: 100 });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("since=2026-06-01T00%3A00%3A00Z");
+    expect(url).not.toContain("limit=");
+  });
+
+  it("returns the page and cursor from the envelope", async () => {
+    mockFetchOk({ activities: [strengthActivity], next_before: "c1" });
+
+    const result = await listActivities(TOKEN);
+
+    expect(result.activities).toEqual([strengthActivity]);
+    expect(result.next_before).toBe("c1");
+  });
+
+  it("rejects with the API error text on a non-ok response", async () => {
+    mockFetchError("boom");
+    await expect(listActivities(TOKEN)).rejects.toThrow("boom");
+  });
+});
+
+describe("getActivity / createActivity / updateActivity / deleteActivity", () => {
+  it("getActivity fetches the detail with a unit param", async () => {
+    const fetchMock = mockFetchOk(strengthActivity);
+
+    const result = await getActivity(TOKEN, "wk_1");
+
+    expect(result).toEqual(strengthActivity);
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/wk_1?unit=mi`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("getActivity throws when the envelope carries no activity", async () => {
+    mockFetchOk(null);
+    await expect(getActivity(TOKEN, "nope")).rejects.toThrow("activity not found");
+  });
+
+  it("createActivity POSTs the typed payload and unwraps the created row", async () => {
+    const fetchMock = mockFetchOk(strengthActivity);
+    const payload = {
+      activity_type: "strength_training" as const,
+      start_time: "2026-07-01T10:00:00Z",
+      duration_seconds: 3600,
+      name: "Push day",
+      details: {
+        exercises: [
+          {
+            exercise_id: "barbell-bench-press",
+            sets: [{ reps: 5, weight: 185, unit: "lb" as const }],
+          },
+        ],
+      },
+    };
+
+    const result = await createActivity(TOKEN, payload);
+
+    expect(result).toEqual(strengthActivity);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities`);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual(payload);
+  });
+
+  it("updateActivity PUTs the typed payload to /activities/{id}", async () => {
+    const fetchMock = mockFetchOk(strengthActivity);
+    const payload = {
+      activity_type: "strength_training" as const,
+      start_time: "2026-07-01T10:00:00Z",
+      details: { exercises: [] },
+    };
+
+    await updateActivity(TOKEN, "wk_1", payload);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/wk_1`);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual(payload);
+  });
+
+  it("deleteActivity DELETEs and resolves on 204", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteActivity(TOKEN, "wk_1");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/wk_1`);
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("deleteActivity rejects with the API error text", async () => {
+    mockFetchError("activity not found");
+    await expect(deleteActivity(TOKEN, "nope")).rejects.toThrow("activity not found");
+  });
+});
+
+describe("listWorkouts (unified adapter)", () => {
+  it("uses the cursor form with type=strength_training and adapts items", async () => {
+    const fetchMock = mockFetchOk({ activities: [strengthActivity], next_before: "c9" });
+
+    const page = await listWorkouts(TOKEN, { limit: 100 });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain(`${BASE}/activities?`);
+    expect(url).toContain("type=strength_training");
+    expect(url).toContain("limit=100");
+    expect(page.next_before).toBe("c9");
+    expect(page.items).toEqual([expect.objectContaining(adaptedWorkout)]);
+  });
+
+  it("uses the range form (no limit) when since/until are present", async () => {
+    const fetchMock = mockFetchOk({ activities: [], next_before: null });
+
+    await listWorkouts(TOKEN, { since: "2026-06-01T00:00:00Z", until: "2026-07-01T00:00:00Z" });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("type=strength_training");
+    expect(url).toContain("since=2026-06-01T00%3A00%3A00Z");
+    expect(url).toContain("until=2026-07-01T00%3A00%3A00Z");
+    expect(url).not.toContain("limit=");
+  });
+
+  it("returns an empty page when the envelope data is missing", async () => {
+    mockFetchOk(undefined);
+    expect(await listWorkouts(TOKEN)).toEqual({ items: [], next_before: null });
+  });
+});
+
+describe("activityToWorkout adapter", () => {
+  it("maps a manual strength activity onto the legacy Workout shape", () => {
+    expect(activityToWorkout(strengthActivity as Parameters<typeof activityToWorkout>[0])).toEqual(
+      adaptedWorkout,
+    );
+  });
+
+  it("maps a TCX-enriched activity: activity_id + enrichment with trackpoints", () => {
+    const enriched = {
+      ...strengthActivity,
+      ingest_source: "manual_tcx",
+      source_activity_id: "garmin-123",
+      avg_heart_rate_bpm: 120,
+      max_heart_rate_bpm: 160,
+      total_calories: 400,
+      trackpoints: [
+        {
+          sequence: 0,
+          elapsed_seconds: 0,
+          distance_meters: 0,
+          heart_rate_bpm: 100,
+          pace_sec_per_km: null,
+          elevation_meters: null,
+          clean_pace: false,
+        },
+      ],
+    };
+
+    const w = activityToWorkout(enriched as Parameters<typeof activityToWorkout>[0]);
+
+    expect(w.activity_id).toBe("wk_1");
+    expect(w.enrichment).toEqual({
+      source_activity_id: "garmin-123",
+      start_time: "2026-07-01T10:00:00Z",
+      duration_seconds: 3600,
+      avg_heart_rate_bpm: 120,
+      max_heart_rate_bpm: 160,
+      total_calories: 400,
+      trackpoints: [{ sequence: 0, elapsed_seconds: 0, heart_rate_bpm: 100 }],
+    });
+  });
+
+  it("normalizes a zero-exercise import (wire exercises: null) to []", () => {
+    const imported = {
+      ...strengthActivity,
+      details: { exercises: null, personal_records_set: [] },
+    };
+
+    const w = activityToWorkout(imported as Parameters<typeof activityToWorkout>[0]);
+
+    expect(w.exercises).toEqual([]);
+    expect(w.personal_records_set).toEqual([]);
+  });
+
+  it("renders an end-less lift (duration 0) with ended_at null and empty details", () => {
+    const bare = {
+      ...strengthActivity,
+      duration_seconds: 0,
+      name: null,
+      notes: null,
+      details: undefined,
+    };
+
+    const w = activityToWorkout(bare as Parameters<typeof activityToWorkout>[0]);
+
+    expect(w.ended_at).toBeNull();
+    expect(w.name).toBeUndefined();
+    expect(w.exercises).toEqual([]);
+    expect(w.personal_records_set).toEqual([]);
+  });
+});
+
+describe("getWorkout (unified adapter)", () => {
+  it("fetches /activities/{id} and adapts the strength detail", async () => {
+    const fetchMock = mockFetchOk(strengthActivity);
+
+    const w = await getWorkout(TOKEN, "wk_1");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/activities/wk_1?unit=mi`);
+    expect(w).toEqual(expect.objectContaining(adaptedWorkout));
+  });
+
+  it("treats a non-strength activity as workout not found", async () => {
+    mockFetchOk({ ...strengthActivity, activity_type: "running" });
+    await expect(getWorkout(TOKEN, "r1")).rejects.toThrow("workout not found");
+  });
+
+  it("translates the missing-activity error to the legacy message", async () => {
+    mockFetchOk(null);
+    await expect(getWorkout(TOKEN, "nope")).rejects.toThrow("workout not found");
+  });
+});
+
+describe("createWorkout / updateWorkout (unified adapter)", () => {
+  const payload = {
+    name: "Push day",
+    performed_at: "2026-07-01T10:00:00Z",
+    ended_at: "2026-07-01T11:00:00Z",
+    notes: "felt strong",
+    exercises: [
+      { exercise_id: "barbell-bench-press", sets: [{ reps: 5, weight: 185, unit: "lb" as const }] },
+    ],
+  };
+
+  it("createWorkout POSTs a typed /activities payload and adapts the response", async () => {
+    const fetchMock = mockFetchOk(strengthActivity);
+
+    const created = await createWorkout(TOKEN, payload);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities`);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      activity_type: "strength_training",
+      start_time: "2026-07-01T10:00:00Z",
+      duration_seconds: 3600,
+      name: "Push day",
+      notes: "felt strong",
+      details: { exercises: payload.exercises },
+    });
+    expect(created).toEqual(expect.objectContaining(adaptedWorkout));
+    expect(created.personal_records_set).toHaveLength(1);
+  });
+
+  it("createWorkout omits duration when the payload has no ended_at", async () => {
+    const fetchMock = mockFetchOk(strengthActivity);
+
+    await createWorkout(TOKEN, { ...payload, ended_at: undefined });
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body).not.toHaveProperty("duration_seconds");
+  });
+
+  it("updateWorkout PUTs the typed payload to /activities/{id}", async () => {
+    const fetchMock = mockFetchOk(strengthActivity);
+
+    await updateWorkout(TOKEN, "wk_1", payload);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/wk_1`);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string).activity_type).toBe("strength_training");
+  });
+
+  it("rejects with the API error text on a validation failure", async () => {
+    mockFetchError("invalid strength details");
+    await expect(createWorkout(TOKEN, payload)).rejects.toThrow("invalid strength details");
+  });
+});
+
+describe("deleteWorkout (unified)", () => {
+  it("DELETEs /activities/{id}", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteWorkout(TOKEN, "wk_1");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/wk_1`);
+    expect(init.method).toBe("DELETE");
+  });
+});
+
+describe("workout TCX endpoints (unified aliases)", () => {
+  const file = new File(["<tcx/>"], "workout.tcx", { type: "application/xml" });
+  const legacyWorkout = {
+    id: "wk_2",
+    performed_at: "2026-07-01T10:00:00Z",
+    exercises: [],
+    personal_records_set: [],
+    activity_id: "wk_2",
+    enrichment: null,
+  };
+
+  it("createWorkoutFromTCX POSTs to /activities/imports", async () => {
+    const fetchMock = mockFetchOk(legacyWorkout);
+
+    const w = await createWorkoutFromTCX(TOKEN, file);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/imports`);
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(w).toEqual(legacyWorkout);
+  });
+
+  it("attachWorkoutTCX POSTs to /activities/{id}/tcx", async () => {
+    const fetchMock = mockFetchOk(legacyWorkout);
+
+    await attachWorkoutTCX(TOKEN, "wk_2", file);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/activities/wk_2/tcx`);
+  });
+
+  it("detachWorkoutTCX DELETEs /activities/{id}/tcx", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await detachWorkoutTCX(TOKEN, "wk_2");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/wk_2/tcx`);
+    expect(init.method).toBe("DELETE");
   });
 });

@@ -60,7 +60,6 @@ function makePlanned(overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
     status: "planned",
     notes: null,
     completed_session_id: null,
-    completed_session_kind: null,
     calendar_detail: null,
     google_event_id: null,
     google_sync_status: null,
@@ -87,7 +86,6 @@ describe("buildEventsByDate", () => {
     const planned = makePlanned({
       status: "completed",
       completed_session_id: "r-link",
-      completed_session_kind: "activity",
     });
 
     const map = buildEventsByDate([], [run], [planned]);
@@ -113,7 +111,6 @@ describe("buildEventsByDate", () => {
       run_type: null,
       status: "completed",
       completed_session_id: "w-link",
-      completed_session_kind: "workout",
     });
 
     const events = eventsOn(buildEventsByDate([workout], [], [planned]));
@@ -127,7 +124,6 @@ describe("buildEventsByDate", () => {
     const planned = makePlanned({
       status: "completed",
       completed_session_id: "r-link",
-      completed_session_kind: "activity",
       scheduled_start: iso(15, 13),
     });
 
@@ -137,6 +133,12 @@ describe("buildEventsByDate", () => {
     const day16 = eventsOn(map, localDateKey(new Date(2026, 5, 16)));
     expect(day15.map((e) => e.kind)).toEqual(["planned"]);
     expect(day16.map((e) => e.kind)).toEqual(["run"]);
+    // The standalone planned event still learns its logged session's kind
+    // (derived by id resolution — the API no longer sends it), so the
+    // digest's "View logged run →" link keeps working cross-day.
+    const ev = day15[0];
+    if (ev.kind !== "planned") throw new Error("unreachable");
+    expect(ev.completedSessionKind).toBe("activity");
   });
 
   it("does NOT collapse when the linked logged session is missing from the window", () => {
@@ -145,11 +147,15 @@ describe("buildEventsByDate", () => {
     const planned = makePlanned({
       status: "completed",
       completed_session_id: "r-not-here",
-      completed_session_kind: "activity",
     });
 
     const events = eventsOn(buildEventsByDate([], [], [planned]));
     expect(events.map((e) => e.kind)).toEqual(["planned"]);
+    // Out-of-window session → the kind can't be derived; the digest hides
+    // its "View logged" link rather than guessing.
+    const ev = events[0];
+    if (ev.kind !== "planned") throw new Error("unreachable");
+    expect(ev.completedSessionKind).toBeUndefined();
   });
 
   it("leaves unlinked logged sessions and not-yet-completed plans untouched", () => {
@@ -165,7 +171,6 @@ describe("buildEventsByDate", () => {
     const planned = makePlanned({
       status: "skipped",
       completed_session_id: "r-link",
-      completed_session_kind: "activity",
     });
     const run = makeRun({ id: "r-link" });
 

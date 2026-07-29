@@ -14,12 +14,18 @@ import type { CompletedSessionKind, Exercise, PlannedWorkout, RunType } from "@/
  */
 export function PlannedBanner({
   planned,
+  completedSessionKind,
   onOpen,
   onResync,
   onNavigateSession,
   onUnlink,
 }: {
   planned: PlannedWorkout;
+  // The kind of the completed plan's logged session, derived by the CALLER
+  // from the session itself (id resolution in merge-events, or the
+  // session's activity_type on the plan detail page) — the API no longer
+  // sends completed_session_kind. Absent hides the "View logged" link.
+  completedSessionKind?: CompletedSessionKind | null;
   // Open the planned-workout modal (read-only view) for this plan.
   onOpen?: () => void;
   onResync?: () => void;
@@ -103,18 +109,15 @@ export function PlannedBanner({
       {completed && planned.completed_session_id && (
         <div className="flex items-center gap-2 border-t border-[var(--border)] px-3 py-2 text-xs text-[var(--muted)]">
           <span>Completed</span>
-          {onNavigateSession && planned.completed_session_kind && (
+          {onNavigateSession && completedSessionKind && (
             <button
               type="button"
               onClick={() =>
-                onNavigateSession(
-                  planned.completed_session_kind as CompletedSessionKind,
-                  planned.completed_session_id as string,
-                )
+                onNavigateSession(completedSessionKind, planned.completed_session_id as string)
               }
               className="font-medium text-[var(--accent)] transition hover:underline"
             >
-              View logged {planned.completed_session_kind === "activity" ? "run" : "workout"} →
+              View logged {completedSessionKind === "activity" ? "run" : "workout"} →
             </button>
           )}
           {onUnlink && (
