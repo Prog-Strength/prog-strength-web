@@ -16,11 +16,18 @@
  * no key. (sows/outdoor-hiking-maps.md § The style registry, Risk R5.)
  */
 
-export type MapStyleId = "standard" | "topo" | "dark";
+export type MapStyleId = "standard" | "topo" | "satellite" | "satellite-trails" | "dark";
 
-/** What the style renders under our chrome. Drives stroke weight and control
- *  contrast without any consumer branching on a style id. Only "dark" exists in
- *  Phase 1; "imagery" arrives with the satellite styles in Phase 3. */
+/**
+ * What the style renders under our chrome. Drives stroke weight and control
+ * contrast without any consumer branching on a style id — a new style declares
+ * what it needs and every consumer already handles it.
+ *
+ * `imagery` is the one place the design system's dark-theme Fixed Point does
+ * not apply: a photograph has no theme. That is a scoped, deliberate carve-out
+ * for the basemap pixels only — chrome, route, and controls stay on system
+ * tokens over it.
+ */
 export type MapCanvas = "dark" | "imagery";
 
 export type MapKeys = {
@@ -92,6 +99,39 @@ export const MAP_STYLES: Record<MapStyleId, MapStyleDef> = {
     canvas: "dark",
   },
 
+  // Photographic ground truth: what the terrain actually looks like. Every
+  // vector layer in this style ships `visibility: none`, so it is imagery and
+  // nothing else — the counterpart to Topographic's abstraction.
+  satellite: {
+    id: "satellite",
+    label: "Satellite",
+    hint: "Aerial imagery, nothing else",
+    resolve: maptiler("satellite"),
+    requiresKey: "maptiler",
+    // Imagery carries its own shading — the sun was out when the photo was
+    // taken. A hillshade over it reads as mud rather than as terrain.
+    supportsHillshade: false,
+    canvas: "imagery",
+  },
+
+  // The same imagery with MapTiler's vector overlay switched on: OSM paths and
+  // tracks, roads, and place labels over the photograph.
+  //
+  // NOT a composed style. The SOW planned to fetch the outdoor style JSON and
+  // splice the satellite raster into it, because no provider was thought to
+  // ship this pairing — but MapTiler's `hybrid` IS `satellite` with its 16
+  // vector layers flipped to visible, `Path` and `Path minor` among them. The
+  // composition work was unnecessary.
+  "satellite-trails": {
+    id: "satellite-trails",
+    label: "Satellite + Trails",
+    hint: "Imagery with trails and labels",
+    resolve: maptiler("hybrid"),
+    requiresKey: "maptiler",
+    supportsHillshade: false,
+    canvas: "imagery",
+  },
+
   // Minimal cartography (42 layers, no contours, few labels) with our hillshade
   // over it: terrain shape and the route, and almost nothing else. The view for
   // reading the line itself rather than the ground it crosses.
@@ -106,8 +146,20 @@ export const MAP_STYLES: Record<MapStyleId, MapStyleDef> = {
   },
 };
 
-/** Switcher order — terrain first, since that is what a hiker opens the map for. */
-export const MAP_STYLE_ORDER: MapStyleId[] = ["topo", "standard", "dark"];
+/**
+ * Switcher order — terrain first, since that is what a hiker opens the map for,
+ * then the two imagery views together, then the quiet one. Grouping the
+ * satellite pair adjacently matters: they are one idea at two levels of
+ * annotation, and a user toggling between them should not cross an unrelated
+ * style to do it.
+ */
+export const MAP_STYLE_ORDER: MapStyleId[] = [
+  "topo",
+  "standard",
+  "satellite",
+  "satellite-trails",
+  "dark",
+];
 
 /**
  * The default basemap per discipline.

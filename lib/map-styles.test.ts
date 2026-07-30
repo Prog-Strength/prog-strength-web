@@ -22,11 +22,54 @@ describe("MAP_STYLES", () => {
     for (const [id, def] of Object.entries(MAP_STYLES)) expect(def.id).toBe(id);
   });
 
-  // Dark theme is a design-system Fixed Point. Phase 1 ships no imagery, so
-  // every canvas must still be dark — this guards against a light basemap being
-  // added without the deliberate carve-out the satellite styles will carry.
-  it("registers only dark canvases in this phase", () => {
-    for (const def of Object.values(MAP_STYLES)) expect(def.canvas).toBe("dark");
+  // Dark theme is a design-system Fixed Point, and `imagery` is the ONE
+  // deliberate carve-out from it. Any style that is neither is a light
+  // cartographic basemap sneaking in without that decision being made.
+  it("registers only dark or imagery canvases", () => {
+    for (const def of Object.values(MAP_STYLES)) {
+      expect(["dark", "imagery"]).toContain(def.canvas);
+    }
+  });
+
+  it("carves out imagery for the satellite styles only", () => {
+    const imagery = Object.values(MAP_STYLES)
+      .filter((s) => s.canvas === "imagery")
+      .map((s) => s.id)
+      .sort();
+    expect(imagery).toEqual(["satellite", "satellite-trails"]);
+  });
+});
+
+describe("imagery styles", () => {
+  it("resolves both satellite views from the same key as the rest", () => {
+    // No second provider and no second account: MapTiler serves imagery from
+    // the key already configured for the topographic basemap.
+    expect(styleUrl("satellite", WITH_KEY)).toBe(
+      "https://api.maptiler.com/maps/satellite/style.json?key=test-key",
+    );
+    // `hybrid` IS `satellite` with its 16 vector layers flipped visible —
+    // paths and labels included — so "Satellite + Trails" needs no composition.
+    expect(styleUrl("satellite-trails", WITH_KEY)).toBe(
+      "https://api.maptiler.com/maps/hybrid/style.json?key=test-key",
+    );
+  });
+
+  // Imagery already carries its own shading: the sun was out when the photo was
+  // taken. A hillshade over it reads as mud rather than as terrain.
+  it("installs no hillshade over imagery", () => {
+    expect(MAP_STYLES.satellite.supportsHillshade).toBe(false);
+    expect(MAP_STYLES["satellite-trails"].supportsHillshade).toBe(false);
+  });
+
+  it("keeps the two satellite views adjacent in the switcher", () => {
+    const i = MAP_STYLE_ORDER.indexOf("satellite");
+    expect(MAP_STYLE_ORDER[i + 1]).toBe("satellite-trails");
+  });
+
+  it("drops both from the switcher when no key is configured", () => {
+    expect(styleUrl("satellite", NO_KEY)).toBeNull();
+    expect(styleUrl("satellite-trails", NO_KEY)).toBeNull();
+    expect(availableStyles(NO_KEY).map((s) => s.id)).toEqual(["standard"]);
   });
 });
 

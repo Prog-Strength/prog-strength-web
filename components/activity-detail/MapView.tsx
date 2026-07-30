@@ -158,6 +158,9 @@ export function MapView({
           casingColor: casing,
           mutedColor: muted,
           hillshade: MAP_STYLES[styleIdRef.current].supportsHillshade,
+          // The active style declares what it is; the overlay module picks the
+          // weights. No consumer branches on a style id.
+          canvas: MAP_STYLES[styleIdRef.current].canvas,
           mileMarkers: st.mileMarkers,
           // Seeded from live cursor state so switching basemap mid-scrub
           // restores the cursor rather than dropping it.

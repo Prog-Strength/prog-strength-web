@@ -250,6 +250,53 @@ describe("MapView", () => {
       expect(data.features).toHaveLength(1);
     });
 
+    // Risk R2 at the component level, not just the module's: setStyle wipes
+    // every application-added source and layer, and the `styledata` wiring is
+    // what puts them back. Without this the switcher looks fine in a unit test
+    // and loses the route in a browser.
+    it("restores the route after the user changes basemap", () => {
+      render(<MapView route={route()} discipline="hike" trackpoints={tps()} />);
+      stub.addLayer.mockClear();
+      stub.addSource.mockClear();
+
+      fireEvent.click(screen.getByRole("button", { name: "Standard" }));
+
+      expect(stub.addSource.mock.calls.map((c) => c[0])).toContain("ps-route");
+      expect(stub.addLayer.mock.calls.map((c) => (c[0] as { id: string }).id)).toEqual(
+        expect.arrayContaining(["ps-route-casing", "ps-route-line", "ps-route-endpoints"]),
+      );
+    });
+
+    it("offers both satellite views, adjacent", () => {
+      render(<MapView route={route()} discipline="hike" />);
+      expect(screen.getByRole("button", { name: "Satellite" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Satellite + Trails" })).toBeTruthy();
+    });
+
+    it("switches to imagery and reinstalls the route with the heavier weights", () => {
+      const r = route();
+      render(<MapView route={r} discipline="hike" trackpoints={tps()} />);
+      const casingOnTopo = stub.addLayer.mock.calls
+        .map((c) => c[0] as { id: string; paint?: Record<string, number> })
+        .find((l) => l.id === "ps-route-casing")?.paint?.["line-width"];
+
+      stub.addLayer.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "Satellite" }));
+
+      expect(stub.setStyle).toHaveBeenCalledWith(
+        "https://api.maptiler.com/maps/satellite/style.json?key=test-key",
+      );
+      const installed = stub.addLayer.mock.calls.map(
+        (c) => c[0] as { id: string; paint?: Record<string, number> },
+      );
+      const casingOnImagery = installed.find((l) => l.id === "ps-route-casing")?.paint?.[
+        "line-width"
+      ];
+      expect(casingOnImagery).toBeGreaterThan(casingOnTopo!);
+      // Imagery carries its own shading; a hillshade over it reads as mud.
+      expect(installed.map((l) => l.id)).not.toContain("ps-hillshade");
+    });
+
     it("marks the active style as pressed", () => {
       render(<MapView route={route()} discipline="hike" />);
       expect(screen.getByRole("button", { name: "Topographic" }).getAttribute("aria-pressed")).toBe(

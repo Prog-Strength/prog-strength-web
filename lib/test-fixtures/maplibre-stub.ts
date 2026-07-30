@@ -45,6 +45,8 @@ export function createMapStub(styleLayers: { id: string; type: string }[] = []):
   const layers = new Map<string, unknown>();
   const sources = new Map<string, unknown>();
   const images = new Set<string>();
+  /** Registered `styledata` listeners, replayed by setStyle. */
+  const styleDataHandlers: (() => void)[] = [];
 
   const stub: StubMap = {
     addSource: vi.fn((id: string, spec: unknown) => {
@@ -71,11 +73,24 @@ export function createMapStub(styleLayers: { id: string; type: string }[] = []):
     // Nothing under the pointer by default, so the map→profile binding stays
     // quiet unless a test arranges a hit.
     queryRenderedFeatures: vi.fn(() => []),
-    setStyle: vi.fn(),
+    // Models the real thing: a style change WIPES every application-added
+    // source, layer and image, then emits `styledata` so the consumer can
+    // reinstall. Without this a component-level test of the switcher would pass
+    // while the route silently vanished in a browser — the exact failure the
+    // overlay installer exists to prevent.
+    setStyle: vi.fn(() => {
+      layers.clear();
+      sources.clear();
+      images.clear();
+      for (const cb of styleDataHandlers) cb();
+    }),
     isStyleLoaded: vi.fn(() => true),
     fitBounds: vi.fn(),
     on: vi.fn((event: string, cb: () => void) => {
-      if (event === "styledata") cb();
+      if (event === "styledata") {
+        styleDataHandlers.push(cb);
+        cb();
+      }
     }),
     off: vi.fn(),
     once: vi.fn((event: string, cb: () => void) => {
