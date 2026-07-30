@@ -18,6 +18,9 @@ const pt = (dist: number, overrides: Overrides = {}): RunningTrackpoint => ({
   pace_sec_per_km: null,
   elevation_meters: null,
   clean_pace: false,
+  latitude: null,
+  longitude: null,
+  grade_percent: null,
   ...overrides,
 });
 

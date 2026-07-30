@@ -21,15 +21,26 @@
  */
 
 import type { RouteFeature } from "@/lib/api";
+import type { Coord, MileMarker } from "@/lib/elevation-scrub";
+
+export type StyleLayerSpec = {
+  id: string;
+  type: string;
+  layout?: Record<string, unknown>;
+};
+
+/** The subset of a MapLibre GeoJSON source we drive after installation. */
+export type GeoJSONSourceLike = { setData?: (data: unknown) => void };
 
 export type OverlayMap = {
-  getStyle(): { layers?: { id: string; type: string }[] } | undefined;
+  getStyle(): { layers?: StyleLayerSpec[] } | undefined;
   getSource(id: string): unknown | undefined;
   addSource(id: string, spec: unknown): void;
   removeSource(id: string): void;
   getLayer(id: string): unknown | undefined;
   addLayer(spec: { id: string; type?: string }, beforeId?: string): void;
   removeLayer(id: string): void;
+  setPaintProperty(layerId: string, name: string, value: unknown): void;
   hasImage(id: string): boolean;
   addImage(id: string, image: { width: number; height: number; data: Uint8Array }): void;
   removeImage(id: string): void;
@@ -41,15 +52,27 @@ export type OverlaySpec = {
    *  MapLibre paint expressions do not read CSS custom properties. */
   strokeColor: string;
   casingColor: string;
+  /** The route colour while a scrub cursor is active: the line ahead of the
+   *  cursor demotes to this so the travelled portion reads as travelled. */
+  mutedColor: string;
   /** Install our own DEM + hillshade pair. See `installOverlays` for why this
    *  is ours rather than the basemap's on styles that ship one. */
   hillshade: boolean;
+  /** Whole-unit distance markers, already computed in the user's active unit. */
+  mileMarkers?: MileMarker[];
+  /** Cursor state at install time, so a style change mid-scrub restores it
+   *  rather than dropping the cursor. */
+  travelled?: Coord[][];
+  scrubCoord?: Coord | null;
 };
 
 export const OVERLAY_SOURCE_IDS = {
   route: "ps-route",
   endpoints: "ps-route-endpoints",
   dem: "ps-terrain-dem",
+  travelled: "ps-travelled",
+  scrub: "ps-scrub",
+  miles: "ps-miles",
 } as const;
 
 /** Bottom-to-top. Insertion order IS z-order (see `installOverlays`). */
@@ -57,8 +80,12 @@ export const OVERLAY_LAYER_IDS = [
   "ps-hillshade",
   "ps-route-casing",
   "ps-route-line",
+  "ps-route-travelled",
   "ps-route-arrows",
+  "ps-mile-dots",
+  "ps-mile-labels",
   "ps-route-endpoints",
+  "ps-scrub-marker",
 ] as const;
 
 export const ARROW_IMAGE_ID = "ps-route-arrow";
@@ -204,6 +231,64 @@ export function firstSymbolLayerId(map: OverlayMap): string | undefined {
   return map.getStyle()?.layers?.find((l) => l.type === "symbol")?.id;
 }
 
+/** An empty FeatureCollection — the resting state of every driven source. */
+export const EMPTY_FC = { type: "FeatureCollection", features: [] } as const;
+
+/** GeoJSON for the travelled portion, or an empty collection when idle. */
+export function travelledGeoJSON(segments: Coord[][] | undefined) {
+  const lines = (segments ?? []).filter((s) => s.length > 1);
+  if (lines.length === 0) return EMPTY_FC;
+  return {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "MultiLineString", coordinates: lines },
+  };
+}
+
+/** GeoJSON for the scrub marker, or an empty collection when there's no cursor. */
+export function scrubGeoJSON(coord: Coord | null | undefined) {
+  if (!coord) return EMPTY_FC;
+  return {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "Point", coordinates: coord },
+  };
+}
+
+export function mileMarkersGeoJSON(markers: MileMarker[] | undefined) {
+  return {
+    type: "FeatureCollection",
+    features: (markers ?? []).map((m) => ({
+      type: "Feature",
+      properties: { label: m.label },
+      geometry: { type: "Point", coordinates: m.coord },
+    })),
+  };
+}
+
+/**
+ * A font stack the ACTIVE style is already using, borrowed for the mile-marker
+ * labels.
+ *
+ * Text in a `symbol` layer needs a `text-font` that resolves against the
+ * style's glyph endpoint, and the available stacks differ between OpenFreeMap
+ * and MapTiler — naming one produces a layer that silently fails to render on
+ * the other. Reusing a stack the style already references guarantees it
+ * resolves, whatever the provider.
+ *
+ * `undefined` when the style has no text at all, in which case the labels are
+ * skipped and the dots stand alone.
+ */
+export function styleFontStack(map: OverlayMap): string[] | undefined {
+  for (const l of map.getStyle()?.layers ?? []) {
+    const font = l.layout?.["text-font"];
+    if (Array.isArray(font) && font.length > 0 && font.every((f) => typeof f === "string")) {
+      return font as string[];
+    }
+  }
+  return undefined;
+}
+
 const OVERLAY_LAYER_SET: ReadonlySet<string> = new Set(OVERLAY_LAYER_IDS);
 
 /** Tear down anything a previous install left behind. Existence-guarded, so it
@@ -248,6 +333,20 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
   map.addSource(OVERLAY_SOURCE_IDS.endpoints, {
     type: "geojson",
     data: routeEndpoints(spec.route),
+  });
+  // Seeded from the spec rather than always-empty, so a style change mid-scrub
+  // restores the cursor instead of dropping it.
+  map.addSource(OVERLAY_SOURCE_IDS.travelled, {
+    type: "geojson",
+    data: travelledGeoJSON(spec.travelled),
+  });
+  map.addSource(OVERLAY_SOURCE_IDS.scrub, {
+    type: "geojson",
+    data: scrubGeoJSON(spec.scrubCoord),
+  });
+  map.addSource(OVERLAY_SOURCE_IDS.miles, {
+    type: "geojson",
+    data: mileMarkersGeoJSON(spec.mileMarkers),
   });
   map.addImage(ARROW_IMAGE_ID, arrowIconRGBA(spec.strokeColor));
 
@@ -300,7 +399,26 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
     type: "line",
     source: OVERLAY_SOURCE_IDS.route,
     layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": spec.strokeColor, "line-width": 3 },
+    // Demoted to the muted colour while a cursor is active, so the travelled
+    // overlay above reads as the part already walked. `updateScrub` swaps this
+    // paint property rather than reinstalling — a full teardown at
+    // pointer-move rates would visibly flicker.
+    paint: {
+      "line-color": spec.scrubCoord ? spec.mutedColor : spec.strokeColor,
+      "line-width": 3,
+    },
+  } as { id: string; type: string });
+
+  // The travelled portion, drawn from TRACKPOINT coordinates rather than by
+  // splitting the route geometry — the route is RDP-simplified and so has no
+  // index correspondence to split on, whereas trackpoint i is exactly what the
+  // scrub cursor names.
+  add({
+    id: "ps-route-travelled",
+    type: "line",
+    source: OVERLAY_SOURCE_IDS.travelled,
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": spec.strokeColor, "line-width": 3.5 },
   } as { id: string; type: string });
 
   add({
@@ -318,6 +436,43 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
       "icon-ignore-placement": false,
     },
   } as { id: string; type: string });
+
+  // Mile / kilometre marks: a dot per whole-unit boundary, with the number
+  // beside it when the style gives us a font stack to borrow.
+  add({
+    id: "ps-mile-dots",
+    type: "circle",
+    source: OVERLAY_SOURCE_IDS.miles,
+    paint: {
+      "circle-radius": 3,
+      "circle-color": spec.casingColor,
+      "circle-stroke-width": 1.5,
+      "circle-stroke-color": spec.strokeColor,
+    },
+  } as { id: string; type: string });
+
+  const fontStack = styleFontStack(map);
+  if (fontStack) {
+    add({
+      id: "ps-mile-labels",
+      type: "symbol",
+      source: OVERLAY_SOURCE_IDS.miles,
+      layout: {
+        "text-field": ["get", "label"],
+        "text-font": fontStack,
+        "text-size": 11,
+        "text-offset": [0, -1.1],
+        "text-allow-overlap": false,
+      },
+      paint: {
+        "text-color": spec.strokeColor,
+        // A halo in the casing colour keeps the digit legible over imagery and
+        // over a pale topographic canvas alike.
+        "text-halo-color": spec.casingColor,
+        "text-halo-width": 1.5,
+      },
+    } as { id: string; type: string });
+  }
 
   add({
     id: "ps-route-endpoints",
@@ -337,4 +492,55 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
       "circle-stroke-color": spec.strokeColor,
     },
   } as { id: string; type: string });
+
+  // Topmost: the cursor must never be occluded by the route it sits on.
+  add({
+    id: "ps-scrub-marker",
+    type: "circle",
+    source: OVERLAY_SOURCE_IDS.scrub,
+    paint: {
+      "circle-radius": 6,
+      "circle-color": spec.strokeColor,
+      "circle-stroke-width": 2.5,
+      "circle-stroke-color": spec.casingColor,
+    },
+  } as { id: string; type: string });
+}
+
+/**
+ * The high-frequency half of the map's state: where the cursor is and how much
+ * of the route is behind it.
+ *
+ * Separate from `installOverlays` on purpose. Installation tears sources and
+ * layers down and builds them back up, which is correct once per style load and
+ * badly wrong at pointer-move rates — it would flicker and thrash. This only
+ * pushes data into sources that already exist and swaps one paint property, so
+ * scrubbing stays smooth.
+ *
+ * Every write is existence-guarded: a scrub event can land in the window
+ * between a style change wiping the layers and `styledata` reinstalling them,
+ * and that must be a no-op rather than a throw.
+ */
+export function updateScrub(
+  map: OverlayMap,
+  opts: {
+    travelled: Coord[][];
+    scrubCoord: Coord | null;
+    strokeColor: string;
+    mutedColor: string;
+  },
+): void {
+  const travelled = map.getSource(OVERLAY_SOURCE_IDS.travelled) as GeoJSONSourceLike | undefined;
+  travelled?.setData?.(travelledGeoJSON(opts.travelled));
+
+  const scrub = map.getSource(OVERLAY_SOURCE_IDS.scrub) as GeoJSONSourceLike | undefined;
+  scrub?.setData?.(scrubGeoJSON(opts.scrubCoord));
+
+  if (map.getLayer("ps-route-line")) {
+    map.setPaintProperty(
+      "ps-route-line",
+      "line-color",
+      opts.scrubCoord ? opts.mutedColor : opts.strokeColor,
+    );
+  }
 }

@@ -1827,6 +1827,16 @@ export type RunningTrackpoint = {
   // (per-point pace absent, non-positive, or slower than the device-dropout
   // threshold).
   clean_pace: boolean;
+  // WGS84 coordinates of this sample; null where the source trackpoint had no
+  // <Position>. These are what let the elevation profile drive a marker along
+  // the route: the elevation strip is a straight map over this array, so strip
+  // index i is trackpoint i. The simplified `route` geometry can't serve that —
+  // it's RDP-reduced and not index-aligned with anything.
+  latitude: number | null;
+  longitude: number | null;
+  // Server-owned signed slope in percent, measured over a smoothing window.
+  // Null where it can't be measured honestly; 0 means genuinely flat.
+  grade_percent: number | null;
 };
 
 /**

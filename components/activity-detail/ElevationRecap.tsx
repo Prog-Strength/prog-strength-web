@@ -22,11 +22,21 @@ export function ElevationRecap({
   gainMeters,
   unit,
   discipline = "run",
+  scrubIndex = null,
+  onScrub,
+  caption,
 }: {
   points: MetricStripPoint[];
   gainMeters: number | null;
   unit: "km" | "mi";
   discipline?: "run" | "hike";
+  /** Cursor index into `points`, shared with the route map. */
+  scrubIndex?: number | null;
+  /** Opt in to scrubbing. Omitted on the run page, which keeps today's chart. */
+  onScrub?: (index: number | null) => void;
+  /** Readout rendered under the chart — the numbers at the cursor, or the
+   *  whole-hike aggregates when there is none. */
+  caption?: React.ReactNode;
 }) {
   const plottableCount = points.reduce((n, p) => (p.value != null ? n + 1 : n), 0);
   if (plottableCount < 2) return null;
@@ -57,7 +67,10 @@ export function ElevationRecap({
         unit={unit}
         extreme={{ kind: "max", label: (v) => `Peak ${v.toFixed(0)} m` }}
         ariaLabel={ariaLabel}
+        scrubIndex={scrubIndex}
+        onScrub={onScrub}
       />
+      {caption}
     </div>
   );
 }

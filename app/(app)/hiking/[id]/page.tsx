@@ -15,6 +15,8 @@ import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
 import { buildElevationStrip, buildHeartRateStrip, hasPlottableSeries } from "@/lib/running-traces";
+import { mileMarkers, readoutAt, remainingClimb } from "@/lib/elevation-scrub";
+import { ElevationScrubCaption } from "@/components/activity-detail/ElevationScrubCaption";
 import { formatStartDateTime } from "../../running/_components/RunListRow";
 import { hikeFallbackName } from "../_components/HikeListRow";
 import { NotesEditor } from "@/components/activity-detail/NotesEditor";
@@ -90,6 +92,40 @@ export default function HikingDetailPage() {
     () => buildElevationStrip(session?.trackpoints ?? [], unit),
     [session, unit],
   );
+
+  // --- linked elevation profile + map ------------------------------------
+  // ONE index is the whole binding. `buildElevationStrip` is a straight map
+  // over the trackpoints, so strip index i is trackpoint i is route position i
+  // — the chart cursor, the map marker, the travelled overlay, and the caption
+  // readout all derive from this single number.
+  const trackpoints = useMemo(() => session?.trackpoints ?? [], [session]);
+  const [scrubIndex, setScrubIndex] = useState<number | null>(null);
+
+  // Suffix sums, computed once per track rather than per pointer frame.
+  const climb = useMemo(() => remainingClimb(trackpoints), [trackpoints]);
+  const readout = useMemo(
+    () => readoutAt(trackpoints, climb, scrubIndex),
+    [trackpoints, climb, scrubIndex],
+  );
+  const markers = useMemo(() => mileMarkers(trackpoints, unit), [trackpoints, unit]);
+
+  // A cursor from one hike must not survive into the next, or into a unit
+  // toggle that refetches a different-length track. Adjusted during render
+  // rather than in an effect — React re-renders immediately without committing
+  // the stale cursor, so there is no frame where the marker sits on the wrong
+  // sample and no cascading-render warning.
+  const [cursorTrack, setCursorTrack] = useState(trackpoints);
+  if (cursorTrack !== trackpoints) {
+    setCursorTrack(trackpoints);
+    setScrubIndex(null);
+  }
+
+  // Idempotent on an unchanged value: the map and the chart both call this, and
+  // without the guard a hover that lands on the same sample re-renders the page
+  // on every pointer frame.
+  const handleScrub = useCallback((index: number | null) => {
+    setScrubIndex((prev) => (prev === index ? prev : index));
+  }, []);
 
   async function handleRename(name: string) {
     if (!session) return;
@@ -262,10 +298,21 @@ export default function HikingDetailPage() {
             )}
           </dl>
 
-          {/* 3 — Route map (self-hides when route is undefined). */}
-          <MapView route={session.route} discipline="hike" label="Hike route map" />
+          {/* 3 — Route map. Linked to the elevation profile below through
+              `scrubIndex`: hovering the route moves the profile cursor, and
+              the profile moves the marker here. Self-hides with no route. */}
+          <MapView
+            route={session.route}
+            discipline="hike"
+            label="Hike route map"
+            trackpoints={trackpoints}
+            scrubIndex={scrubIndex}
+            onScrub={handleScrub}
+            mileMarkers={markers}
+          />
 
-          {/* 4 — Elevation profile — the CENTERPIECE chart of a hike. */}
+          {/* 4 — Elevation profile — the CENTERPIECE chart of a hike, and the
+              other half of the linked instrument. */}
           {hasPlottableSeries(elevStrip) && (
             <section className="flex flex-col gap-3">
               <SectionKicker discipline="hike">Elevation profile</SectionKicker>
@@ -274,6 +321,24 @@ export default function HikingDetailPage() {
                 gainMeters={session.elevation_gain_meters}
                 unit={unit}
                 discipline="hike"
+                scrubIndex={scrubIndex}
+                onScrub={handleScrub}
+                caption={
+                  <ElevationScrubCaption
+                    readout={readout}
+                    scrubbing={scrubIndex != null}
+                    totals={{
+                      ascentMeters: session.elevation_gain_meters,
+                      descentMeters: session.elevation_loss_meters,
+                      highMeters: session.elevation_high_meters,
+                      lowMeters: session.elevation_low_meters,
+                      distanceMeters: session.distance_meters,
+                    }}
+                    formatElevation={formatElevation}
+                    formatDistance={formatDistance}
+                    unitLabel={unitLabel}
+                  />
+                }
               />
             </section>
           )}

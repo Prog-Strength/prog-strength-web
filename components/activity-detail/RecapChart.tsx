@@ -18,6 +18,8 @@
  *     next sample starts a fresh `M`, so missing samples stay gaps.
  */
 
+import { useRef } from "react";
+
 const W = 860;
 const H = 300;
 const M = { top: 28, right: 24, bottom: 40, left: 56 };
@@ -28,6 +30,11 @@ export type RecapPoint = {
 };
 
 type PlottablePoint = { distanceUnit: number; value: number };
+
+/** Whether a pointer can hover — i.e. whether a bare move should scrub. */
+function isHoverPointer(pointerType: string): boolean {
+  return pointerType !== "touch" && pointerType !== "pen";
+}
 
 /**
  * Choose a "nice" tick step ({1,2,5}×10ⁿ) so the x-axis caps at ~6–8 labels
@@ -53,6 +60,8 @@ export function RecapChart({
   extreme,
   showGapBands = false,
   ariaLabel,
+  scrubIndex = null,
+  onScrub,
 }: {
   points: RecapPoint[];
   color: string;
@@ -63,7 +72,23 @@ export function RecapChart({
   extreme?: { kind: "min" | "max"; label: (plottedValue: number) => string };
   showGapBands?: boolean;
   ariaLabel: string;
+  /**
+   * Index INTO `points` of the cursor, or null for none. Callers keep this in
+   * their own state so a sibling surface (the route map) can share it.
+   */
+  scrubIndex?: number | null;
+  /**
+   * Opt in to scrubbing. When omitted the chart is byte-for-byte what it was
+   * before — no overlay, no pointer handlers, no crosshair — which is why the
+   * pace and heart-rate recaps are untouched by this feature.
+   */
+  onScrub?: (index: number | null) => void;
 }) {
+  // Hooks before the early return: `plottable.length < 2` bails out, and a
+  // conditionally-called hook is a render-order bug waiting to happen.
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const draggingRef = useRef(false);
+
   const plottable = points.filter((p): p is PlottablePoint => p.value != null);
   if (plottable.length < 2) return null;
 
@@ -163,8 +188,50 @@ export function RecapChart({
     }
   }
 
+  // --- scrubbing ---------------------------------------------------------
+  // Indices INTO `points` that can carry a cursor. The cursor is expressed in
+  // `points` space, not `plottable` space, because that index is shared with
+  // the route map and only the unfiltered array is index-aligned with the
+  // trackpoints the map draws from.
+  const plottableIndices: number[] = [];
+  points.forEach((p, i) => {
+    if (p.value != null) plottableIndices.push(i);
+  });
+
+  const indexFromClientX = (clientX: number): number | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    // The SVG scales to its container, so map client px back through the
+    // viewBox before inverting the x scale.
+    const svgX = ((clientX - rect.left) / rect.width) * W;
+    const d = minX + ((svgX - M.left) / (W - M.left - M.right)) * spanX;
+
+    let best: number | null = null;
+    let bestDelta = Infinity;
+    for (const i of plottableIndices) {
+      const delta = Math.abs(points[i].distanceUnit - d);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  const scrubPoint =
+    scrubIndex != null && scrubIndex >= 0 && scrubIndex < points.length ? points[scrubIndex] : null;
+  const scrubValue = scrubPoint?.value ?? null;
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={ariaLabel}>
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full"
+      role="img"
+      aria-label={ariaLabel}
+    >
       <title>{ariaLabel}</title>
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -262,6 +329,30 @@ export function RecapChart({
         </g>
       )}
 
+      {/* scrub crosshair — drawn above the series, below nothing */}
+      {onScrub && scrubPoint && scrubValue != null && (
+        <g aria-hidden="true">
+          <line
+            x1={px(scrubPoint.distanceUnit)}
+            x2={px(scrubPoint.distanceUnit)}
+            y1={M.top}
+            y2={baseY}
+            stroke={color}
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            opacity={0.7}
+          />
+          <circle
+            cx={px(scrubPoint.distanceUnit)}
+            cy={py(scrubValue)}
+            r={5}
+            fill={color}
+            stroke="var(--background)"
+            strokeWidth={2}
+          />
+        </g>
+      )}
+
       {/* one dropout caption, near the first gap */}
       {gaps.length > 0 && (
         <text
@@ -274,6 +365,63 @@ export function RecapChart({
         >
           dropout
         </text>
+      )}
+
+      {/* Pointer surface. MUST be the last child: SVG hit-testing favours
+          later siblings, so anything painted after this would swallow the
+          events. `touch-action: pan-y` is what lets a vertical swipe scroll
+          the page normally while a horizontal drag scrubs — cheaper and more
+          reliable than preventDefault heuristics. */}
+      {onScrub && (
+        <rect
+          x={M.left}
+          y={M.top}
+          width={W - M.left - M.right}
+          height={baseY - M.top}
+          fill="transparent"
+          style={{ touchAction: "pan-y", cursor: "crosshair" }}
+          data-testid="recap-scrub-surface"
+          onPointerDown={(e) => {
+            draggingRef.current = true;
+            // Capture is a nicety — it keeps a drag alive past the chart edge.
+            // Not all environments implement it, and it throws on an unknown
+            // pointer id, which must never cost us the scrub itself.
+            try {
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+            } catch {
+              /* capture unavailable; dragging still tracked by the ref */
+            }
+            onScrub(indexFromClientX(e.clientX));
+          }}
+          onPointerMove={(e) => {
+            // Hover scrubs on a hover-capable device; touch and pen require an
+            // active drag, since there is no such thing as hovering a finger.
+            // Tested for NOT-touch rather than for "mouse": pointerType is ""
+            // on some environments, and defaulting those to hover is right —
+            // a real touch always identifies itself.
+            if (isHoverPointer(e.pointerType) || draggingRef.current) {
+              onScrub(indexFromClientX(e.clientX));
+            }
+          }}
+          onPointerUp={(e) => {
+            draggingRef.current = false;
+            try {
+              e.currentTarget.releasePointerCapture?.(e.pointerId);
+            } catch {
+              /* nothing was captured */
+            }
+            // A touch drag ends with the finger lifted and nothing hovering,
+            // so clear rather than stranding a cursor the user can't move.
+            if (!isHoverPointer(e.pointerType)) onScrub(null);
+          }}
+          onPointerCancel={() => {
+            draggingRef.current = false;
+            onScrub(null);
+          }}
+          onPointerLeave={() => {
+            if (!draggingRef.current) onScrub(null);
+          }}
+        />
       )}
     </svg>
   );
