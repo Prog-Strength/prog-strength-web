@@ -2,7 +2,9 @@
 
 import { useId, useState } from "react";
 import { runFallbackName } from "@/app/(app)/running/_components/RunListRow";
+import { hikeFallbackName } from "@/app/(app)/hiking/_components/HikeListRow";
 import { hasMeaningfulName } from "@/components/workout-details";
+import { disciplineOfActivity } from "@/components/calendar/derivations";
 import { RunDigest } from "@/components/calendar/run-digest";
 import { WorkoutDigest } from "@/components/calendar/workout-digest";
 import { PlannedAgenda, hasPlannedAgenda } from "@/components/calendar/planned-banner";
@@ -42,34 +44,44 @@ export function CompletedPlannedBanner({
   const [planOpen, setPlanOpen] = useState(false);
   const digestId = useId();
   const planId = useId();
-  const { unitLabel, formatDistance, formatPace } = useDistanceUnit();
+  const { unitLabel, formatDistance, formatPace, formatElevation } = useDistanceUnit();
 
   const isRun = logged.kind === "run";
   const start = isRun ? new Date(logged.run.start_time) : new Date(logged.workout.performed_at);
   const time = start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
+  // The logged session's own discipline — a hike that closed out a plan is a
+  // hike (clay, gain-led), not a run wearing the plan's name.
+  const discipline = logged.kind === "run" ? disciplineOfActivity(logged.run) : "lift";
+  const isHike = discipline === "hike";
+
   // Title prefers the plan's name (what the user scheduled, e.g.
   // "W7 D1 - Easy Run"); falls back to the logged session's own title.
-  const loggedTitle = isRun
-    ? logged.run.name?.trim() || runFallbackName(logged.run.start_time)
-    : hasMeaningfulName(logged.workout.name)
-      ? (logged.workout.name as string)
-      : time;
+  const loggedTitle =
+    logged.kind === "run"
+      ? logged.run.name?.trim() ||
+        (isHike ? hikeFallbackName(logged.run.start_time) : runFallbackName(logged.run.start_time))
+      : hasMeaningfulName(logged.workout.name)
+        ? (logged.workout.name as string)
+        : time;
   const title = planned.name?.trim() || loggedTitle;
 
   // Stats line reads from the LOGGED session — the thing that actually
-  // happened — mirroring RunBanner / WorkoutBanner.
-  const stats = isRun
-    ? `${time} · ${formatDistance(logged.run.distance_meters)} ${unitLabel} · ${formatPace(
-        logged.run.avg_pace_sec_per_km,
-      )} /${unitLabel}`
-    : (() => {
-        const n = logged.workout.exercises.length;
-        return `${time} · ${n} ${n === 1 ? "exercise" : "exercises"}`;
-      })();
+  // happened — mirroring RunBanner / WorkoutBanner, including the hike's
+  // gain-instead-of-pace reading.
+  const stats =
+    logged.kind === "run"
+      ? `${time} · ${formatDistance(logged.run.distance_meters)} ${unitLabel} · ${
+          isHike
+            ? `${formatElevation(logged.run.elevation_gain_meters)} gain`
+            : `${formatPace(logged.run.avg_pace_sec_per_km)} /${unitLabel}`
+        }`
+      : (() => {
+          const n = logged.workout.exercises.length;
+          return `${time} · ${n} ${n === 1 ? "exercise" : "exercises"}`;
+        })();
 
   const planHasAgenda = hasPlannedAgenda(planned);
-  const discipline = isRun ? "run" : "lift";
   const c = activityColors(discipline);
   const ring = activityRingClass(discipline);
 

@@ -226,7 +226,11 @@ export default function HikingDetailPage() {
                 textClass="text-4xl"
               />
             </div>
-            <NotesEditor notes={session.notes} onSave={handleSaveNotes} />
+            <NotesEditor
+              notes={session.notes}
+              onSave={handleSaveNotes}
+              prompt="How did this hike feel?"
+            />
           </div>
 
           {/* 2 — Quiet inline strip: distance / vertical gain / duration lead,
@@ -259,7 +263,7 @@ export default function HikingDetailPage() {
           </dl>
 
           {/* 3 — Route map (self-hides when route is undefined). */}
-          <RunRouteMap route={session.route} />
+          <RunRouteMap route={session.route} label="Hike route map" />
 
           {/* 4 — Elevation profile — the CENTERPIECE chart of a hike. */}
           {hasPlottableSeries(elevStrip) && (
@@ -269,6 +273,7 @@ export default function HikingDetailPage() {
                 points={elevStrip}
                 gainMeters={session.elevation_gain_meters}
                 unit={unit}
+                discipline="hike"
               />
             </section>
           )}

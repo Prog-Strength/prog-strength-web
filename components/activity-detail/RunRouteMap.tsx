@@ -14,13 +14,17 @@ const ACCENT_FALLBACK = "#9aa6d6";
 
 type RunRouteMapProps = {
   route: RouteFeature | undefined;
+  // Accessible name for the map surface. Shared across activity detail
+  // pages, so the caller names the activity — a hike's map must not
+  // announce itself as a run route.
+  label?: string;
 };
 
 // RunRouteMap renders the simplified GPS route on a MapLibre map fitted to the
 // route bounds. It renders nothing when there is no route (indoor / no-GPS
 // runs), so the detail page is byte-for-byte unchanged for those. Purely
 // presentational: it owns the map lifecycle for the route prop it is given.
-export function RunRouteMap({ route }: RunRouteMapProps) {
+export function RunRouteMap({ route, label = "Run route map" }: RunRouteMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -64,7 +68,7 @@ export function RunRouteMap({ route }: RunRouteMapProps) {
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)]">
-      <div ref={containerRef} className="h-64 w-full" aria-label="Run route map" />
+      <div ref={containerRef} className="h-64 w-full" aria-label={label} />
     </div>
   );
 }

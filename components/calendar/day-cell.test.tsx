@@ -38,7 +38,7 @@ function renderCell(
       events={events}
       onSelectDay={noop}
       onNavigateWorkout={noop}
-      onNavigateRun={noop}
+      onNavigateActivity={noop}
       onOpenPlanned={noop}
       {...overrides}
     />,
@@ -61,10 +61,11 @@ describe("DayCell", () => {
   });
 
   it("renders a run chip and navigates on click", () => {
-    const onNavigateRun = vi.fn();
-    renderCell([{ kind: "run", startMs: 1, run: run("r1", "Morning Run") }], { onNavigateRun });
+    const onNavigateActivity = vi.fn();
+    const r1 = run("r1", "Morning Run");
+    renderCell([{ kind: "run", startMs: 1, run: r1 }], { onNavigateActivity });
     fireEvent.click(screen.getByRole("button", { name: "Morning Run" }));
-    expect(onNavigateRun).toHaveBeenCalledWith("r1");
+    expect(onNavigateActivity).toHaveBeenCalledWith(r1);
   });
 
   it("opens the planned modal (not navigate) when a planned pill is clicked", () => {

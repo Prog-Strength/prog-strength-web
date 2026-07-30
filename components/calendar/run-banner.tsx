@@ -2,16 +2,22 @@
 
 import { useId, useState } from "react";
 import { runFallbackName } from "@/app/(app)/running/_components/RunListRow";
+import { hikeFallbackName } from "@/app/(app)/hiking/_components/HikeListRow";
 import { RunDigest } from "@/components/calendar/run-digest";
+import { disciplineOfActivity } from "@/components/calendar/derivations";
 import { activityColors, activityRingClass } from "@/lib/activity-colors";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import type { RunningSession } from "@/lib/api";
 
 /**
- * Banner row for a single run, the run-toned (cool teal) sibling of WorkoutBanner.
- * The body button navigates (via `onNavigate`) to the run detail; the
- * chevron toggles an inline {@link RunDigest} dropdown without navigating.
- * The dropdown mounts lazily — only when `open`.
+ * Banner row for a single logged endurance session, the endurance-toned
+ * sibling of WorkoutBanner. The body button navigates (via `onNavigate`) to
+ * the session detail; the chevron toggles an inline {@link RunDigest}
+ * dropdown without navigating. The dropdown mounts lazily — only when `open`.
+ *
+ * Runs and hikes share the row but not its reading: a run is sage-toned and
+ * paced, a hike is clay-toned and leads with vertical gain (mirroring
+ * HikeListRow), because a hike isn't a paced effort.
  */
 export function RunBanner({
   run,
@@ -24,19 +30,25 @@ export function RunBanner({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const dropdownId = useId();
-  const { unitLabel, formatDistance, formatPace } = useDistanceUnit();
+  const { unitLabel, formatDistance, formatPace, formatElevation } = useDistanceUnit();
 
   const time = new Date(run.start_time).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
-  const title = run.name?.trim() || runFallbackName(run.start_time);
-  const stats = `${time} · ${formatDistance(run.distance_meters)} ${unitLabel} · ${formatPace(
-    run.avg_pace_sec_per_km,
-  )} /${unitLabel}`;
+  const discipline = disciplineOfActivity(run);
+  const isHike = discipline === "hike";
+  const title =
+    run.name?.trim() ||
+    (isHike ? hikeFallbackName(run.start_time) : runFallbackName(run.start_time));
+  const stats = `${time} · ${formatDistance(run.distance_meters)} ${unitLabel} · ${
+    isHike
+      ? `${formatElevation(run.elevation_gain_meters)} gain`
+      : `${formatPace(run.avg_pace_sec_per_km)} /${unitLabel}`
+  }`;
 
-  const c = activityColors("run");
-  const ring = activityRingClass("run");
+  const c = activityColors(discipline);
+  const ring = activityRingClass(discipline);
 
   return (
     <div
