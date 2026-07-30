@@ -3,7 +3,12 @@
 import { hasMeaningfulName } from "@/components/workout-details";
 import type { PlannedWorkout, RunningSession, Workout } from "@/lib/api";
 import type { CalendarEvent } from "@/components/calendar/types";
-import { disciplineOf, type Discipline } from "@/components/calendar/derivations";
+import {
+  countEvents,
+  disciplineOf,
+  disciplineOfActivity,
+  type Discipline,
+} from "@/components/calendar/derivations";
 import { activityColors } from "@/lib/activity-colors";
 
 /**
@@ -12,8 +17,9 @@ import { activityColors } from "@/lib/activity-colors";
  * bordered grid (the grid container draws the surrounding hairline; each cell
  * carries a left hairline so the columns read as ruled). Colour is frugal:
  * violet (`--accent`) marks ONLY today and the selected cell; run vs lift is
- * carried by the cool per-discipline tonal hues as a left-bar + tint, so an
- * activity never reads as "today".
+ * carried by the per-discipline tonal hues as a left-bar + tint, so an
+ * activity never reads as "today". Endurance sessions tone by their own
+ * type — a hike is clay, not the run's sage — via `disciplineOfActivity`.
  */
 
 // Three pills fit comfortably and cover the realistic case of a morning
@@ -35,7 +41,7 @@ export function DayCell({
   events,
   onSelectDay,
   onNavigateWorkout,
-  onNavigateRun,
+  onNavigateActivity,
   onOpenPlanned,
 }: {
   day: Date;
@@ -45,7 +51,10 @@ export function DayCell({
   events: CalendarEvent[];
   onSelectDay: () => void;
   onNavigateWorkout: (id: string) => void;
-  onNavigateRun: (id: string) => void;
+  // Takes the whole session, not an id: only the session knows its
+  // `activity_type`, and that's what decides whether it opens on the run
+  // or the hike detail surface.
+  onNavigateActivity: (session: RunningSession) => void;
   onOpenPlanned: (plan: PlannedWorkout) => void;
 }) {
   const visible = events.slice(0, MAX_VISIBLE_PILLS);
@@ -94,7 +103,11 @@ export function DayCell({
               onClick={() => onNavigateWorkout(ev.workout.id)}
             />
           ) : ev.kind === "run" ? (
-            <RunPill key={`r-${ev.run.id}`} run={ev.run} onClick={() => onNavigateRun(ev.run.id)} />
+            <ActivityPill
+              key={`r-${ev.run.id}`}
+              run={ev.run}
+              onClick={() => onNavigateActivity(ev.run)}
+            />
           ) : ev.kind === "completed-planned" ? (
             // A planned session that's been completed + linked. Renders as a
             // single solid "done" pill (not the planned pill stacked on its
@@ -106,7 +119,7 @@ export function DayCell({
               onClick={() =>
                 ev.logged.kind === "workout"
                   ? onNavigateWorkout(ev.logged.workout.id)
-                  : onNavigateRun(ev.logged.run.id)
+                  : onNavigateActivity(ev.logged.run)
               }
             />
           ) : (
@@ -146,19 +159,11 @@ function ariaLabelFor(day: Date, events: CalendarEvent[]): string {
     year: "numeric",
   });
   if (events.length === 0) return dateLabel;
-  // A completed-planned event is a logged session (of its `logged.kind`)
-  // that also fulfilled a plan — count it toward its activity kind so the
-  // label reads "1 run" rather than inventing a separate category.
-  const lifts = events.filter(
-    (e) => e.kind === "workout" || (e.kind === "completed-planned" && e.logged.kind === "workout"),
-  ).length;
-  const runs = events.filter(
-    (e) => e.kind === "run" || (e.kind === "completed-planned" && e.logged.kind === "run"),
-  ).length;
-  const plans = events.filter((e) => e.kind === "planned").length;
+  const { lifts, runs, hikes, plans } = countEvents(events);
   const parts: string[] = [];
   if (lifts > 0) parts.push(`${lifts} ${lifts === 1 ? "workout" : "workouts"}`);
   if (runs > 0) parts.push(`${runs} ${runs === 1 ? "run" : "runs"}`);
+  if (hikes > 0) parts.push(`${hikes} ${hikes === 1 ? "hike" : "hikes"}`);
   if (plans > 0) parts.push(`${plans} planned`);
   return `${dateLabel}, ${parts.join(", ")}`;
 }
@@ -194,18 +199,22 @@ function WorkoutPill({ workout, onClick }: { workout: Workout; onClick: () => vo
 }
 
 /**
- * Distinct from `WorkoutPill` by discipline tone (cool teal run hue vs the
- * cool steel-blue lift hue) so a stacked run + lift reads as two different
- * things at a glance, not just two sessions of the same kind. Clicking
- * navigates to this run's detail page.
+ * One logged endurance session. Distinct from `WorkoutPill` by discipline
+ * tone (sage run / clay hike vs the steel-blue lift hue) so a stacked hike +
+ * lift reads as two different things at a glance, not just two sessions of
+ * the same kind. The tone and the tooltip's noun both come from the
+ * session's own type, so a hike is never dressed or described as a run.
+ * Clicking navigates to that session's detail page.
  */
-function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
+function ActivityPill({ run, onClick }: { run: RunningSession; onClick: () => void }) {
   const time = new Date(run.start_time).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
   const label = run.name?.trim() ? run.name : time;
-  const c = activityColors("run");
+  const discipline = disciplineOfActivity(run);
+  const noun = discipline === "hike" ? "Hike" : "Run";
+  const c = activityColors(discipline);
   return (
     <button
       type="button"
@@ -213,7 +222,7 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
         e.stopPropagation();
         onClick();
       }}
-      title={`${time} · Run${run.name ? ` · ${run.name}` : ""}`}
+      title={`${time} · ${noun}${run.name ? ` · ${run.name}` : ""}`}
       className={`${CHIP_BASE} hover:opacity-90`}
       style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.dot }}
     >
@@ -225,7 +234,7 @@ function RunPill({ run, onClick }: { run: RunningSession; onClick: () => void })
 
 /**
  * A forward-looking planned workout. Deliberately distinct from the
- * logged WorkoutPill/RunPill: a dashed outline (rather than a solid fill)
+ * logged WorkoutPill/ActivityPill: a dashed outline (rather than a solid fill)
  * signals "intended, not yet done". Status decorates it — a check for
  * completed, a strikethrough+muted treatment for skipped — and a synced
  * Google event shows a small sync glyph. Clicking opens the read-only
@@ -283,10 +292,9 @@ function PlannedPill({
 /**
  * A planned session that's been completed and linked to the logged session
  * that fulfilled it. Unlike PlannedPill (dashed, forward-looking), this
- * reads as done: a SOLID fill in the logged activity's discipline tone (the
- * cool lift hue, or the cool run hue) with a leading check. The single pill
- * replaces what used to be a dashed planned pill stacked on its identical
- * logged pill.
+ * reads as done: a SOLID fill in the logged activity's discipline tone (lift,
+ * run, or hike) with a leading check. The single pill replaces what used to
+ * be a dashed planned pill stacked on its identical logged pill.
  */
 function CompletedPlannedPill({
   event,
@@ -295,7 +303,6 @@ function CompletedPlannedPill({
   event: Extract<CalendarEvent, { kind: "completed-planned" }>;
   onClick: () => void;
 }) {
-  const isRun = event.logged.kind === "run";
   // Pull from the logged session, narrowing on the discriminant directly so
   // TS can see which arm we're in.
   const start = new Date(
@@ -309,8 +316,12 @@ function CompletedPlannedPill({
   const label = event.planned.name?.trim() || loggedName?.trim() || time;
   // Match the logged-pill palettes so a completed plan is visually a logged
   // session, just carrying a check to mark that it closed out a plan. The
-  // discipline comes from the centralized disciplineOf so chips agree.
-  const c = activityColors(disciplineOf(event));
+  // discipline comes from the centralized disciplineOf so chips agree — and
+  // names the activity in the tooltip, so a hike that closed out a plan
+  // isn't announced as a run.
+  const discipline = disciplineOf(event);
+  const c = activityColors(discipline);
+  const noun = discipline === "lift" ? "workout" : discipline;
   return (
     <button
       type="button"
@@ -321,7 +332,7 @@ function CompletedPlannedPill({
         e.stopPropagation();
         onClick();
       }}
-      title={`${time} · ${label} (completed planned ${isRun ? "run" : "workout"})`}
+      title={`${time} · ${label} (completed planned ${noun})`}
       className={`${CHIP_BASE} hover:opacity-90`}
       style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.dot }}
     >

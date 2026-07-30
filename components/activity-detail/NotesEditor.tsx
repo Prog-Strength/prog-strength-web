@@ -5,7 +5,9 @@ import { useEffect, useRef, useState } from "react";
 /**
  * The `EditableName` idiom at paragraph scale. Renders the athlete's note as
  * first-class prose (click-to-edit), or — when empty — a dashed
- * "How did this run feel?" affordance that opens an inline textarea.
+ * "How did this run feel?" affordance that opens an inline textarea. Shared
+ * across activity detail pages, so the prompt's noun is the caller's to set
+ * (`prompt`) — a hike page must not ask how the *run* felt.
  *
  * Editing: a textarea in place (autofocused), commit on blur / ⌘-Ctrl+Enter,
  * Escape reverts. Plain Enter inserts a newline (it's a textarea — never
@@ -21,9 +23,13 @@ const MAX_NOTES = 2000;
 export function NotesEditor({
   notes,
   onSave,
+  prompt = "How did this run feel?",
 }: {
   notes: string | null | undefined;
   onSave: (next: string) => void;
+  // Empty-state prompt, doubling as the textarea placeholder. Defaults to
+  // the run wording — the surface that had this copy first.
+  prompt?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -62,7 +68,7 @@ export function NotesEditor({
             setEditing(false);
           }
         }}
-        placeholder="How did this run feel?"
+        placeholder={prompt}
         rows={4}
         className="w-full resize-y whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-base leading-relaxed text-[var(--foreground)] placeholder-[var(--muted)] outline-none focus:border-[var(--accent)]"
       />
@@ -77,7 +83,7 @@ export function NotesEditor({
         onClick={start}
         className="w-full rounded-lg border border-dashed border-[var(--accent-line)] px-4 py-3 text-left text-base text-[var(--muted)] transition hover:text-[var(--foreground)] hover:border-[var(--accent)]"
       >
-        How did this run feel?
+        {prompt}
       </button>
     );
   }

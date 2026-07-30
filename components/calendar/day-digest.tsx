@@ -4,8 +4,9 @@ import { RunBanner } from "@/components/calendar/run-banner";
 import { WorkoutBanner } from "@/components/calendar/workout-banner";
 import { PlannedBanner } from "@/components/calendar/planned-banner";
 import { CompletedPlannedBanner } from "@/components/calendar/completed-planned-banner";
+import { countEvents } from "@/components/calendar/derivations";
 import type { CalendarEvent } from "@/components/calendar/types";
-import type { CompletedSessionKind, Exercise } from "@/lib/api";
+import type { CompletedSessionKind, Exercise, RunningSession } from "@/lib/api";
 
 /**
  * Expanded read-out of a single selected day's activities, shown beneath
@@ -19,7 +20,7 @@ export function DayDigest({
   steps,
   exerciseMap,
   onNavigateWorkout,
-  onNavigateRun,
+  onNavigateActivity,
   onPlanWorkout,
   onOpenPlanned,
   onResyncPlanned,
@@ -30,7 +31,9 @@ export function DayDigest({
   steps?: number | null; // that day's logged step count, if any
   exerciseMap: Map<string, Exercise>;
   onNavigateWorkout: (workoutId: string) => void;
-  onNavigateRun: (runId: string) => void;
+  // The whole session, not an id — see DayCell's note: only the session
+  // carries the `activity_type` that decides run vs hike detail surface.
+  onNavigateActivity: (session: RunningSession) => void;
   // Open the create-plan modal (seeded to this day) from the empty state.
   onPlanWorkout?: () => void;
   // Open the planned-workout modal (read-only view) for an existing plan.
@@ -47,15 +50,10 @@ export function DayDigest({
     year: "numeric",
   });
 
-  // A completed-planned event counts as a logged session of its
-  // `logged.kind` — it's one finished activity, so the count line reads
-  // "1 run" rather than "1 planned · 1 run".
-  const lifts = events.filter(
-    (e) => e.kind === "workout" || (e.kind === "completed-planned" && e.logged.kind === "workout"),
-  ).length;
-  const runs = events.filter(
-    (e) => e.kind === "run" || (e.kind === "completed-planned" && e.logged.kind === "run"),
-  ).length;
+  // Counted by discipline (shared with the grid cell's aria label), so a
+  // completed-planned event folds into the activity it actually was and a
+  // hike is tallied as a hike rather than a run.
+  const { lifts, runs, hikes } = countEvents(events);
   // Steps are a daily total, not a timed event — they live outside the
   // event list (their own banner) but still count toward "is this day
   // empty?", so a day with only steps reads as logged rather than blank.
@@ -68,7 +66,7 @@ export function DayDigest({
       <header className="mb-4">
         <h2 className="text-base font-semibold tracking-tight">{longDate}</h2>
         <p className="mt-0.5 text-xs text-[var(--muted)]">
-          {countLine(events.length, runs, lifts, stepCount)}
+          {countLine(events.length, runs, hikes, lifts, stepCount)}
         </p>
       </header>
 
@@ -92,7 +90,7 @@ export function DayDigest({
                   onNavigate={() =>
                     ev.logged.kind === "workout"
                       ? onNavigateWorkout(ev.logged.workout.id)
-                      : onNavigateRun(ev.logged.run.id)
+                      : onNavigateActivity(ev.logged.run)
                   }
                 />
               ) : ev.kind === "planned" ? (
@@ -115,7 +113,7 @@ export function DayDigest({
                 <RunBanner
                   key={`r-${ev.run.id}`}
                   run={ev.run}
-                  onNavigate={() => onNavigateRun(ev.run.id)}
+                  onNavigate={() => onNavigateActivity(ev.run)}
                 />
               ),
             )}
@@ -126,18 +124,25 @@ export function DayDigest({
 }
 
 /**
- * At-a-glance summary line, e.g. "2 activities · 1 run · 1 lift · 8,432
+ * At-a-glance summary line, e.g. "2 activities · 1 hike · 1 lift · 8,432
  * steps". Zero parts are omitted (no "0 runs"); every part is
  * singular/plural correct. When the only thing logged is steps, the line
  * leads with the step count instead of "0 activities".
  */
-function countLine(total: number, runs: number, lifts: number, steps: number | null): string {
+function countLine(
+  total: number,
+  runs: number,
+  hikes: number,
+  lifts: number,
+  steps: number | null,
+): string {
   const stepsPart = steps != null ? `${steps.toLocaleString("en-US")} steps` : null;
   if (total === 0) return stepsPart ?? "0 activities";
 
   const activityLabel = `${total} ${total === 1 ? "activity" : "activities"}`;
   const parts: string[] = [];
   if (runs > 0) parts.push(`${runs} ${runs === 1 ? "run" : "runs"}`);
+  if (hikes > 0) parts.push(`${hikes} ${hikes === 1 ? "hike" : "hikes"}`);
   if (lifts > 0) parts.push(`${lifts} ${lifts === 1 ? "lift" : "lifts"}`);
   if (stepsPart) parts.push(stepsPart);
   return parts.length > 0 ? `${activityLabel} · ${parts.join(" · ")}` : activityLabel;

@@ -96,7 +96,7 @@ function renderDigest(date: Date, events: CalendarEvent[], steps?: number | null
         steps={steps}
         exerciseMap={new Map()}
         onNavigateWorkout={() => {}}
-        onNavigateRun={() => {}}
+        onNavigateActivity={() => {}}
         onPlanWorkout={() => {}}
       />
     </DistanceUnitProvider>,

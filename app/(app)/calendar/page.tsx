@@ -16,6 +16,7 @@ import {
   type StepsEntry,
   type Workout,
 } from "@/lib/api";
+import { activityDetailHref } from "@/lib/activity-route";
 import { partitionActivities } from "@/lib/partition-activities";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useActiveWorkoutSession } from "@/lib/active-workout-session";
@@ -242,6 +243,17 @@ export default function CalendarPage() {
     () => buildEventsByDate(workouts ?? [], runs ?? [], planned ?? []),
     [workouts, runs, planned],
   );
+
+  // Detail route for an endurance session reached by id alone — the "View
+  // logged activity" link on a completed plan that didn't collapse. The
+  // session itself is what knows whether it's a hike, so resolve the id
+  // against the fetched window; an out-of-window id keeps today's
+  // run-surface default.
+  const activityHrefById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of runs ?? []) map.set(r.id, activityDetailHref(r));
+    return map;
+  }, [runs]);
 
   // Per-day step totals keyed by the API's YYYY-MM-DD date, for the digest.
   const stepsByDate = useMemo(() => {
@@ -540,7 +552,7 @@ export default function CalendarPage() {
                       events={dayEvents}
                       onSelectDay={() => selectDay(key)}
                       onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
-                      onNavigateRun={(id) => router.push(`/running/${id}`)}
+                      onNavigateActivity={(s) => router.push(activityDetailHref(s))}
                       onOpenPlanned={(plan) => openPlannedForDay(key, plan)}
                     />
                   );
@@ -563,12 +575,16 @@ export default function CalendarPage() {
               steps={stepsByDate.get(isoDateKey(selectedDate)) ?? null}
               exerciseMap={exerciseMap}
               onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
-              onNavigateRun={(id) => router.push(`/running/${id}`)}
+              onNavigateActivity={(s) => router.push(activityDetailHref(s))}
               onPlanWorkout={openNewPlan}
               onOpenPlanned={openViewPlan}
               onResyncPlanned={resyncPlan}
               onNavigateSession={(kind, id) =>
-                router.push(kind === "activity" ? `/running/${id}` : `/workouts/${id}`)
+                router.push(
+                  kind === "activity"
+                    ? (activityHrefById.get(id) ?? `/running/${id}`)
+                    : `/workouts/${id}`,
+                )
               }
             />
           </div>

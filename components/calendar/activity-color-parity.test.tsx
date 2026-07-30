@@ -51,7 +51,7 @@ function renderPill(planned: PlannedWorkout): HTMLElement {
       events={[{ kind: "planned", startMs: 1, planned } as CalendarEvent]}
       onSelectDay={noop}
       onNavigateWorkout={noop}
-      onNavigateRun={noop}
+      onNavigateActivity={noop}
       onOpenPlanned={noop}
     />,
   );
