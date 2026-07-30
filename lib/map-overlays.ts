@@ -58,6 +58,9 @@ export type OverlaySpec = {
   /** Install our own DEM + hillshade pair. See `installOverlays` for why this
    *  is ours rather than the basemap's on styles that ship one. */
   hillshade: boolean;
+  /** What the route is drawn over. Selects the weights in CANVAS_WEIGHTS;
+   *  defaults to the dark cartographic treatment. */
+  canvas?: OverlayCanvas;
   /** Whole-unit distance markers, already computed in the user's active unit. */
   mileMarkers?: MileMarker[];
   /** Cursor state at install time, so a style change mid-scrub restores it
@@ -89,6 +92,26 @@ export const OVERLAY_LAYER_IDS = [
 ] as const;
 
 export const ARROW_IMAGE_ID = "ps-route-arrow";
+
+/**
+ * Route weights per canvas.
+ *
+ * A dark cartographic basemap is a quiet, low-contrast field: a 3px line over a
+ * 7px casing separates cleanly. Aerial imagery is the opposite — high-contrast
+ * photographic noise at every scale, with sunlit rock and shadowed timber
+ * within a few pixels of each other — so everything thickens and the label halo
+ * roughly doubles. Without this the route is legible over forest and vanishes
+ * over a scree field or a snowpack.
+ *
+ * Keyed on the style's declared `canvas`, never on its id, so a style added
+ * later gets the right treatment by declaring what it is.
+ */
+export const CANVAS_WEIGHTS = {
+  dark: { casing: 7, line: 3, travelled: 3.5, halo: 1.5, arrowSize: 0.75 },
+  imagery: { casing: 9, line: 3.5, travelled: 4.5, halo: 2.75, arrowSize: 0.85 },
+} as const;
+
+export type OverlayCanvas = keyof typeof CANVAS_WEIGHTS;
 
 /**
  * Mapterhorn — free, global, open (BSD-3), maintained as MapLibre's default
@@ -328,6 +351,7 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
   // Resolved AFTER the teardown above so the anchor reflects the live style.
   const beforeId = firstSymbolLayerId(map);
   const add = (layer: { id: string; type?: string }) => map.addLayer(layer, beforeId);
+  const weight = CANVAS_WEIGHTS[spec.canvas ?? "dark"];
 
   map.addSource(OVERLAY_SOURCE_IDS.route, { type: "geojson", data: spec.route });
   map.addSource(OVERLAY_SOURCE_IDS.endpoints, {
@@ -391,7 +415,7 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
     // The legibility workhorse. On the near-black Dark style a bare stroke was
     // enough; over a pale topographic canvas or aerial imagery it disappears
     // without this dark under-stroke.
-    paint: { "line-color": spec.casingColor, "line-width": 7 },
+    paint: { "line-color": spec.casingColor, "line-width": weight.casing },
   } as { id: string; type: string });
 
   add({
@@ -405,7 +429,7 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
     // pointer-move rates would visibly flicker.
     paint: {
       "line-color": spec.scrubCoord ? spec.mutedColor : spec.strokeColor,
-      "line-width": 3,
+      "line-width": weight.line,
     },
   } as { id: string; type: string });
 
@@ -418,7 +442,7 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
     type: "line",
     source: OVERLAY_SOURCE_IDS.travelled,
     layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": spec.strokeColor, "line-width": 3.5 },
+    paint: { "line-color": spec.strokeColor, "line-width": weight.travelled },
   } as { id: string; type: string });
 
   add({
@@ -430,7 +454,7 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
       // Thins out as you zoom in so a switchback doesn't fill with arrows.
       "symbol-spacing": 90,
       "icon-image": ARROW_IMAGE_ID,
-      "icon-size": 0.75,
+      "icon-size": weight.arrowSize,
       "icon-rotation-alignment": "map",
       "icon-allow-overlap": false,
       "icon-ignore-placement": false,
@@ -469,7 +493,7 @@ export function installOverlays(map: OverlayMap, spec: OverlaySpec): void {
         // A halo in the casing colour keeps the digit legible over imagery and
         // over a pale topographic canvas alike.
         "text-halo-color": spec.casingColor,
-        "text-halo-width": 1.5,
+        "text-halo-width": weight.halo,
       },
     } as { id: string; type: string });
   }

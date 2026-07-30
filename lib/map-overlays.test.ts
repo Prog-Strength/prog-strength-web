@@ -2,6 +2,7 @@
 import type { RouteFeature } from "@/lib/api";
 import {
   ARROW_IMAGE_ID,
+  CANVAS_WEIGHTS,
   DEM_ENCODING,
   DEM_TILEJSON,
   DEM_TILE_SIZE,
@@ -387,6 +388,54 @@ describe("installOverlays", () => {
     const map = new FakeMap(BASEMAP_LAYERS);
     installOverlays(map, spec());
     expect(map.hasImage(ARROW_IMAGE_ID)).toBe(true);
+  });
+});
+
+describe("canvas weights", () => {
+  function widths(canvas: "dark" | "imagery" | undefined) {
+    const map = new FakeMap(BASEMAP_LAYERS);
+    installOverlays(map, spec({ canvas, mileMarkers: [{ coord: [-106, 39.4], label: "1" }] }));
+    const paintOf = (id: string) =>
+      (map.installed(id)?.spec as { paint?: Record<string, number> })?.paint ?? {};
+    const layoutOf = (id: string) =>
+      (map.installed(id)?.spec as { layout?: Record<string, number> })?.layout ?? {};
+    return {
+      casing: paintOf("ps-route-casing")["line-width"],
+      line: paintOf("ps-route-line")["line-width"],
+      travelled: paintOf("ps-route-travelled")["line-width"],
+      halo: paintOf("ps-mile-labels")["text-halo-width"],
+      arrow: layoutOf("ps-route-arrows")["icon-size"],
+    };
+  }
+
+  it("uses the cartographic weights by default", () => {
+    expect(widths(undefined)).toEqual(widths("dark"));
+    expect(widths("dark").casing).toBe(CANVAS_WEIGHTS.dark.casing);
+  });
+
+  // Aerial imagery is high-contrast photographic noise — sunlit rock and
+  // shadowed timber within a few pixels. A route tuned for a quiet dark canvas
+  // is legible over forest and vanishes over scree or snowpack.
+  it("thickens every route element over imagery", () => {
+    const dark = widths("dark");
+    const imagery = widths("imagery");
+    expect(imagery.casing).toBeGreaterThan(dark.casing);
+    expect(imagery.line).toBeGreaterThan(dark.line);
+    expect(imagery.travelled).toBeGreaterThan(dark.travelled);
+    expect(imagery.arrow).toBeGreaterThan(dark.arrow);
+  });
+
+  it("roughly doubles the mile-label halo over imagery", () => {
+    expect(widths("imagery").halo).toBeGreaterThan(widths("dark").halo * 1.5);
+  });
+
+  // The casing exists to separate the route from the canvas, so it must stay
+  // meaningfully wider than the line it sits under on every canvas.
+  it("keeps the casing wider than the line on every canvas", () => {
+    for (const canvas of ["dark", "imagery"] as const) {
+      const w = widths(canvas);
+      expect(w.casing - w.line).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 
