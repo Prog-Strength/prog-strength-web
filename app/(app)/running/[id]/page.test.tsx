@@ -72,6 +72,11 @@ function formatPaceMi(secPerKm: number | null): string {
   const total = Math.round(secPerKm * KM_PER_MILE);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
+const FEET_PER_METER = 3.28084;
+function formatElevationMi(meters: number | null): string {
+  if (meters == null || !Number.isFinite(meters)) return "—";
+  return `${Math.round(meters * FEET_PER_METER).toLocaleString("en-US")} ft`;
+}
 
 vi.mock("@/lib/distance-unit-context", () => ({
   // The calibrate modal (rendered by the page) also imports the pure helpers
@@ -87,6 +92,7 @@ vi.mock("@/lib/distance-unit-context", () => ({
     setUnit: vi.fn(),
     formatDistance: formatDistanceMi,
     formatPace: formatPaceMi,
+    formatElevation: formatElevationMi,
   }),
 }));
 
@@ -245,6 +251,9 @@ function runningSession(trackpoints: RunningTrackpoint[]): RunningSession {
     max_heart_rate_bpm: 178,
     total_calories: 420,
     elevation_gain_meters: 30,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: "2026-06-18T13:30:00Z",
     trackpoints,
     // Server-derived detail blocks (?unit=mi). Intervals are ALWAYS present

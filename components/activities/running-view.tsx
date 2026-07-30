@@ -164,7 +164,11 @@ export function RunningView({
       {sessions && sessions.length > 0 && <RunHistoryList sessions={sessions} />}
 
       {uploadModalOpen && (
-        <UploadTCXModal onClose={onCloseUploadModal} onUploaded={handleUploaded} />
+        <UploadTCXModal
+          defaultSport="running"
+          onClose={onCloseUploadModal}
+          onUploaded={handleUploaded}
+        />
       )}
     </div>
   );

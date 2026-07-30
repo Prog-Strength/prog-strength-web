@@ -22,6 +22,9 @@ function makeRun(overrides: Partial<RunningSession> = {}): RunningSession {
     max_heart_rate_bpm: 171,
     total_calories: 480,
     elevation_gain_meters: 64,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: "2026-06-09T07:30:00Z",
     ...overrides,
   };

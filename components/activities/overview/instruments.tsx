@@ -19,7 +19,11 @@
  */
 
 import type { DistanceUnit } from "@/lib/distance-unit-context";
-import { formatDistanceValue, formatPaceValue } from "@/lib/distance-unit-context";
+import {
+  formatDistanceValue,
+  formatElevationValue,
+  formatPaceValue,
+} from "@/lib/distance-unit-context";
 import {
   formatHm,
   type DisciplineSplit,
@@ -28,7 +32,6 @@ import {
   type WeekPoint,
 } from "@/lib/activities-overview-stats";
 
-const FEET_PER_METER = 3.28084;
 const KM_PER_MILE = 1.609344;
 
 /** Convert a canonical sec/mi pace to the active unit and format as m:ss. */
@@ -335,12 +338,7 @@ export function EffortReadout({
     return <EmptyLine label="No HR or elevation data" />;
   }
 
-  const elevation =
-    effort.elevationGainMeters === null
-      ? "—"
-      : distanceUnit === "mi"
-        ? `${Math.round(effort.elevationGainMeters * FEET_PER_METER).toLocaleString()} ft`
-        : `${Math.round(effort.elevationGainMeters).toLocaleString()} m`;
+  const elevation = formatElevationValue(effort.elevationGainMeters, distanceUnit);
 
   const figures = [
     {

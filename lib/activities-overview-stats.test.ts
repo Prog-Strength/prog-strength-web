@@ -49,6 +49,9 @@ function run(
     max_heart_rate_bpm: null,
     total_calories: null,
     elevation_gain_meters: null,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: new Date(`${date}T07:00:00`).toISOString(),
     ...opts,
   };

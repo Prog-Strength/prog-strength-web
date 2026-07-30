@@ -28,7 +28,7 @@
 import type { RunningStripSummary } from "@/lib/api";
 import type { PaceStripPoint } from "@/lib/running-splits";
 import { formatPaceClock } from "@/lib/pace-format";
-import { RecapChart, type RecapPoint } from "./RecapChart";
+import { RecapChart, type RecapPoint } from "@/components/activity-detail/RecapChart";
 
 export function PaceRecap({
   points,

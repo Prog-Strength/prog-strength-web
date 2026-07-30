@@ -81,6 +81,9 @@ function lift(daysBack: number, minutes: number): Activity {
     max_heart_rate_bpm: null,
     total_calories: null,
     elevation_gain_meters: null,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: start.toISOString(),
     details: { exercises: [], personal_records_set: [] },
   };
@@ -106,6 +109,9 @@ function run(daysBack: number, opts: Partial<RunningSession>): RunningSession {
     max_heart_rate_bpm: 170,
     total_calories: null,
     elevation_gain_meters: 100,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: start.toISOString(),
     ...opts,
   };

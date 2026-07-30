@@ -61,6 +61,11 @@
   --discipline-lift-bg: #1b1f2e;
   --discipline-lift-fg: #aab4dd;
   --discipline-lift-dot: #9aa6d6;
+  /* hike = clay — a warm earthy tone, distinct from run's sage and lift's
+     periwinkle, held at the same desaturated register. */
+  --discipline-hike-bg: #2a201c;
+  --discipline-hike-fg: #c9a690;
+  --discipline-hike-dot: #b08e77;
   /* Lift intensity ramp — dim → bright steel-blue, the canonical encoding of
      graded muscle intensity (the workout body-map shades worked regions by
      set volume along it). Tier 4 == --discipline-lift-fg. */
@@ -123,6 +128,9 @@
   --color-discipline-lift-bg: var(--discipline-lift-bg);
   --color-discipline-lift-fg: var(--discipline-lift-fg);
   --color-discipline-lift-dot: var(--discipline-lift-dot);
+  --color-discipline-hike-bg: var(--discipline-hike-bg);
+  --color-discipline-hike-fg: var(--discipline-hike-fg);
+  --color-discipline-hike-dot: var(--discipline-hike-dot);
   --color-discipline-lift-1: var(--discipline-lift-1);
   --color-discipline-lift-2: var(--discipline-lift-2);
   --color-discipline-lift-3: var(--discipline-lift-3);

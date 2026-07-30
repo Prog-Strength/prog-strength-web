@@ -5,59 +5,45 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
-  calibrateRunningSession,
   deleteRunningSession,
-  getPlannedWorkoutBySession,
   getRunningSession,
   renameRunningSession,
-  setRunningSessionEnvironment,
-  unlinkPlannedWorkout,
   updateRunningSessionNotes,
-  type PlannedWorkout,
   type RunningSession,
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
-import { buildPaceStrip, parseTargetPace } from "@/lib/running-splits";
-import { buildHeartRateStrip, buildElevationStrip, hasPlottableSeries } from "@/lib/running-traces";
-import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
-import { TreadmillBadge } from "../_components/TreadmillBadge";
+import { buildElevationStrip, buildHeartRateStrip, hasPlottableSeries } from "@/lib/running-traces";
+import { formatStartDateTime } from "../../running/_components/RunListRow";
+import { hikeFallbackName } from "../_components/HikeListRow";
 import { NotesEditor } from "@/components/activity-detail/NotesEditor";
 import { RunRouteMap } from "@/components/activity-detail/RunRouteMap";
 import { SectionKicker } from "@/components/activity-detail/SectionKicker";
 import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
-import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
-import { SplitsSpine } from "./_components/SplitsSpine";
-import { PaceRecap } from "./_components/PaceRecap";
-import { HeartRateZones } from "./_components/HeartRateZones";
 
 /**
- * Run detail. Header carries a back link, an inline-editable run name,
- * and a delete action. Below it, a splits ledger: a compact summary band
- * (with the linked plan's ✓ pill + Unlink and prescription context), the
- * splits spine — a per-distance table with a miles↔intervals toggle gated on
- * detected intervals — and a hero pace recap. The body is RENDER-ONLY: the
- * splits/strip-summary/intervals/best-pace all arrive server-derived on the
- * unit-aware detail response; the only client mapping is trackpoints → chart
- * coordinates (`buildPaceStrip`). Toggling the unit refetches the detail.
+ * Hike detail. The same session-recap grammar as the run detail page, but
+ * retoned for hiking and pared to what a hike is about: a header stat strip
+ * that LEADS with distance / vertical gain / duration, and the elevation
+ * profile as the page's CENTERPIECE chart (not a supporting sibling). No
+ * splits ledger, pace recap, calibrate/environment chrome, or plan context —
+ * a hike isn't paced or PR-tracked. The body is render-only: the only client
+ * mapping is trackpoints → chart coordinates (`buildElevationStrip` /
+ * `buildHeartRateStrip`). Toggling the unit refetches the detail.
  */
-export default function RunningDetailPage() {
+export default function HikingDetailPage() {
   const router = useRouter();
   const toast = useToast();
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const { unit, unitLabel, formatDistance, formatPace, formatElevation } = useDistanceUnit();
+  const { unit, unitLabel, formatDistance, formatElevation } = useDistanceUnit();
 
   const [session, setSession] = useState<RunningSession | null>(null);
-  const [completesPlan, setCompletesPlan] = useState<PlannedWorkout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [unlinking, setUnlinking] = useState(false);
-  const [calibrateOpen, setCalibrateOpen] = useState(false);
-  const [environmentBusy, setEnvironmentBusy] = useState(false);
 
   const handleAuthError = useCallback(
     (err: unknown): boolean => {
@@ -78,10 +64,6 @@ export default function RunningDetailPage() {
       router.replace("/login");
       return;
     }
-    // Best-effort: surface the plan this run fulfilled (non-critical).
-    getPlannedWorkoutBySession(token, id, "activity")
-      .then(setCompletesPlan)
-      .catch(() => {});
     getRunningSession(token, id, unit)
       .then((s) => {
         setError(null);
@@ -90,7 +72,7 @@ export default function RunningDetailPage() {
       })
       .catch((err: unknown) => {
         if (handleAuthError(err)) return;
-        const msg = err instanceof Error ? err.message : "Failed to load run";
+        const msg = err instanceof Error ? err.message : "Failed to load hike";
         if (msg.toLowerCase().includes("not found")) {
           setNotFound(true);
           return;
@@ -99,12 +81,7 @@ export default function RunningDetailPage() {
       });
   }, [id, unit, router, handleAuthError]);
 
-  // The splits/intervals/summary all arrive server-derived; the only client
-  // mapping is trackpoints → chart coordinates.
-  const paceStrip = useMemo(
-    () => buildPaceStrip(session?.trackpoints ?? [], unit),
-    [session, unit],
-  );
+  // The only client mapping is trackpoints → chart coordinates.
   const hrStrip = useMemo(
     () => buildHeartRateStrip(session?.trackpoints ?? [], unit),
     [session, unit],
@@ -112,10 +89,6 @@ export default function RunningDetailPage() {
   const elevStrip = useMemo(
     () => buildElevationStrip(session?.trackpoints ?? [], unit),
     [session, unit],
-  );
-  const targetPace = useMemo(
-    () => parseTargetPace(completesPlan?.run_details ?? null, unit),
-    [completesPlan, unit],
   );
 
   async function handleRename(name: string) {
@@ -171,8 +144,8 @@ export default function RunningDetailPage() {
     }
     try {
       await deleteRunningSession(token, id);
-      toast.success("Run deleted.");
-      router.push("/activities?view=running");
+      toast.success("Hike deleted.");
+      router.push("/activities?view=hiking");
     } catch (err) {
       if (handleAuthError(err)) return;
       toast.error(err instanceof Error ? err.message : "Delete failed");
@@ -180,85 +153,15 @@ export default function RunningDetailPage() {
     }
   }
 
-  async function handleUnlink() {
-    if (!completesPlan) return;
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    setUnlinking(true);
-    try {
-      await unlinkPlannedWorkout(token, completesPlan.id);
-      setCompletesPlan(null);
-    } catch (err) {
-      if (handleAuthError(err)) return;
-      toast.error(err instanceof Error ? err.message : "Unlink failed");
-    } finally {
-      setUnlinking(false);
-    }
-  }
-
-  // Reset = calibrate back to the originally-ingested distance. Like any
-  // calibration, the API returns the full rescaled session, so we replace
-  // state wholesale to keep header + splits consistent.
-  async function handleReset() {
-    if (!session) return;
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    try {
-      const updated = await calibrateRunningSession(token, id, session.raw_distance_meters, unit);
-      setSession(updated);
-      toast.success("Reset to the original distance.");
-    } catch (err) {
-      if (handleAuthError(err)) return;
-      toast.error(err instanceof Error ? err.message : "Reset failed");
-    }
-  }
-
-  // Toggle outdoor ↔ indoor. Switching to outdoor can add the run back into
-  // PR surfaces; to indoor removes it — so confirm the PR-membership change.
-  // The PATCH returns a summary (no trackpoints); an environment change never
-  // rescales trackpoints, so keep the existing ones.
-  async function handleSetEnvironment(next: "outdoor" | "indoor") {
-    if (!session || session.environment === next) return;
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    const message =
-      next === "indoor"
-        ? "Tag this run as a treadmill run? It will be removed from your running PRs and best-efforts."
-        : "Tag this run as outdoor? It will be added back into your running PRs and best-efforts.";
-    if (!window.confirm(message)) return;
-    setEnvironmentBusy(true);
-    try {
-      const updated = await setRunningSessionEnvironment(token, id, next);
-      // Keep the current trackpoints — the summary response omits them and
-      // an environment change doesn't rescale them.
-      setSession((s) => (s ? { ...s, ...updated, trackpoints: s.trackpoints } : updated));
-      toast.success(next === "indoor" ? "Tagged as treadmill run." : "Tagged as outdoor run.");
-    } catch (err) {
-      if (handleAuthError(err)) return;
-      toast.error(err instanceof Error ? err.message : "Failed to change environment");
-    } finally {
-      setEnvironmentBusy(false);
-    }
-  }
-
   if (notFound) {
     return (
       <CenteredMessage>
-        <p className="text-sm font-medium">Run not found</p>
+        <p className="text-sm font-medium">Hike not found</p>
         <Link
-          href="/activities?view=running"
+          href="/activities?view=hiking"
           className="mt-2 text-xs text-[var(--accent)] hover:underline"
         >
-          ← Back to runs
+          ← Back to hikes
         </Link>
       </CenteredMessage>
     );
@@ -271,10 +174,10 @@ export default function RunningDetailPage() {
           {error}
         </div>
         <Link
-          href="/activities?view=running"
+          href="/activities?view=hiking"
           className="mt-3 text-xs text-[var(--accent)] hover:underline"
         >
-          ← Back to runs
+          ← Back to hikes
         </Link>
       </CenteredMessage>
     );
@@ -283,15 +186,10 @@ export default function RunningDetailPage() {
   if (!session) {
     return (
       <CenteredMessage>
-        <p className="text-sm text-[var(--muted)]">Loading run…</p>
+        <p className="text-sm text-[var(--muted)]">Loading hike…</p>
       </CenteredMessage>
     );
   }
-
-  const isRun = session.activity_type === "running";
-  const isIndoorRun = isRun && session.environment === "indoor";
-
-  const planName = completesPlan?.name ?? (completesPlan ? "Planned run" : null);
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
@@ -299,10 +197,10 @@ export default function RunningDetailPage() {
           into the editorial body below. */}
       <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3">
         <Link
-          href="/activities?view=running"
+          href="/activities?view=hiking"
           className="w-fit text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
         >
-          ← Runs
+          ← Hikes
         </Link>
         <button
           type="button"
@@ -323,31 +221,34 @@ export default function RunningDetailPage() {
             <div className="flex flex-wrap items-center gap-3">
               <EditableName
                 name={session.name}
-                fallback={runFallbackName(session.start_time)}
+                fallback={hikeFallbackName(session.start_time)}
                 onSave={handleRename}
                 textClass="text-4xl"
               />
-              {isIndoorRun && <TreadmillBadge />}
             </div>
             <NotesEditor notes={session.notes} onSave={handleSaveNotes} />
           </div>
 
-          {/* 2 — Quiet inline strip: numbers support, they don't lead. */}
+          {/* 2 — Quiet inline strip: distance / vertical gain / duration lead,
+              then optional high/low point + HR + calories. */}
           <dl className="flex flex-wrap gap-x-8 gap-y-3 border-y border-[var(--border)] py-4">
             <StripEntry
               label="Distance"
               value={`${formatDistance(session.distance_meters)} ${unitLabel}`}
             />
-            <StripEntry label="Time" value={formatDuration(session.duration_seconds)} />
             <StripEntry
-              label="Avg pace"
-              value={`${formatPace(session.avg_pace_sec_per_km)} /${unitLabel}`}
+              label="Vertical gain"
+              value={formatElevation(session.elevation_gain_meters)}
             />
-            {session.elevation_gain_meters != null && (
+            <StripEntry label="Duration" value={formatDuration(session.duration_seconds)} />
+            {session.elevation_high_meters != null && (
               <StripEntry
-                label="Elev gain"
-                value={formatElevation(session.elevation_gain_meters)}
+                label="High point"
+                value={formatElevation(session.elevation_high_meters)}
               />
+            )}
+            {session.elevation_low_meters != null && (
+              <StripEntry label="Low point" value={formatElevation(session.elevation_low_meters)} />
             )}
             {session.avg_heart_rate_bpm != null && (
               <StripEntry label="Avg HR" value={`${session.avg_heart_rate_bpm}`} />
@@ -357,90 +258,22 @@ export default function RunningDetailPage() {
             )}
           </dl>
 
-          {/* 3 — Plan context: ✓ pill + unlink + prescription, directly under
-              the strip (SOW Resolved Q1). */}
-          {completesPlan && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-3">
-                <span
-                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                  style={{
-                    background: "var(--discipline-run-bg)",
-                    color: "var(--discipline-run-fg)",
-                  }}
-                >
-                  ✓ {planName}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleUnlink}
-                  disabled={unlinking}
-                  className="text-xs text-[var(--muted)] transition hover:text-[var(--danger)] disabled:opacity-50"
-                >
-                  {unlinking ? "Unlinking…" : "Unlink"}
-                </button>
-              </div>
-              {completesPlan.run_details && (
-                <p className="text-xs text-[var(--muted)]">{completesPlan.run_details}</p>
-              )}
-            </div>
-          )}
-
-          {/* 4 — Operational chrome: quiet editorial line (run only). */}
-          {isRun && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <EnvironmentToggle
-                value={session.environment}
-                disabled={environmentBusy}
-                onChange={handleSetEnvironment}
-              />
-              {isIndoorRun && (
-                <button
-                  type="button"
-                  onClick={() => setCalibrateOpen(true)}
-                  className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1 text-xs font-medium text-[var(--foreground)] transition hover:opacity-80"
-                >
-                  Calibrate distance
-                </button>
-              )}
-              {session.raw_distance_meters !== session.distance_meters && (
-                <p className="text-xs text-[var(--muted)]">
-                  Calibrated from {formatDistance(session.raw_distance_meters)} {unitLabel} ·{" "}
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className="text-[var(--accent)] transition hover:underline"
-                  >
-                    Reset
-                  </button>
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* 5 — Route map (self-hides when route is undefined). */}
+          {/* 3 — Route map (self-hides when route is undefined). */}
           <RunRouteMap route={session.route} />
 
-          {/* 6 — The Miles. */}
-          <section className="flex flex-col gap-3">
-            <SectionKicker>The Miles</SectionKicker>
-            <SplitsSpine
-              splits={session.splits ?? []}
-              intervals={
-                // The run-type gate stays client-side: the server always
-                // computes candidate intervals; show them only when the linked
-                // plan says intervals.
-                completesPlan?.run_type === "intervals" ? (session.intervals ?? null) : null
-              }
-              unitLabel={unitLabel}
-              formatDistance={formatDistance}
-              hasTargetColumn={targetPace != null}
-              targetPaceSecPerUnit={targetPace}
-            />
-          </section>
+          {/* 4 — Elevation profile — the CENTERPIECE chart of a hike. */}
+          {hasPlottableSeries(elevStrip) && (
+            <section className="flex flex-col gap-3">
+              <SectionKicker discipline="hike">Elevation profile</SectionKicker>
+              <ElevationRecap
+                points={elevStrip}
+                gainMeters={session.elevation_gain_meters}
+                unit={unit}
+              />
+            </section>
+          )}
 
-          {/* 7 — Sibling recaps. */}
-          <PaceRecap points={paceStrip} stripSummary={session.strip_summary ?? null} unit={unit} />
+          {/* 5 — Heart-rate recap (gated on a plottable series). */}
           {hasPlottableSeries(hrStrip) && (
             <HeartRateRecap
               points={hrStrip}
@@ -449,88 +282,13 @@ export default function RunningDetailPage() {
               unit={unit}
             />
           )}
-          {hasPlottableSeries(elevStrip) && (
-            <ElevationRecap
-              points={elevStrip}
-              gainMeters={session.elevation_gain_meters}
-              unit={unit}
-            />
-          )}
-
-          {/* 8 — Time in heart-rate zones (gate the whole section). */}
-          {session.heart_rate_zones && session.heart_rate_zones.zones.length > 0 && (
-            <section className="flex flex-col gap-3">
-              <SectionKicker>Time in heart-rate zones</SectionKicker>
-              <HeartRateZones zones={session.heart_rate_zones} />
-            </section>
-          )}
         </div>
       </div>
 
       {confirmingDelete && (
         <DeleteConfirmModal onCancel={() => setConfirmingDelete(false)} onConfirm={handleDelete} />
       )}
-
-      {calibrateOpen && (
-        <CalibrateDistanceModal
-          session={session}
-          onClose={() => setCalibrateOpen(false)}
-          onCalibrated={(updated) => {
-            // Replace the WHOLE session (including trackpoints) so the header
-            // and the trackpoint-derived splits stay consistent.
-            setSession(updated);
-            setCalibrateOpen(false);
-          }}
-        />
-      )}
     </main>
-  );
-}
-
-/**
- * Full-pill segmented Outdoor/Indoor control (design-system segmented toggle:
- * a `--surface` track, the active segment an `--accent` fill with
- * `--accent-fg`, inactive segments `--muted` brightening to `--foreground`).
- */
-function EnvironmentToggle({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: "outdoor" | "indoor";
-  disabled?: boolean;
-  onChange: (next: "outdoor" | "indoor") => void;
-}) {
-  const options: { key: "outdoor" | "indoor"; label: string }[] = [
-    { key: "outdoor", label: "Outdoor" },
-    { key: "indoor", label: "Indoor" },
-  ];
-  return (
-    <div
-      role="group"
-      aria-label="Run environment"
-      className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5"
-    >
-      {options.map((opt) => {
-        const active = value === opt.key;
-        return (
-          <button
-            key={opt.key}
-            type="button"
-            aria-pressed={active}
-            disabled={disabled || active}
-            onClick={() => onChange(opt.key)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition disabled:cursor-default ${
-              active
-                ? "bg-[var(--accent)] text-[var(--accent-fg)]"
-                : "text-[var(--muted)] hover:text-[var(--foreground)]"
-            }`}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -559,7 +317,7 @@ function CenteredMessage({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Click-to-edit run name. Shows the name (or a date-derived fallback)
+ * Click-to-edit hike name. Shows the name (or a date-derived fallback)
  * as a heading; clicking swaps in a text input. Enter / blur commit via
  * `onSave`; Escape reverts. The committed value is optimistic upstream.
  */
@@ -678,7 +436,7 @@ function DeleteConfirmModal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="run-delete-modal-title"
+      aria-labelledby="hike-delete-modal-title"
     >
       <div
         className="absolute inset-0 bg-black/60"
@@ -687,8 +445,8 @@ function DeleteConfirmModal({
       />
       <div className="relative flex w-full max-w-sm flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-xl">
         <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
-          <h2 id="run-delete-modal-title" className="text-base font-semibold">
-            Delete run?
+          <h2 id="hike-delete-modal-title" className="text-base font-semibold">
+            Delete hike?
           </h2>
           <button
             type="button"
@@ -701,7 +459,7 @@ function DeleteConfirmModal({
           </button>
         </header>
         <div className="flex flex-col gap-3 px-5 py-4">
-          <p className="text-sm">Delete this run? This can&apos;t be undone.</p>
+          <p className="text-sm">Delete this hike? This can&apos;t be undone.</p>
           <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] pt-3">
             <button
               type="button"

@@ -469,7 +469,7 @@ export async function updateMe(
  * We deliberately do NOT set a Content-Type header — the browser fills in
  * `multipart/form-data; boundary=...` for the FormData body, and setting
  * it manually would omit the boundary and break server-side parsing
- * (same pattern as `importRunningTcx`).
+ * (same pattern as `importActivityTcx`).
  *
  * The server is authoritative on size (2 MB) and content type
  * (image/png, image/jpeg, image/webp); callers should still guard
@@ -1652,7 +1652,13 @@ export async function appendChatTurn(
  * app doesn't otherwise render strength rows through this domain (workouts
  * cover that); see `listRunningSessions` below for the guard.
  */
-export type ActivityType = "running" | "walking" | "cycling" | "other" | "strength_training";
+export type ActivityType =
+  | "running"
+  | "walking"
+  | "cycling"
+  | "hiking"
+  | "other"
+  | "strength_training";
 
 /**
  * How an activity entered the system. `manual` covers rows written by the
@@ -1753,6 +1759,9 @@ export type RunningSession = {
   max_heart_rate_bpm: number | null;
   total_calories: number | null;
   elevation_gain_meters: number | null;
+  elevation_loss_meters: number | null;
+  elevation_high_meters: number | null;
+  elevation_low_meters: number | null;
   created_at: string;
   // Present only on the detail GET; absent in list responses.
   trackpoints?: RunningTrackpoint[];
@@ -2121,7 +2130,7 @@ export function activityToWorkout(a: Activity): Workout {
 }
 
 /**
- * Thrown by `importRunningTcx` when the API returns 409 — the activity
+ * Thrown by `importActivityTcx` when the API returns 409 — the activity
  * was already imported. Carries the existing activity's id so the import
  * modal can render an "already in your log" message with a View run link
  * instead of a generic error.
@@ -2153,6 +2162,23 @@ export async function listRunningSessions(
   // hardening PR stays as a one-line belt in case an older API version
   // (which ignores unknown params) serves this client.
   const page = await listActivities(token, { ...opts, type: "running" });
+  return {
+    ...page,
+    activities: page.activities.filter((a) => a.activity_type !== "strength_training"),
+  };
+}
+
+/**
+ * GET /activities filtered to `type=hiking`, newest first. Mirrors
+ * `listRunningSessions` exactly (same signature, same pagination contract,
+ * same belt-and-suspenders strength_training guard) so the hiking surfaces
+ * fetch server-side rather than pulling every type and discarding.
+ */
+export async function listHikingSessions(
+  token: string,
+  opts: { limit?: number; before?: string; since?: string; until?: string } = {},
+): Promise<RunningSessionsPage> {
+  const page = await listActivities(token, { ...opts, type: "hiking" });
   return {
     ...page,
     activities: page.activities.filter((a) => a.activity_type !== "strength_training"),
@@ -2334,7 +2360,11 @@ export async function deleteRunningSession(token: string, id: string): Promise<v
 
 /**
  * POST /activities/tcx. Uploads a Garmin .tcx file as multipart/form-data
- * under the field `file` and returns the created activity.
+ * under the field `file` and returns the created activity. When
+ * `activityType` is provided (and non-empty), it's sent alongside as the
+ * `activity_type` field so the caller can pin the imported activity's sport
+ * (e.g. classify a walk-paced TCX as a hike) rather than letting the
+ * server infer it.
  *
  * We deliberately do NOT set a Content-Type header — the browser fills
  * in `multipart/form-data; boundary=...` for the FormData body, and
@@ -2347,9 +2377,16 @@ export async function deleteRunningSession(token: string, id: string): Promise<v
  *  - 415 / 400 → the server's `error` text (unsupported/invalid file).
  *  - other non-2xx → `error` text or `HTTP {status}`.
  */
-export async function importRunningTcx(token: string, file: File): Promise<RunningSession> {
+export async function importActivityTcx(
+  token: string,
+  file: File,
+  activityType?: ActivityType,
+): Promise<RunningSession> {
   const form = new FormData();
   form.append("file", file);
+  if (activityType) {
+    form.append("activity_type", activityType);
+  }
   const resp = await fetch(`${config.apiUrl}/activities/tcx`, {
     method: "POST",
     // No Content-Type: the browser sets the multipart boundary itself.

@@ -3,8 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { DuplicateRunError, importRunningTcx, type RunningSession } from "@/lib/api";
+import {
+  DuplicateRunError,
+  importActivityTcx,
+  type ActivityType,
+  type RunningSession,
+} from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
+
+/** The sports selectable in the upload pill row, in display order. */
+type UploadSport = "running" | "hiking" | "walking" | "cycling";
+
+const SPORTS: { id: UploadSport; label: string }[] = [
+  { id: "running", label: "Run" },
+  { id: "hiking", label: "Hike" },
+  { id: "walking", label: "Walk" },
+  { id: "cycling", label: "Ride" },
+];
 
 /**
  * Upload-a-TCX modal. Mirrors the delete-modal pattern (fixed overlay,
@@ -19,11 +34,14 @@ import { clearToken, getToken } from "@/lib/auth";
 export function UploadTCXModal({
   onClose,
   onUploaded,
+  defaultSport,
 }: {
   onClose: () => void;
   onUploaded: (session: RunningSession) => void;
+  defaultSport: UploadSport;
 }) {
   const router = useRouter();
+  const [sport, setSport] = useState<UploadSport>(defaultSport);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Set when the API reports the run is already imported — carries the
@@ -57,7 +75,7 @@ export function UploadTCXModal({
     setBusy(true);
     setError(null);
     setDuplicateId(null);
-    importRunningTcx(token, file)
+    importActivityTcx(token, file, sport satisfies ActivityType)
       .then((session) => {
         onUploaded(session);
         onClose();
@@ -122,6 +140,31 @@ export function UploadTCXModal({
         </header>
 
         <div className="flex flex-col gap-3 px-5 py-4">
+          {/* Sport selector: the imported TCX carries a sport hint, but the
+              user picks the activity type explicitly so a walk isn't logged
+              as a run. Styled like the shell's timeframe pills. */}
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Activity type">
+            {SPORTS.map((s) => {
+              const active = s.id === sport;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setSport(s.id)}
+                  aria-pressed={active}
+                  className={`rounded-full px-3 py-1 text-xs transition disabled:opacity-50 ${
+                    active
+                      ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                      : "border border-[var(--border)] bg-[var(--surface)] text-[var(--faint)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+
           <button
             type="button"
             disabled={busy}
@@ -160,16 +203,14 @@ export function UploadTCXModal({
 
           {duplicateId && (
             <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
-              <p>This run is already in your log.</p>
-              {duplicateId && (
-                <Link
-                  href={`/running/${duplicateId}`}
-                  onClick={onClose}
-                  className="mt-1 inline-block text-xs font-medium text-[var(--accent)] hover:underline"
-                >
-                  View run →
-                </Link>
-              )}
+              <p>This activity is already in your log.</p>
+              <Link
+                href={duplicateHref(sport, duplicateId)}
+                onClick={onClose}
+                className="mt-1 inline-block text-xs font-medium text-[var(--accent)] hover:underline"
+              >
+                View activity →
+              </Link>
             </div>
           )}
 
@@ -186,6 +227,17 @@ export function UploadTCXModal({
       </div>
     </div>
   );
+}
+
+/**
+ * Where the "View activity" link points for a 409 duplicate. Only running
+ * and hiking have detail routes today; walks/rides land on the Activities
+ * index since they have no per-activity page yet.
+ */
+function duplicateHref(sport: UploadSport, id: string): string {
+  if (sport === "hiking") return `/hiking/${id}`;
+  if (sport === "running") return `/running/${id}`;
+  return "/activities";
 }
 
 function Spinner() {
