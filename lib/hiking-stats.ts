@@ -14,7 +14,7 @@
  */
 
 import type { RunningSession } from "./api";
-import { METERS_PER_MILE } from "./distance-unit-context";
+import { METERS_PER_KM, METERS_PER_MILE } from "./distance-unit-context";
 
 /**
  * The six Hiking summary tiles. `totalDistanceMeters`/`totalGainMeters` are
@@ -33,6 +33,8 @@ export type HikingStats = {
   avgPaceSecPerKm: number | null;
   /** Total gain per mile of distance; null when no distance or no gain. */
   gainPerMileMeters: number | null;
+  /** Total gain per kilometer of distance; null when no distance or no gain. */
+  gainPerKmMeters: number | null;
 };
 
 /**
@@ -81,6 +83,12 @@ export function deriveHikingStats(sessions: RunningSession[] | null): HikingStat
       ? totalGainMeters / (totalDistanceMeters / METERS_PER_MILE)
       : null;
 
+  // Same gate as gainPerMileMeters, expressed per kilometer for the `km` unit.
+  const gainPerKmMeters =
+    totalDistanceMeters > 0 && totalGainMeters > 0
+      ? totalGainMeters / (totalDistanceMeters / METERS_PER_KM)
+      : null;
+
   return {
     totalDistanceMeters,
     totalGainMeters,
@@ -88,5 +96,6 @@ export function deriveHikingStats(sessions: RunningSession[] | null): HikingStat
     lowPointMeters,
     avgPaceSecPerKm,
     gainPerMileMeters,
+    gainPerKmMeters,
   };
 }

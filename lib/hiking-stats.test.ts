@@ -4,6 +4,7 @@ import { deriveHikingStats } from "./hiking-stats";
 import type { RunningSession } from "./api";
 
 const METERS_PER_MILE = 1609.344;
+const METERS_PER_KM = 1000;
 
 let seq = 0;
 const id = () => `id-${seq++}`;
@@ -99,6 +100,15 @@ describe("deriveHikingStats", () => {
     expect(s.gainPerMileMeters).toBeCloseTo(48.28032, 5);
   });
 
+  it("computes gain per km from total gain and total distance", () => {
+    // 300 m gain over 10000 m = 300 / (10000 / 1000) = 30 m/km.
+    const s = deriveHikingStats([
+      hike({ distance_meters: 10000, duration_seconds: 3600, elevation_gain_meters: 300 }),
+    ]);
+    expect(s.gainPerKmMeters).toBeCloseTo(300 / (10000 / METERS_PER_KM), 6);
+    expect(s.gainPerKmMeters).toBeCloseTo(30, 5);
+  });
+
   it("returns null high/low/gainPerMile for an all-null-elevation window", () => {
     const s = deriveHikingStats([
       hike({ distance_meters: 5000, duration_seconds: 3600 }),
@@ -108,8 +118,9 @@ describe("deriveHikingStats", () => {
     expect(s.totalGainMeters).toBe(0);
     expect(s.highPointMeters).toBeNull();
     expect(s.lowPointMeters).toBeNull();
-    // No gain → gain-per-mile is null even though there is distance.
+    // No gain → gain-per-mile and gain-per-km are null even though there is distance.
     expect(s.gainPerMileMeters).toBeNull();
+    expect(s.gainPerKmMeters).toBeNull();
     // Pace is still derivable from distance + time: 6000 s / 8 km = 750 s/km.
     expect(s.avgPaceSecPerKm).toBe(750);
   });
@@ -122,6 +133,7 @@ describe("deriveHikingStats", () => {
     expect(s.lowPointMeters).toBeNull();
     expect(s.avgPaceSecPerKm).toBeNull();
     expect(s.gainPerMileMeters).toBeNull();
+    expect(s.gainPerKmMeters).toBeNull();
   });
 
   it("treats a null sessions argument as empty", () => {

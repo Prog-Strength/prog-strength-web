@@ -9,11 +9,12 @@ import { useActiveWorkoutSession } from "@/lib/active-workout-session";
 import { ActivitiesOverviewView } from "@/components/activities/activities-overview-view";
 import { WorkoutsView } from "@/components/activities/workouts-view";
 import { RunningView } from "@/components/activities/running-view";
+import { HikingView } from "@/components/activities/hiking-view";
 import { StepsView } from "@/components/activities/steps-view";
 import { ToolbarButton } from "@/components/toolbar-button";
 import { WorkoutTCXUploadModal } from "@/components/workout-tcx-upload-modal";
 
-type View = "overview" | "workouts" | "running" | "steps";
+type View = "overview" | "workouts" | "running" | "hiking" | "steps";
 type Timeframe = "7d" | "30d" | "90d" | "all";
 
 const TIMEFRAMES: { id: Timeframe; label: string; days: number | null }[] = [
@@ -48,7 +49,9 @@ function ActivitiesPageInner() {
   const search = useSearchParams();
   const rawView = search.get("view");
   const view: View =
-    rawView === "workouts" || rawView === "running" || rawView === "steps" ? rawView : "overview";
+    rawView === "workouts" || rawView === "running" || rawView === "hiking" || rawView === "steps"
+      ? rawView
+      : "overview";
 
   const [timeframe, setTimeframe] = useState<Timeframe>("30d");
   const days = useMemo(() => TIMEFRAMES.find((t) => t.id === timeframe)?.days ?? null, [timeframe]);
@@ -150,7 +153,7 @@ function ActivitiesPageInner() {
                   />
                 </>
               )}
-              {view === "running" && (
+              {(view === "running" || view === "hiking") && (
                 <ToolbarButton
                   onClick={() => setUploadModalOpen(true)}
                   icon={<UploadIcon />}
@@ -178,6 +181,12 @@ function ActivitiesPageInner() {
                 active={view === "running"}
               />
               <ToolbarButton
+                onClick={() => setView("hiking")}
+                icon={<HikingIcon />}
+                label="Hiking"
+                active={view === "hiking"}
+              />
+              <ToolbarButton
                 onClick={() => setView("steps")}
                 icon={<FootprintsIcon />}
                 label="Steps"
@@ -192,6 +201,13 @@ function ActivitiesPageInner() {
           {view === "workouts" && <WorkoutsView days={days} displayUnit={displayUnit} />}
           {view === "running" && (
             <RunningView
+              days={days}
+              uploadModalOpen={uploadModalOpen}
+              onCloseUploadModal={() => setUploadModalOpen(false)}
+            />
+          )}
+          {view === "hiking" && (
+            <HikingView
               days={days}
               uploadModalOpen={uploadModalOpen}
               onCloseUploadModal={() => setUploadModalOpen(false)}
@@ -271,6 +287,25 @@ function RunIcon() {
       <path d="M7 21l3-5 3 2 1 3" />
       <path d="M13 13l-1.5-3.5 3-1.5 2.5 2 2 1" />
       <path d="M4 11l3-1 3 1" />
+    </svg>
+  );
+}
+
+function HikingIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 20l6-11 4 6 2-3 6 8z" />
+      <path d="M7.5 13.5l1.5-2.5 1.5 2.5" />
     </svg>
   );
 }
