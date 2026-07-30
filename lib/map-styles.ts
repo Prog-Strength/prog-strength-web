@@ -179,6 +179,48 @@ export function styleUrl(id: MapStyleId, keys: MapKeys): string | null {
   return MAP_STYLES[id].resolve(keys);
 }
 
+/**
+ * Where the basemap preference lives.
+ *
+ * `localStorage`, not the API. This is a display preference on one surface with
+ * no cross-device consequence today, and putting it on the server would mean a
+ * schema change and an endpoint for something the user re-picks in one tap.
+ * Revisit if and when mobile grows a map — that is the first moment sync means
+ * anything. (SOW Open Question 3.)
+ *
+ * The `ps_` prefix follows the convention set by `ps_active_workout_session`.
+ */
+export const MAP_STYLE_STORAGE_KEY = "ps_map_style";
+
+/**
+ * The stored preference, or null when there is none to honour.
+ *
+ * Defensive on both axes it can fail: `localStorage` access THROWS outright in
+ * Safari private browsing rather than returning null, and a stored id can go
+ * stale when the registry changes (or be hand-edited). Either way the answer is
+ * null and the caller falls back to the discipline default — a preference is
+ * never allowed to be the reason a map fails to open.
+ */
+export function loadMapStylePreference(): MapStyleId | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(MAP_STYLE_STORAGE_KEY);
+    return raw !== null && Object.hasOwn(MAP_STYLES, raw) ? (raw as MapStyleId) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember the user's pick. Silently a no-op where storage is unavailable. */
+export function saveMapStylePreference(id: MapStyleId): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MAP_STYLE_STORAGE_KEY, id);
+  } catch {
+    /* private browsing, or storage full — the choice just won't outlive the tab */
+  }
+}
+
 /** The styles the switcher may offer — those whose keys are configured. */
 export function availableStyles(keys: MapKeys): MapStyleDef[] {
   return MAP_STYLE_ORDER.map((id) => MAP_STYLES[id]).filter((s) => s.resolve(keys) !== null);
@@ -187,6 +229,12 @@ export function availableStyles(keys: MapKeys): MapStyleDef[] {
 /**
  * Resolve the style to actually mount: the caller's preference if it is
  * available, else the discipline default, else the first available style.
+ *
+ * The preference deliberately outranks the discipline default and is NOT held
+ * per discipline. A user who picked Satellite chose it; carrying that to their
+ * next activity is the point of remembering it, and a per-discipline
+ * preference would mean explaining to someone why their choice "didn't stick"
+ * when they opened a run instead of a hike.
  *
  * The final fallback is total rather than nullable because `standard` needs no
  * key — there is always at least one resolvable style, and the map is never

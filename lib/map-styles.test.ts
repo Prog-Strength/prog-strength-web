@@ -3,8 +3,11 @@ import {
   DEFAULT_STYLE,
   MAP_STYLES,
   MAP_STYLE_ORDER,
+  MAP_STYLE_STORAGE_KEY,
   availableStyles,
+  loadMapStylePreference,
   pickStyle,
+  saveMapStylePreference,
   styleUrl,
   type MapKeys,
 } from "./map-styles";
@@ -109,6 +112,65 @@ describe("resolve / availableStyles", () => {
     // Standard is byte-for-byte the pre-existing map; adding terrain to it
     // would change today's product rather than degrade cleanly to it.
     expect(MAP_STYLES.standard.supportsHillshade).toBe(false);
+  });
+});
+
+describe("style preference persistence", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("round-trips a chosen style", () => {
+    saveMapStylePreference("satellite");
+    expect(window.localStorage.getItem(MAP_STYLE_STORAGE_KEY)).toBe("satellite");
+    expect(loadMapStylePreference()).toBe("satellite");
+  });
+
+  it("reads null when nothing has been chosen", () => {
+    expect(loadMapStylePreference()).toBeNull();
+  });
+
+  // A stored id can go stale when the registry changes, or be hand-edited. It
+  // must never be handed on as if it were a real style.
+  it("rejects a stored id the registry no longer knows", () => {
+    window.localStorage.setItem(MAP_STYLE_STORAGE_KEY, "terrain-3d");
+    expect(loadMapStylePreference()).toBeNull();
+  });
+
+  it("rejects an inherited Object property masquerading as a style id", () => {
+    // `"constructor" in MAP_STYLES` is true; `Object.hasOwn` is the reason this
+    // does not resolve to a style that was never registered.
+    window.localStorage.setItem(MAP_STYLE_STORAGE_KEY, "constructor");
+    expect(loadMapStylePreference()).toBeNull();
+  });
+
+  // Safari private browsing THROWS on localStorage access rather than returning
+  // null. A preference must never be the reason a map fails to open.
+  it("survives storage that throws on read", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("denied");
+    });
+    expect(loadMapStylePreference()).toBeNull();
+  });
+
+  it("survives storage that throws on write", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota");
+    });
+    expect(() => saveMapStylePreference("topo")).not.toThrow();
+  });
+
+  it("feeds pickStyle, outranking the discipline default", () => {
+    saveMapStylePreference("satellite");
+    // A run would default to standard; the explicit choice wins.
+    expect(pickStyle(loadMapStylePreference(), "run", WITH_KEY)).toBe("satellite");
+  });
+
+  it("falls back when the remembered style is no longer resolvable", () => {
+    saveMapStylePreference("satellite");
+    // Key removed since the choice was made — must not strand the user.
+    expect(pickStyle(loadMapStylePreference(), "hike", NO_KEY)).toBe("standard");
   });
 });
 

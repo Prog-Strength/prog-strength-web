@@ -17,6 +17,7 @@ vi.mock("@/lib/config", () => ({
 }));
 
 import { createMapStub } from "@/lib/test-fixtures/maplibre-stub";
+import { MAP_STYLE_STORAGE_KEY } from "@/lib/map-styles";
 import { MapView } from "./MapView";
 
 function route(): RouteFeature {
@@ -57,6 +58,7 @@ let stub: ReturnType<typeof createMapStub>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   maptilerKey.value = null;
   stub = createMapStub([{ id: "place-label", type: "symbol" }]);
   mapCtor.mockImplementation(() => stub);
@@ -295,6 +297,34 @@ describe("MapView", () => {
       expect(casingOnImagery).toBeGreaterThan(casingOnTopo!);
       // Imagery carries its own shading; a hillshade over it reads as mud.
       expect(installed.map((l) => l.id)).not.toContain("ps-hillshade");
+    });
+
+    it("remembers the chosen basemap", () => {
+      render(<MapView route={route()} discipline="hike" />);
+      fireEvent.click(screen.getByRole("button", { name: "Satellite" }));
+      expect(window.localStorage.getItem(MAP_STYLE_STORAGE_KEY)).toBe("satellite");
+    });
+
+    // Mounted ON the remembered style, not switched to it afterwards —
+    // switching would cost a wasted style load and a second billable session
+    // on every single visit (SOW Risk R6).
+    it("mounts directly on the remembered style, without a switch", () => {
+      window.localStorage.setItem(MAP_STYLE_STORAGE_KEY, "satellite-trails");
+      render(<MapView route={route()} discipline="hike" />);
+
+      expect(mapCtor.mock.calls[0][0].style).toBe(
+        "https://api.maptiler.com/maps/hybrid/style.json?key=test-key",
+      );
+      expect(stub.setStyle).not.toHaveBeenCalled();
+    });
+
+    it("ignores a remembered style the registry no longer knows", () => {
+      window.localStorage.setItem(MAP_STYLE_STORAGE_KEY, "terrain-3d");
+      render(<MapView route={route()} discipline="hike" />);
+      // Falls back to the hike default rather than failing to mount.
+      expect(mapCtor.mock.calls[0][0].style).toBe(
+        "https://api.maptiler.com/maps/outdoor-v2-dark/style.json?key=test-key",
+      );
     });
 
     it("marks the active style as pressed", () => {
