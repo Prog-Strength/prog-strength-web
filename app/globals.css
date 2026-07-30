@@ -93,6 +93,24 @@
   --discipline-core-bg: #211d2e;
   --discipline-core-fg: #b4a9d6;
   --discipline-core-dot: #8f82c0;
+
+  /* Map chrome — the ONE surface in the app that renders over a canvas whose
+     luminance we don't control (a pale topographic basemap, an aerial
+     photograph). `--surface` is invisible over imagery and `--border` washes
+     out over snowfields, so map controls and the route casing need their own
+     family rather than an open-coded hex in the map component.
+     - chrome-bg is deliberately opaque-ish black rather than the surface ramp:
+       it has to hold a legible label over BOTH a near-white glacier and a dark
+       forest canopy, which no member of the neutral ramp does.
+     - route-casing is NOT --background. It exists to darken imagery *under*
+       the route stroke so the discipline hue separates from terrain; matching
+       a panel colour would make it disappear on the Dark style, where the
+       canvas already is --background.
+     Proposed for design-system v0.4.5 (sows/outdoor-hiking-maps.md
+     § Design System); the doc amendment lands in that SOW's Phase 4. */
+  --map-chrome-bg: rgba(10, 11, 13, 0.72);
+  --map-chrome-fg: #d8dae0;
+  --map-route-casing: rgba(8, 9, 11, 0.85);
 }
 
 @theme inline {
@@ -146,6 +164,9 @@
   --color-discipline-core-bg: var(--discipline-core-bg);
   --color-discipline-core-fg: var(--discipline-core-fg);
   --color-discipline-core-dot: var(--discipline-core-dot);
+  --color-map-chrome-bg: var(--map-chrome-bg);
+  --color-map-chrome-fg: var(--map-chrome-fg);
+  --color-map-route-casing: var(--map-route-casing);
   --font-sans: var(--font-manrope);
   --font-mono: var(--font-geist-mono);
 }

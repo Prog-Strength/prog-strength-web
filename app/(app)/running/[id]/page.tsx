@@ -24,7 +24,7 @@ import { buildHeartRateStrip, buildElevationStrip, hasPlottableSeries } from "@/
 import { formatStartDateTime, runFallbackName } from "../_components/RunListRow";
 import { TreadmillBadge } from "../_components/TreadmillBadge";
 import { NotesEditor } from "@/components/activity-detail/NotesEditor";
-import { RunRouteMap } from "@/components/activity-detail/RunRouteMap";
+import { MapView } from "@/components/activity-detail/MapView";
 import { SectionKicker } from "@/components/activity-detail/SectionKicker";
 import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
@@ -419,7 +419,7 @@ export default function RunningDetailPage() {
           )}
 
           {/* 5 — Route map (self-hides when route is undefined). */}
-          <RunRouteMap route={session.route} />
+          <MapView route={session.route} discipline="run" label="Run route map" />
 
           {/* 6 — The Miles. */}
           <section className="flex flex-col gap-3">
