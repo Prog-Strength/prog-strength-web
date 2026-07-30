@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { RouteFeature, RunningTrackpoint } from "@/lib/api";
@@ -15,7 +15,9 @@ import { installOverlays, updateScrub, type OverlayMap } from "@/lib/map-overlay
 import {
   MAP_STYLES,
   availableStyles,
+  loadMapStylePreference,
   pickStyle,
+  saveMapStylePreference,
   styleUrl,
   type MapKeys,
   type MapStyleId,
@@ -113,7 +115,18 @@ export function MapView({
 
   const keys: MapKeys = { maptiler: config.maptilerKey };
   const styles = availableStyles(keys);
-  const [styleId, setStyleId] = useState<MapStyleId>(() => pickStyle(null, discipline, keys));
+  // Read the stored preference in the lazy initializer so the map MOUNTS on the
+  // remembered style. Applying it afterwards would mount the default and then
+  // immediately setStyle, costing a wasted style load and a second billable
+  // MapTiler session on every visit (SOW Risk R6).
+  const [styleId, setStyleId] = useState<MapStyleId>(() =>
+    pickStyle(loadMapStylePreference(), discipline, keys),
+  );
+
+  const chooseStyle = useCallback((id: MapStyleId) => {
+    setStyleId(id);
+    saveMapStylePreference(id);
+  }, []);
 
   // The `styledata` handler is created once at mount but must install the
   // overlays the CURRENTLY active style needs — whether to add our hillshade
@@ -261,7 +274,7 @@ export function MapView({
         aria-label={label}
         style={onScrub ? { cursor: "crosshair" } : undefined}
       />
-      <MapStyleSwitcher styles={styles} value={styleId} onChange={setStyleId} />
+      <MapStyleSwitcher styles={styles} value={styleId} onChange={chooseStyle} />
     </div>
   );
 }
