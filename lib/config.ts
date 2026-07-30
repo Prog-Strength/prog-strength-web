@@ -36,4 +36,19 @@ export const config = {
   // env var. Lives permanently on `main` so each `dx/*` branch reuses it
   // verbatim instead of re-deriving the gate.
   designExploreEnabled: envFlag(process.env.NEXT_PUBLIC_ENABLE_DESIGN_EXPLORE),
+  // MapTiler tile key, powering the Topographic and Dark basemaps on activity
+  // route maps (lib/map-styles.ts).
+  //
+  // This is CONFIGURATION, NOT A SECRET, and must not be handled as one. A
+  // browser-side tile key is transmitted to the client by construction — it is
+  // in the network tab of every user who opens a map, and no amount of
+  // repository hygiene changes that. What actually protects it is the
+  // provider-side control: an HTTP-referrer allowlist on the key in the
+  // MapTiler console (localhost, the production domain, and *.vercel.app for
+  // preview deploys). See .env.example.
+  //
+  // `null` is a supported state, not a misconfiguration: keyed styles drop out
+  // of the switcher and the map falls back to the keyless OpenFreeMap basemap
+  // with every overlay intact. Local dev and CI therefore need no key.
+  maptilerKey: process.env.NEXT_PUBLIC_MAPTILER_KEY?.trim() || null,
 };

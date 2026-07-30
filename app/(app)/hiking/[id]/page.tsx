@@ -18,7 +18,7 @@ import { buildElevationStrip, buildHeartRateStrip, hasPlottableSeries } from "@/
 import { formatStartDateTime } from "../../running/_components/RunListRow";
 import { hikeFallbackName } from "../_components/HikeListRow";
 import { NotesEditor } from "@/components/activity-detail/NotesEditor";
-import { RunRouteMap } from "@/components/activity-detail/RunRouteMap";
+import { MapView } from "@/components/activity-detail/MapView";
 import { SectionKicker } from "@/components/activity-detail/SectionKicker";
 import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
@@ -263,7 +263,7 @@ export default function HikingDetailPage() {
           </dl>
 
           {/* 3 — Route map (self-hides when route is undefined). */}
-          <RunRouteMap route={session.route} label="Hike route map" />
+          <MapView route={session.route} discipline="hike" label="Hike route map" />
 
           {/* 4 — Elevation profile — the CENTERPIECE chart of a hike. */}
           {hasPlottableSeries(elevStrip) && (
