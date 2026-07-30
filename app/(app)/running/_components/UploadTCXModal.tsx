@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { DuplicateRunError, importRunningTcx, type RunningSession } from "@/lib/api";
+import { DuplicateRunError, importActivityTcx, type RunningSession } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
 
 /**
@@ -57,7 +57,7 @@ export function UploadTCXModal({
     setBusy(true);
     setError(null);
     setDuplicateId(null);
-    importRunningTcx(token, file)
+    importActivityTcx(token, file)
       .then((session) => {
         onUploaded(session);
         onClose();

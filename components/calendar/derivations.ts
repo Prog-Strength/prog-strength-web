@@ -5,7 +5,7 @@ import type { CalendarEvent } from "@/components/calendar/types";
  * mobility/core are reserved, extensible slots not inferred from data yet).
  * Centralized so chips, streak dots, and any future surface agree.
  */
-export type Discipline = "run" | "lift" | "mobility" | "core";
+export type Discipline = "run" | "lift" | "hike" | "mobility" | "core";
 
 /** Whether a chip reads as completed ("done") or forward-looking ("planned"). */
 export type ChipState = "done" | "planned";
@@ -13,18 +13,24 @@ export type ChipState = "done" | "planned";
 /**
  * Map a calendar event to its discipline. A logged run — or a planned/
  * completed-planned session whose activity is a run — is `run`; the lift
- * equivalents are `lift`. Planned discipline comes from the plan's
- * `activity_kind`; completed-planned from the logged session it merged with.
+ * equivalents are `lift`. A logged endurance activity whose
+ * `activity_type` is `hiking` reads as `hike` (its own clay hue). Planned
+ * discipline comes from the plan's `activity_kind`; completed-planned from
+ * the logged session it merged with.
  */
 export function disciplineOf(event: CalendarEvent): Discipline {
   switch (event.kind) {
     case "run":
-      return "run";
+      return event.run.activity_type === "hiking" ? "hike" : "run";
     case "workout":
       return "lift";
     case "completed-planned":
-      // The logged session is always a real run or workout (lift).
-      return event.logged.kind === "run" ? "run" : "lift";
+      // The logged session is always a real endurance activity or workout
+      // (lift); an endurance activity is a hike or a run by its type.
+      if (event.logged.kind === "run") {
+        return event.logged.run.activity_type === "hiking" ? "hike" : "run";
+      }
+      return "lift";
     case "planned":
       // Exhaustive over ActivityKind so a future kind (e.g. mobility/core)
       // breaks the build here instead of silently mapping to "lift".

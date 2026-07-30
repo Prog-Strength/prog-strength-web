@@ -22,8 +22,11 @@
  *     for non-finite), e.g. "5.0". No unit suffix — callers add it.
  *   - `formatPace(secPerKm)`: "m:ss" in the active unit, e.g. "8:12";
  *     "—" for non-finite or non-positive input.
+ *   - `formatElevation(meters)`: a whole, unit-suffixed, thousands-separated
+ *     elevation — "1,235 ft" under "mi", "376 m" under "km"; "—" for null.
  *
- * The pure helpers `formatDistanceValue` / `formatPaceValue` hold the
+ * The pure helpers `formatDistanceValue` / `formatPaceValue` /
+ * `formatElevationValue` hold the
  * actual conversion + formatting so they can be unit-tested without
  * rendering; the context methods just close over the active unit.
  */
@@ -41,6 +44,9 @@ const STORAGE_KEY = "ps_distance_unit";
 // with the display formatters below.
 export const METERS_PER_MILE = 1609.344;
 export const METERS_PER_KM = 1000;
+// Exported so elevation display (meters → feet under the imperial unit)
+// shares one source of truth with the formatter below.
+export const FEET_PER_METER = 3.28084;
 // secPerMile = secPerKm * (meters per mile / meters per km).
 const KM_PER_MILE = METERS_PER_MILE / METERS_PER_KM; // 1.609344
 
@@ -71,12 +77,29 @@ export function formatPaceValue(secPerKm: number | null, unit: DistanceUnit): st
   return formatPaceClock(unit === "mi" ? secPerKm * KM_PER_MILE : secPerKm);
 }
 
+/**
+ * Format an elevation in meters toward the active unit as a whole,
+ * unit-suffixed, thousands-separated string. Under "mi" → feet
+ * (e.g. "1,235 ft"); under "km" → meters (e.g. "376 m"). Pure. `null`
+ * yields the em-dash "—" so a missing elevation reads as absent, not zero.
+ * Unlike distance, elevation rounds to a whole unit — a hiker cares about
+ * "1,235 ft" of gain, not a tenth of a foot.
+ */
+export function formatElevationValue(meters: number | null, unit: DistanceUnit): string {
+  if (meters == null || !Number.isFinite(meters)) return "—";
+  if (unit === "mi") {
+    return `${Math.round(meters * FEET_PER_METER).toLocaleString("en-US")} ft`;
+  }
+  return `${Math.round(meters).toLocaleString("en-US")} m`;
+}
+
 type DistanceUnitContextValue = {
   unit: DistanceUnit;
   unitLabel: DistanceUnit;
   setUnit: (u: DistanceUnit) => void;
   formatDistance: (meters: number) => string;
   formatPace: (secPerKm: number | null) => string;
+  formatElevation: (meters: number | null) => string;
 };
 
 const DistanceUnitContext = createContext<DistanceUnitContextValue | null>(null);
@@ -144,6 +167,7 @@ export function DistanceUnitProvider({ children }: { children: React.ReactNode }
       setUnit,
       formatDistance: (meters: number) => formatDistanceValue(meters, unit),
       formatPace: (secPerKm: number | null) => formatPaceValue(secPerKm, unit),
+      formatElevation: (meters: number | null) => formatElevationValue(meters, unit),
     }),
     [unit, setUnit],
   );

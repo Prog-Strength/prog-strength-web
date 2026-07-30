@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { formatDistanceValue, formatPaceValue } from "@/lib/distance-unit-context";
+import {
+  formatDistanceValue,
+  formatElevationValue,
+  formatPaceValue,
+} from "@/lib/distance-unit-context";
 
 // These cover the PURE formatters only — the conversion + rounding math
 // that the context methods delegate to — so no React rendering is needed.
@@ -57,5 +61,35 @@ describe("formatPaceValue", () => {
     expect(formatPaceValue(-5, "km")).toBe("—");
     expect(formatPaceValue(Number.NaN, "mi")).toBe("—");
     expect(formatPaceValue(Number.POSITIVE_INFINITY, "km")).toBe("—");
+  });
+});
+
+describe("formatElevationValue", () => {
+  it("formats feet (meters × 3.28084, rounded) under the imperial unit", () => {
+    // 500 * 3.28084 = 1640.42 → 1640
+    expect(formatElevationValue(500, "mi")).toBe("1,640 ft");
+    // 1 * 3.28084 = 3.28 → 3
+    expect(formatElevationValue(1, "mi")).toBe("3 ft");
+  });
+
+  it("adds a thousands separator to large feet values", () => {
+    // 1000 * 3.28084 = 3280.84 → 3281
+    expect(formatElevationValue(1000, "mi")).toBe("3,281 ft");
+  });
+
+  it("formats whole meters under the metric unit", () => {
+    expect(formatElevationValue(376.4, "km")).toBe("376 m");
+    // 1234 → thousands separator
+    expect(formatElevationValue(1234, "km")).toBe("1,234 m");
+  });
+
+  it("returns the em-dash for null", () => {
+    expect(formatElevationValue(null, "mi")).toBe("—");
+    expect(formatElevationValue(null, "km")).toBe("—");
+  });
+
+  it("returns the em-dash for non-finite input", () => {
+    expect(formatElevationValue(Number.NaN, "km")).toBe("—");
+    expect(formatElevationValue(Number.POSITIVE_INFINITY, "mi")).toBe("—");
   });
 });

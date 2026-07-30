@@ -13,13 +13,13 @@ import type { Discipline } from "@/components/calendar/derivations";
  * style is what keeps the future user-color swap a one-place change.
  *
  * `disciplineOf` (the one place event → type is decided) returns the full
- * `Discipline` union; only `run`/`lift` are live today. Reserved disciplines
+ * `Discipline` union; `run`/`lift`/`hike` are live today. Reserved disciplines
  * (`mobility`/`core`) and any unmapped value fall back to a neutral set.
  */
 export type ActivityColorTokens = { dot: string; bg: string; fg: string };
 
 /** The disciplines with a live color mapping today. */
-type MappedDiscipline = Extract<Discipline, "run" | "lift">;
+type MappedDiscipline = Extract<Discipline, "run" | "lift" | "hike">;
 
 const NEUTRAL: ActivityColorTokens = {
   dot: "var(--border)",
@@ -38,6 +38,11 @@ const ACTIVITY_COLORS: Record<MappedDiscipline, ActivityColorTokens> = {
     bg: "var(--discipline-lift-bg)",
     fg: "var(--discipline-lift-fg)",
   },
+  hike: {
+    dot: "var(--discipline-hike-dot)",
+    bg: "var(--discipline-hike-bg)",
+    fg: "var(--discipline-hike-fg)",
+  },
 };
 
 /** Resolve an activity type to its color tokens; neutral for reserved/unmapped. */
@@ -54,6 +59,7 @@ export function activityColors(type: Discipline): ActivityColorTokens {
 const ACTIVITY_RING: Record<MappedDiscipline, string> = {
   run: "focus-visible:ring-[var(--discipline-run-dot)]",
   lift: "focus-visible:ring-[var(--discipline-lift-dot)]",
+  hike: "focus-visible:ring-[var(--discipline-hike-dot)]",
 };
 
 export function activityRingClass(type: Discipline): string {

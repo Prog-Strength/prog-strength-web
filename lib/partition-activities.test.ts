@@ -22,6 +22,9 @@ function base(id: string, type: Activity["activity_type"]): Activity {
     max_heart_rate_bpm: null,
     total_calories: null,
     elevation_gain_meters: null,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: "2026-07-27T11:00:00Z",
   };
 }

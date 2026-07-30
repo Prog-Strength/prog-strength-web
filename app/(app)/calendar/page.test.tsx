@@ -98,6 +98,9 @@ function makeLift(id: string, name: string, day: number): Activity {
     max_heart_rate_bpm: null,
     total_calories: null,
     elevation_gain_meters: null,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: iso(day, 8),
     details: {
       exercises: [
@@ -130,6 +133,9 @@ function makeRun(id: string, name: string, day: number): RunningSession {
     max_heart_rate_bpm: 170,
     total_calories: 350,
     elevation_gain_meters: 20,
+    elevation_loss_meters: null,
+    elevation_high_meters: null,
+    elevation_low_meters: null,
     created_at: iso(day, 7),
   };
 }
