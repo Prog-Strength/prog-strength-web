@@ -72,6 +72,11 @@ function formatPaceMi(secPerKm: number | null): string {
   const total = Math.round(secPerKm * KM_PER_MILE);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
+const FEET_PER_METER = 3.28084;
+function formatElevationMi(meters: number | null): string {
+  if (meters == null || !Number.isFinite(meters)) return "—";
+  return `${Math.round(meters * FEET_PER_METER).toLocaleString("en-US")} ft`;
+}
 
 vi.mock("@/lib/distance-unit-context", () => ({
   // The calibrate modal (rendered by the page) also imports the pure helpers
@@ -87,6 +92,7 @@ vi.mock("@/lib/distance-unit-context", () => ({
     setUnit: vi.fn(),
     formatDistance: formatDistanceMi,
     formatPace: formatPaceMi,
+    formatElevation: formatElevationMi,
   }),
 }));
 
