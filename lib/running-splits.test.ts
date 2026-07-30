@@ -12,6 +12,9 @@ const pt = (dist: number, pace: number | null, clean: boolean): RunningTrackpoin
   pace_sec_per_km: pace,
   elevation_meters: null,
   clean_pace: clean,
+  latitude: null,
+  longitude: null,
+  grade_percent: null,
 });
 
 describe("buildPaceStrip", () => {

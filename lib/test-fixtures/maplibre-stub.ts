@@ -22,6 +22,8 @@ export type StubMap = {
   addImage: ReturnType<typeof vi.fn>;
   removeImage: ReturnType<typeof vi.fn>;
   hasImage: ReturnType<typeof vi.fn>;
+  setPaintProperty: ReturnType<typeof vi.fn>;
+  queryRenderedFeatures: ReturnType<typeof vi.fn>;
   getStyle: ReturnType<typeof vi.fn>;
   setStyle: ReturnType<typeof vi.fn>;
   isStyleLoaded: ReturnType<typeof vi.fn>;
@@ -45,7 +47,12 @@ export function createMapStub(styleLayers: { id: string; type: string }[] = []):
   const images = new Set<string>();
 
   const stub: StubMap = {
-    addSource: vi.fn((id: string, spec: unknown) => void sources.set(id, spec)),
+    addSource: vi.fn((id: string, spec: unknown) => {
+      // GeoJSON sources stay drivable via setData after installation, as in
+      // MapLibre — MapView's scrub path pushes into them without reinstalling.
+      const isGeoJSON = (spec as { type?: string } | null)?.type === "geojson";
+      sources.set(id, isGeoJSON ? { ...(spec as object), setData: vi.fn() } : spec);
+    }),
     removeSource: vi.fn((id: string) => void sources.delete(id)),
     getSource: vi.fn((id: string) => sources.get(id)),
     addLayer: vi.fn((spec: { id: string }) => void layers.set(spec.id, spec)),
@@ -60,6 +67,10 @@ export function createMapStub(styleLayers: { id: string; type: string }[] = []):
         ...[...layers.values()].map((l) => l as { id: string; type: string }),
       ],
     })),
+    setPaintProperty: vi.fn(),
+    // Nothing under the pointer by default, so the map→profile binding stays
+    // quiet unless a test arranges a hit.
+    queryRenderedFeatures: vi.fn(() => []),
     setStyle: vi.fn(),
     isStyleLoaded: vi.fn(() => true),
     fitBounds: vi.fn(),

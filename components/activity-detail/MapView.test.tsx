@@ -37,6 +37,22 @@ function route(): RouteFeature {
   };
 }
 
+/** A short positioned track, index-aligned with what the profile would plot. */
+function tps() {
+  return Array.from({ length: 5 }, (_, i) => ({
+    sequence: i,
+    elapsed_seconds: i * 10,
+    distance_meters: i * 100,
+    heart_rate_bpm: null,
+    pace_sec_per_km: null,
+    elevation_meters: 3300 + i * 10,
+    clean_pace: false,
+    latitude: 39.39 + i * 0.001,
+    longitude: -106.0 - i * 0.001,
+    grade_percent: null,
+  }));
+}
+
 let stub: ReturnType<typeof createMapStub>;
 
 beforeEach(() => {
@@ -188,6 +204,50 @@ describe("MapView", () => {
       // here too.
       fireEvent.click(screen.getByRole("button", { name: "Standard" }));
       expect(stub.setStyle).toHaveBeenCalledTimes(1);
+    });
+
+    // The cheap path: scrubbing pushes data into existing sources and swaps one
+    // paint property. A reinstall at pointer-move rates would flicker.
+    it("moves the cursor without reinstalling overlays", () => {
+      // Stable identities, as on the real page: `session` lives in state, so a
+      // cursor move re-renders with the SAME route and trackpoint objects.
+      const r = route();
+      const t = tps();
+      const { rerender } = render(
+        <MapView route={r} discipline="hike" trackpoints={t} scrubIndex={null} />,
+      );
+      const addsAfterMount = stub.addLayer.mock.calls.length;
+
+      rerender(<MapView route={r} discipline="hike" trackpoints={t} scrubIndex={2} />);
+
+      expect(stub.addLayer.mock.calls.length).toBe(addsAfterMount);
+      expect(stub.setPaintProperty).toHaveBeenCalledWith(
+        "ps-route-line",
+        "line-color",
+        expect.any(String),
+      );
+    });
+
+    it("seeds the cursor into a reinstall so a style change mid-scrub keeps it", () => {
+      render(<MapView route={route()} discipline="hike" trackpoints={tps()} scrubIndex={2} />);
+      const scrubSource = stub.addSource.mock.calls.find((c) => c[0] === "ps-scrub");
+      expect(scrubSource).toBeTruthy();
+      const data = (scrubSource![1] as { data: { geometry?: { coordinates: number[] } } }).data;
+      expect(data.geometry?.coordinates).toEqual([-106.002, 39.392]);
+    });
+
+    it("passes mile markers through to the map source", () => {
+      render(
+        <MapView
+          route={route()}
+          discipline="hike"
+          trackpoints={tps()}
+          mileMarkers={[{ coord: [-106.001, 39.391], label: "1" }]}
+        />,
+      );
+      const miles = stub.addSource.mock.calls.find((c) => c[0] === "ps-miles");
+      const data = (miles![1] as { data: { features: unknown[] } }).data;
+      expect(data.features).toHaveLength(1);
     });
 
     it("marks the active style as pressed", () => {

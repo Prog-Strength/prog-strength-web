@@ -5,13 +5,19 @@ import {
   DEM_ENCODING,
   DEM_TILEJSON,
   DEM_TILE_SIZE,
+  EMPTY_FC,
   OVERLAY_LAYER_IDS,
   OVERLAY_SOURCE_IDS,
   arrowIconRGBA,
   installOverlays,
+  mileMarkersGeoJSON,
   routeEndpoints,
+  scrubGeoJSON,
+  travelledGeoJSON,
+  updateScrub,
   type OverlayMap,
   type OverlaySpec,
+  type StyleLayerSpec,
 } from "./map-overlays";
 
 /**
@@ -28,13 +34,13 @@ import {
 class FakeMap implements OverlayMap {
   sources = new Map<string, unknown>();
   /** Layers the *basemap style* brought — removable, like the real thing. */
-  basemap: { id: string; type: string }[];
+  basemap: StyleLayerSpec[];
   /** Layers WE installed. Kept separate purely so assertions can talk about
    *  our overlays without filtering the basemap's 114 layers out by hand. */
   layers: { id: string; spec: { id: string; type?: string }; beforeId?: string }[] = [];
   images = new Set<string>();
 
-  constructor(basemap: { id: string; type: string }[]) {
+  constructor(basemap: StyleLayerSpec[]) {
     this.basemap = [...basemap];
   }
 
@@ -49,9 +55,16 @@ class FakeMap implements OverlayMap {
   getSource(id: string) {
     return this.sources.get(id);
   }
+  /** Records every setData push, so tests can assert the cheap update path. */
+  setData = vi.fn();
   addSource(id: string, spec: unknown) {
     if (this.sources.has(id)) throw new Error(`source ${id} already exists`);
-    this.sources.set(id, spec);
+    // GeoJSON sources are drivable after installation, as in MapLibre.
+    const isGeoJSON = (spec as { type?: string } | null)?.type === "geojson";
+    const stored = isGeoJSON
+      ? { ...(spec as object), setData: (data: unknown) => this.setData(id, data) }
+      : spec;
+    this.sources.set(id, stored);
   }
   removeSource(id: string) {
     if (!this.sources.has(id)) throw new Error(`no source ${id}`);
@@ -71,6 +84,11 @@ class FakeMap implements OverlayMap {
     if (j >= 0) return void this.basemap.splice(j, 1);
     throw new Error(`no layer ${id}`);
   }
+  paint: { layerId: string; name: string; value: unknown }[] = [];
+  setPaintProperty(layerId: string, name: string, value: unknown) {
+    if (!this.getLayer(layerId)) throw new Error(`no layer ${layerId}`);
+    this.paint.push({ layerId, name, value });
+  }
   hasImage(id: string) {
     return this.images.has(id);
   }
@@ -83,7 +101,7 @@ class FakeMap implements OverlayMap {
   }
 
   /** What `map.setStyle()` does to application-added state: all of it, gone. */
-  setStyle(nextBasemap: { id: string; type: string }[]) {
+  setStyle(nextBasemap: StyleLayerSpec[]) {
     this.basemap = [...nextBasemap];
     this.sources.clear();
     this.layers = [];
@@ -108,7 +126,9 @@ const BASEMAP_LAYERS = [
   { id: "landcover", type: "fill" },
   { id: "water", type: "fill" },
   { id: "road-minor", type: "line" },
-  { id: "place-label", type: "symbol" },
+  // Carries a text-font, which is what the mile labels borrow so they resolve
+  // against whichever provider's glyph endpoint is in play.
+  { id: "place-label", type: "symbol", layout: { "text-font": ["Noto Sans Regular"] } },
   { id: "poi-label", type: "symbol" },
 ];
 
@@ -139,6 +159,7 @@ function spec(overrides: Partial<OverlaySpec> = {}): OverlaySpec {
     route: route(),
     strokeColor: "#c9a690",
     casingColor: "rgba(8, 9, 11, 0.85)",
+    mutedColor: "#565a63",
     hillshade: true,
     ...overrides,
   };
@@ -168,7 +189,7 @@ describe("installOverlays", () => {
     map.setStyle([
       { id: "bg", type: "background" },
       { id: "contour", type: "line" },
-      { id: "contour-label", type: "symbol" },
+      { id: "contour-label", type: "symbol", layout: { "text-font": ["Open Sans Regular"] } },
     ]);
     expect(map.layerIds()).toEqual([]);
     expect(map.getSource(OVERLAY_SOURCE_IDS.route)).toBeUndefined();
@@ -260,8 +281,14 @@ describe("installOverlays", () => {
       "ps-hillshade",
       "ps-route-casing",
       "ps-route-line",
+      "ps-route-travelled",
       "ps-route-arrows",
+      "ps-mile-dots",
+      "ps-mile-labels",
       "ps-route-endpoints",
+      // The cursor is topmost: it must never be occluded by the route it
+      // sits on.
+      "ps-scrub-marker",
     ]);
   });
 
@@ -329,10 +356,127 @@ describe("installOverlays", () => {
     expect(map.basemapIds()).not.toContain("Hillshade");
   });
 
+  // Text needs a `text-font` that resolves against the ACTIVE style's glyph
+  // endpoint, and the stacks differ between providers. Borrowing one the style
+  // already uses guarantees it resolves; with no text anywhere, the labels are
+  // skipped and the dots stand alone rather than a layer failing silently.
+  it("borrows a font stack the style already uses for the mile labels", () => {
+    const map = new FakeMap(BASEMAP_LAYERS);
+    installOverlays(map, spec({ mileMarkers: [{ coord: [-106, 39.4], label: "1" }] }));
+
+    const labels = map.installed("ps-mile-labels")?.spec as {
+      layout?: Record<string, unknown>;
+    };
+    expect(labels?.layout?.["text-font"]).toEqual(["Noto Sans Regular"]);
+  });
+
+  it("skips the mile labels when the style exposes no font stack", () => {
+    const map = new FakeMap([
+      { id: "background", type: "background" },
+      { id: "water", type: "fill" },
+    ]);
+    installOverlays(map, spec({ mileMarkers: [{ coord: [-106, 39.4], label: "1" }] }));
+
+    expect(map.getLayer("ps-mile-labels")).toBeUndefined();
+    // The dots still install — the marks degrade to unlabelled, not absent.
+    expect(map.getLayer("ps-mile-dots")).toBeTruthy();
+    expect(map.getLayer("ps-route-line")).toBeTruthy();
+  });
+
   it("registers the direction-arrow image so the symbol layer can resolve it", () => {
     const map = new FakeMap(BASEMAP_LAYERS);
     installOverlays(map, spec());
     expect(map.hasImage(ARROW_IMAGE_ID)).toBe(true);
+  });
+});
+
+describe("updateScrub", () => {
+  // Scrubbing must NOT reinstall. Installation tears layers down and rebuilds
+  // them, which is right once per style load and visibly wrong at pointer-move
+  // rates. This asserts the cheap path is the one taken.
+  function scrubbed(coord: [number, number] | null) {
+    const map = new FakeMap(BASEMAP_LAYERS);
+    installOverlays(map, spec());
+    const addsBefore = map.layers.length;
+    updateScrub(map, {
+      travelled: coord
+        ? [
+            [
+              [-106.0, 39.39],
+              [-106.001, 39.395],
+            ],
+          ]
+        : [],
+      scrubCoord: coord,
+      strokeColor: "#c9a690",
+      mutedColor: "#565a63",
+    });
+    return { map, addsBefore };
+  }
+
+  it("pushes data into existing sources without adding or removing layers", () => {
+    const { map, addsBefore } = scrubbed([-106.001, 39.395]);
+    expect(map.layers.length).toBe(addsBefore);
+    expect(map.setData).toHaveBeenCalled();
+  });
+
+  it("demotes the base route while a cursor is active", () => {
+    const { map } = scrubbed([-106.001, 39.395]);
+    const last = map.paint[map.paint.length - 1];
+    expect(last).toEqual({ layerId: "ps-route-line", name: "line-color", value: "#565a63" });
+  });
+
+  it("restores the full route hue when the cursor clears", () => {
+    const { map } = scrubbed(null);
+    const last = map.paint[map.paint.length - 1];
+    expect(last.value).toBe("#c9a690");
+  });
+
+  // A scrub event can land between a style change wiping the layers and
+  // styledata reinstalling them. That window must be a no-op, not a throw.
+  it("is a no-op against a wiped style", () => {
+    const map = new FakeMap(BASEMAP_LAYERS);
+    installOverlays(map, spec());
+    map.setStyle(BASEMAP_LAYERS);
+    expect(() =>
+      updateScrub(map, {
+        travelled: [],
+        scrubCoord: [-106, 39.4],
+        strokeColor: "#c9a690",
+        mutedColor: "#565a63",
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("scrub geometry builders", () => {
+  it("emits an empty collection rather than a degenerate feature when idle", () => {
+    expect(travelledGeoJSON([])).toEqual(EMPTY_FC);
+    expect(travelledGeoJSON(undefined)).toEqual(EMPTY_FC);
+    expect(scrubGeoJSON(null)).toEqual(EMPTY_FC);
+  });
+
+  it("drops single-point segments, which would draw nothing", () => {
+    expect(travelledGeoJSON([[[-106, 39.4]]])).toEqual(EMPTY_FC);
+  });
+
+  it("builds a MultiLineString from the travelled segments", () => {
+    const fc = travelledGeoJSON([
+      [
+        [-106, 39.4],
+        [-106.001, 39.401],
+      ],
+    ]) as { geometry: { type: string; coordinates: unknown[] } };
+    expect(fc.geometry.type).toBe("MultiLineString");
+    expect(fc.geometry.coordinates).toHaveLength(1);
+  });
+
+  it("carries the label on each mile marker feature", () => {
+    const fc = mileMarkersGeoJSON([
+      { coord: [-106, 39.4], label: "1" },
+      { coord: [-106.01, 39.41], label: "2" },
+    ]);
+    expect(fc.features.map((f) => f.properties.label)).toEqual(["1", "2"]);
   });
 });
 
