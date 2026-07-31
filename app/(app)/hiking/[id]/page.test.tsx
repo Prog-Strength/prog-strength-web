@@ -26,6 +26,15 @@ vi.mock("@/components/activity-detail/PhotoStrip", () => ({
   PhotoStrip: () => <div data-testid="photo-strip" />,
 }));
 
+// The video strip is stubbed to a marker echoing its count; its own behavior is
+// covered by VideoStrip.test.tsx. What each PAGE suite must prove is that the
+// route renders it at all — the regression the photo rollout shipped.
+vi.mock("@/components/activity-detail/VideoStrip", () => ({
+  VideoStrip: ({ videos }: { videos: unknown[] }) => (
+    <div data-testid="video-strip" data-video-count={videos.length} />
+  ),
+}));
+
 // API mock: spread the real module so types/helpers stay intact, then
 // override only the network calls this page makes.
 const getActivityMock = vi.hoisted(() => vi.fn());
@@ -264,5 +273,56 @@ describe("HikingDetailPage — photos", () => {
 
     await screen.findByText("Franconia Ridge");
     expect(screen.getByTestId("photo-strip")).toBeInTheDocument();
+  });
+});
+
+// Route coverage, hiking. The SOW makes this a completion criterion rather than
+// a detail: a shared component with one call site is how the photo strip
+// shipped broken for runs and hikes.
+describe("HikingDetailPage — videos", () => {
+  it("renders the video strip for the owner even with no videos yet", async () => {
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    expect(screen.getByTestId("video-strip")).toHaveAttribute("data-video-count", "0");
+  });
+
+  it("threads the hike's videos into the strip", async () => {
+    getActivityMock.mockResolvedValue(
+      hikingSession({
+        videos: [
+          {
+            id: "vid_1",
+            url: "https://example.test/v.mp4",
+            poster_url: "https://example.test/p.jpg",
+            content_type: "video/mp4",
+            byte_size: 1234,
+            duration_seconds: 12,
+            width: 1920,
+            height: 1080,
+            caption: null,
+            position: 0,
+          },
+        ],
+      }),
+    );
+
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    expect(screen.getByTestId("video-strip")).toHaveAttribute("data-video-count", "1");
+  });
+
+  // Video storage unconfigured: the API omits the key entirely, which is not
+  // the same as an empty list. The owner still gets the Add affordance.
+  it("still renders the strip when the videos key is absent", async () => {
+    const noVideos = hikingSession();
+    delete noVideos.videos;
+    getActivityMock.mockResolvedValue(noVideos);
+
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    expect(screen.getByTestId("video-strip")).toBeInTheDocument();
   });
 });

@@ -34,6 +34,7 @@ import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceRecap } from "./_components/PaceRecap";
 import { HeartRateZones } from "@/components/activity-detail/HeartRateZones";
 import { PhotoStrip } from "@/components/activity-detail/PhotoStrip";
+import { VideoStrip } from "@/components/activity-detail/VideoStrip";
 
 /**
  * Run detail. Header carries a back link, an inline-editable run name,
@@ -373,6 +374,18 @@ export default function RunningDetailPage() {
               activityName={session.name?.trim() || runFallbackName(session.start_time)}
               isOwner={isOwner}
               onPhotosChanged={reloadPhotos}
+            />
+          )}
+
+          {/* Videos share the media slot. Every activity detail route renders
+              this — see sows/activity-videos.md § Route coverage. */}
+          {(isOwner || (session.videos && session.videos.length > 0)) && (
+            <VideoStrip
+              videos={session.videos ?? []}
+              activityId={session.id}
+              activityName={session.name?.trim() || runFallbackName(session.start_time)}
+              isOwner={isOwner}
+              onVideosChanged={reloadPhotos}
             />
           )}
 

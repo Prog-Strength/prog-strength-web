@@ -25,6 +25,15 @@ vi.mock("@/components/activity-detail/PhotoStrip", () => ({
   PhotoStrip: () => <div data-testid="photo-strip" />,
 }));
 
+// The video strip is stubbed to a marker echoing its count; its own behavior is
+// covered by VideoStrip.test.tsx. What each PAGE suite must prove is that the
+// route renders it at all — the regression the photo rollout shipped.
+vi.mock("@/components/activity-detail/VideoStrip", () => ({
+  VideoStrip: ({ videos }: { videos: unknown[] }) => (
+    <div data-testid="video-strip" data-video-count={videos.length} />
+  ),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: replaceMock }),
   useParams: () => ({ id: "wkt-canonical" }),
@@ -423,5 +432,45 @@ describe("WorkoutDetailPage — Garmin TCX enrichment", () => {
     expect(screen.getByText("+ Add exercise")).toBeInTheDocument();
     const exercisesTile = screen.getByText("Exercises").closest("div");
     expect(exercisesTile).toHaveTextContent("0");
+  });
+});
+
+// Route coverage, strength. This route already had the photo strip; the SOW's
+// requirement is that videos land on ALL THREE detail routes at once rather
+// than starting here and "following up" for runs and hikes.
+describe("WorkoutDetailPage — videos", () => {
+  // user_id must match the mocked profile: isOwner gates the strip, and this
+  // detail route only ever serves the viewer's own activities in production.
+  it("renders the video strip for the owner even with no videos yet", async () => {
+    vi.mocked(getWorkout).mockResolvedValue({ ...CANONICAL, user_id: "user-1" });
+    render(<WorkoutDetailPage />);
+
+    await screen.findByText("Four PRs, topped by 305 lb × 2 on Bench Press");
+    expect(screen.getByTestId("video-strip")).toHaveAttribute("data-video-count", "0");
+  });
+
+  it("threads the workout's videos into the strip", async () => {
+    vi.mocked(getWorkout).mockResolvedValue({
+      ...CANONICAL,
+      user_id: "user-1",
+      videos: [
+        {
+          id: "vid_1",
+          url: "https://example.test/v.mp4",
+          poster_url: "https://example.test/p.jpg",
+          content_type: "video/mp4",
+          byte_size: 4242,
+          duration_seconds: 8,
+          width: 1080,
+          height: 1080,
+          caption: "Last set",
+          position: 0,
+        },
+      ],
+    });
+    render(<WorkoutDetailPage />);
+
+    await screen.findByText("Four PRs, topped by 305 lb × 2 on Bench Press");
+    expect(screen.getByTestId("video-strip")).toHaveAttribute("data-video-count", "1");
   });
 });

@@ -27,6 +27,7 @@ import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
 import { HeartRateZones } from "@/components/activity-detail/HeartRateZones";
 import { PhotoStrip } from "@/components/activity-detail/PhotoStrip";
+import { VideoStrip } from "@/components/activity-detail/VideoStrip";
 
 /**
  * Hike detail. The same session-recap grammar as the run detail page, but
@@ -309,6 +310,18 @@ export default function HikingDetailPage() {
               activityName={session.name?.trim() || hikeFallbackName(session.start_time)}
               isOwner={isOwner}
               onPhotosChanged={reloadPhotos}
+            />
+          )}
+
+          {/* Videos share the media slot. Every activity detail route renders
+              this — see sows/activity-videos.md § Route coverage. */}
+          {(isOwner || (session.videos && session.videos.length > 0)) && (
+            <VideoStrip
+              videos={session.videos ?? []}
+              activityId={session.id}
+              activityName={session.name?.trim() || hikeFallbackName(session.start_time)}
+              isOwner={isOwner}
+              onVideosChanged={reloadPhotos}
             />
           )}
 
