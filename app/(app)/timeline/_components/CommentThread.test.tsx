@@ -53,7 +53,8 @@ function comment(id: string, userId: string, body: string): TimelineComment {
 function postWith(comments: TimelineComment[]): TimelinePostWithComments {
   return {
     id: "p1",
-    source_type: "workout",
+    source_type: "activity",
+    activity_type: "strength_training",
     source_id: "w1",
     occurred_at: "2026-06-10T12:00:00Z",
     visibility: "private",

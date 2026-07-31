@@ -43,7 +43,8 @@ function author(overrides: Partial<TimelineAuthor> = {}): TimelineAuthor {
 function post(overrides: Partial<TimelinePost> = {}): TimelinePost {
   return {
     id: "p1",
-    source_type: "workout",
+    source_type: "activity",
+    activity_type: "strength_training",
     source_id: "w1",
     occurred_at: "2026-06-10T12:00:00Z",
     visibility: "private",
@@ -101,31 +102,71 @@ describe("TimelinePostCard", () => {
     expect(screen.getAllByText(/best effort/i).length).toBeGreaterThan(1);
   });
 
-  it("does not show a milestone banner for workout posts", () => {
-    render(<TimelinePostCard post={post({ source_type: "workout" })} exercises={[]} />);
+  it("does not show a milestone banner for session posts", () => {
+    render(<TimelinePostCard post={post()} exercises={[]} />);
     expect(screen.queryByText(/personal record/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/best effort/i)).not.toBeInTheDocument();
   });
 
+  // The two sport-specific slots key off activity_type, not source_type —
+  // every session shares the one `activity` source type now.
   it("renders the route map slot for runs only", () => {
     const { rerender } = render(
-      <TimelinePostCard post={post({ source_type: "run" })} exercises={[]} />,
+      <TimelinePostCard post={post({ activity_type: "running" })} exercises={[]} />,
     );
     expect(screen.getByTestId("route-map")).toBeInTheDocument();
-    rerender(<TimelinePostCard post={post({ source_type: "workout" })} exercises={[]} />);
+    rerender(<TimelinePostCard post={post({ activity_type: "hiking" })} exercises={[]} />);
     expect(screen.queryByTestId("route-map")).not.toBeInTheDocument();
   });
 
-  it("renders the workout summary for workout posts", () => {
-    render(<TimelinePostCard post={post({ source_type: "workout" })} exercises={[]} />);
+  it("renders the workout summary for strength posts only", () => {
+    const { rerender } = render(<TimelinePostCard post={post()} exercises={[]} />);
     expect(screen.getByTestId("workout-summary")).toBeInTheDocument();
+    rerender(<TimelinePostCard post={post({ activity_type: "hiking" })} exercises={[]} />);
+    expect(screen.queryByTestId("workout-summary")).not.toBeInTheDocument();
+  });
+
+  it("labels a hike with its own glyph and label", () => {
+    render(
+      <TimelinePostCard
+        post={post({
+          activity_type: "hiking",
+          content: {
+            title: "Franconia Ridge",
+            subtitle: "",
+            metrics: [],
+            href: "/activities?view=hiking",
+          },
+        })}
+        exercises={[]}
+      />,
+    );
+    expect(screen.getByText("Hike")).toBeInTheDocument();
+  });
+
+  // The API's type registry can add a sport without a web deploy, so an
+  // activity_type this build has never seen must still render a usable card.
+  it("falls back to a generic Activity label for an unknown sport", () => {
+    render(
+      <TimelinePostCard
+        post={post({
+          activity_type: "kickboxing",
+          content: { title: "Sparring", subtitle: "", metrics: [], href: "/activities" },
+        })}
+        exercises={[]}
+      />,
+    );
+    expect(screen.getByText("Activity")).toBeInTheDocument();
+    expect(screen.getByText("Sparring")).toBeInTheDocument();
+    expect(screen.queryByTestId("workout-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("route-map")).not.toBeInTheDocument();
   });
 
   it("renders big-value stats from content.metrics", () => {
     render(
       <TimelinePostCard
         post={post({
-          source_type: "run",
+          activity_type: "running",
           content: { title: "Run", subtitle: "", metrics: ["5.0 mi · 41:12"], href: "/running/r1" },
         })}
         exercises={[]}
