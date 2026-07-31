@@ -6,12 +6,13 @@ import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
   deleteRunningSession,
-  getRunningSession,
+  getActivity,
   renameRunningSession,
   updateRunningSessionNotes,
-  type RunningSession,
+  type Activity,
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
+import { useProfile } from "@/lib/profile-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
 import { buildElevationStrip, buildHeartRateStrip, hasPlottableSeries } from "@/lib/running-traces";
@@ -25,6 +26,7 @@ import { SectionKicker } from "@/components/activity-detail/SectionKicker";
 import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
 import { HeartRateZones } from "@/components/activity-detail/HeartRateZones";
+import { PhotoStrip } from "@/components/activity-detail/PhotoStrip";
 
 /**
  * Hike detail. The same session-recap grammar as the run detail page, but
@@ -42,8 +44,13 @@ export default function HikingDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { unit, unitLabel, formatDistance, formatElevation } = useDistanceUnit();
+  const { profile } = useProfile();
 
-  const [session, setSession] = useState<RunningSession | null>(null);
+  // Typed as the unified `Activity` (a superset of RunningSession) rather than
+  // RunningSession: `photos` and `user_id` ride on the unified read shape only,
+  // and the photo strip needs both. Same endpoint, same params — `getActivity`
+  // is `getRunningSession` with the fuller type.
+  const [session, setSession] = useState<Activity | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -67,7 +74,7 @@ export default function HikingDetailPage() {
       router.replace("/login");
       return;
     }
-    getRunningSession(token, id, unit)
+    getActivity(token, id, unit)
       .then((s) => {
         setError(null);
         setNotFound(false);
@@ -83,6 +90,27 @@ export default function HikingDetailPage() {
         setError(msg);
       });
   }, [id, unit, router, handleAuthError]);
+
+  // Re-fetch the detail so the photo strip reflects an add / delete / reorder.
+  // The photos ride along on the same response, so one fetch refreshes the
+  // strip without an extra hop — mirroring the workout detail page.
+  const reloadPhotos = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      setSession(await getActivity(token, id, unit));
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      toast.error(err instanceof Error ? err.message : "Failed to refresh photos");
+    }
+  }, [id, unit, handleAuthError, toast]);
+
+  // This detail route only ever serves the viewer's own activities
+  // (GET /activities/{id} is scoped to the authed user — another user's id
+  // 404s), so the viewer is the owner. When the DTO carries `user_id` we still
+  // confirm it matches the profile; when it's absent we fall back to true
+  // rather than hiding the owner controls on the user's own session.
+  const isOwner = session ? (session.user_id ? profile?.id === session.user_id : true) : false;
 
   // The only client mapping is trackpoints → chart coordinates.
   const hrStrip = useMemo(
@@ -270,7 +298,21 @@ export default function HikingDetailPage() {
             />
           </div>
 
-          {/* 2 — Quiet inline strip: distance / vertical gain / duration lead,
+          {/* 2 — Media. The summit selfie the SOW's motivating story is about:
+              between the overview (lead + note) and the work (numbers, charts),
+              the same slot the run and workout details give it. Self-hides for
+              a non-owner with no photos. */}
+          {(isOwner || (session.photos && session.photos.length > 0)) && (
+            <PhotoStrip
+              photos={session.photos ?? []}
+              activityId={session.id}
+              activityName={session.name?.trim() || hikeFallbackName(session.start_time)}
+              isOwner={isOwner}
+              onPhotosChanged={reloadPhotos}
+            />
+          )}
+
+          {/* 3 — Quiet inline strip: distance / vertical gain / duration lead,
               then optional high/low point + HR + calories. */}
           <dl className="flex flex-wrap gap-x-8 gap-y-3 border-y border-[var(--border)] py-4">
             <StripEntry
@@ -299,7 +341,7 @@ export default function HikingDetailPage() {
             )}
           </dl>
 
-          {/* 3 — Route map. Linked to the elevation profile below through
+          {/* 4 — Route map. Linked to the elevation profile below through
               `scrubIndex`: hovering the route moves the profile cursor, and
               the profile moves the marker here. Self-hides with no route. */}
           <MapView
@@ -312,7 +354,7 @@ export default function HikingDetailPage() {
             mileMarkers={markers}
           />
 
-          {/* 4 — Elevation profile — the CENTERPIECE chart of a hike, and the
+          {/* 5 — Elevation profile — the CENTERPIECE chart of a hike, and the
               other half of the linked instrument. */}
           {hasPlottableSeries(elevStrip) && (
             <section className="flex flex-col gap-3">
@@ -344,7 +386,7 @@ export default function HikingDetailPage() {
             </section>
           )}
 
-          {/* 5 — Heart-rate recap (gated on a plottable series). */}
+          {/* 6 — Heart-rate recap (gated on a plottable series). */}
           {hasPlottableSeries(hrStrip) && (
             <HeartRateRecap
               points={hrStrip}
@@ -354,7 +396,7 @@ export default function HikingDetailPage() {
             />
           )}
 
-          {/* 6 — Time in heart-rate zones. The same standard widget the run
+          {/* 7 — Time in heart-rate zones. The same standard widget the run
               detail renders, off the same server-computed block — a hike with
               HR earns the breakdown as much as a run does. */}
           {session.heart_rate_zones && session.heart_rate_zones.zones.length > 0 && (

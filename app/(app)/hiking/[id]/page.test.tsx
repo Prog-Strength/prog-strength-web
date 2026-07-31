@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen } from "@testing-library/react";
-import type { HeartRateZones, RunningSession, RunningTrackpoint } from "@/lib/api";
+import type { Activity, HeartRateZones, RunningTrackpoint } from "@/lib/api";
 
 // Route + auth. The router object is hoisted and stable: the load effect
 // depends on its identity, and a fresh object per render would re-run it.
@@ -16,12 +16,22 @@ vi.mock("@/lib/auth", () => ({
   clearToken: vi.fn(),
 }));
 
+vi.mock("@/lib/profile-context", () => ({
+  useProfile: () => ({ profile: { id: "user-1", display_name: "Sam" } }),
+}));
+
+// The photo strip is stubbed to a marker; its own behavior is covered by
+// PhotoStrip.test.tsx. This keeps the detail-page test focused on layout/wiring.
+vi.mock("@/components/activity-detail/PhotoStrip", () => ({
+  PhotoStrip: () => <div data-testid="photo-strip" />,
+}));
+
 // API mock: spread the real module so types/helpers stay intact, then
 // override only the network calls this page makes.
-const getRunningSessionMock = vi.hoisted(() => vi.fn());
+const getActivityMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
-  getRunningSession: getRunningSessionMock,
+  getActivity: getActivityMock,
   renameRunningSession: vi.fn(),
   deleteRunningSession: vi.fn(),
   updateRunningSessionNotes: vi.fn(),
@@ -128,7 +138,7 @@ function hikeZones(): HeartRateZones {
   };
 }
 
-function hikingSession(overrides: Partial<RunningSession> = {}): RunningSession {
+function hikingSession(overrides: Partial<Activity> = {}): Activity {
   return {
     id: "hike-1",
     activity_type: "hiking",
@@ -159,7 +169,7 @@ function hikingSession(overrides: Partial<RunningSession> = {}): RunningSession 
 beforeEach(() => {
   vi.clearAllMocks();
   mapCtor.mockImplementation(createMapStub);
-  getRunningSessionMock.mockResolvedValue(hikingSession());
+  getActivityMock.mockResolvedValue(hikingSession());
 });
 
 // Issue #131: the zones widget is a standard activity-detail surface, not a
@@ -180,7 +190,7 @@ describe("HikingDetailPage — heart-rate zones", () => {
   it("omits the section when the hike carries no heart_rate_zones block", async () => {
     const noZones = hikingSession();
     delete noZones.heart_rate_zones;
-    getRunningSessionMock.mockResolvedValue(noZones);
+    getActivityMock.mockResolvedValue(noZones);
 
     render(<HikingDetailPage />);
 
@@ -190,7 +200,7 @@ describe("HikingDetailPage — heart-rate zones", () => {
   });
 
   it("shows the calibrating banner while the max-HR estimate is still settling", async () => {
-    getRunningSessionMock.mockResolvedValue(
+    getActivityMock.mockResolvedValue(
       hikingSession({
         heart_rate_zones: {
           ...hikeZones(),
@@ -207,5 +217,52 @@ describe("HikingDetailPage — heart-rate zones", () => {
         "Calibrating — zones will sharpen as Prog Strength learns your heart rate.",
       ),
     ).toBeInTheDocument();
+  });
+});
+
+// The activity-photos SOW's motivating story is a summit selfie on a hike, but
+// the strip shipped only on the workout detail page. These pin it here.
+describe("HikingDetailPage — photos", () => {
+  it("renders the photo strip for the owner even with no photos yet", async () => {
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    expect(screen.getByTestId("photo-strip")).toBeInTheDocument();
+  });
+
+  it("renders the strip when the hike already carries photos", async () => {
+    getActivityMock.mockResolvedValue(
+      hikingSession({
+        photos: [
+          {
+            id: "ph_1",
+            url: "https://example.test/full.jpg",
+            thumb_url: "https://example.test/thumb.jpg",
+            width: 1200,
+            height: 900,
+            caption: "Summit",
+            position: 0,
+          },
+        ],
+      }),
+    );
+
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    expect(screen.getByTestId("photo-strip")).toBeInTheDocument();
+  });
+
+  // Photo storage unconfigured: the API omits the key entirely. The owner still
+  // gets the Add affordance rather than the page hiding media outright.
+  it("still renders the strip when the photos key is absent", async () => {
+    const noPhotos = hikingSession();
+    delete noPhotos.photos;
+    getActivityMock.mockResolvedValue(noPhotos);
+
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    expect(screen.getByTestId("photo-strip")).toBeInTheDocument();
   });
 });

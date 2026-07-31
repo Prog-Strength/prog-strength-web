@@ -31,9 +31,22 @@ vi.mock("@/lib/auth", () => ({
   clearToken: vi.fn(),
 }));
 
+vi.mock("@/lib/profile-context", () => ({
+  useProfile: () => ({ profile: { id: "user-1", display_name: "Sam" } }),
+}));
+
+// The photo strip is stubbed to a marker; its own behavior is covered by
+// PhotoStrip.test.tsx. The stub echoes the photo count so the page's threading
+// (and its survival across a calibrate) is assertable without the real widget.
+vi.mock("@/components/activity-detail/PhotoStrip", () => ({
+  PhotoStrip: ({ photos }: { photos: unknown[] }) => (
+    <div data-testid="photo-strip" data-photo-count={photos.length} />
+  ),
+}));
+
 // API mock: spread the real module so types/helpers stay intact, then
 // override only the network calls this page makes.
-const getRunningSessionMock = vi.hoisted(() => vi.fn());
+const getActivityMock = vi.hoisted(() => vi.fn());
 const getPlannedWorkoutBySessionMock = vi.hoisted(() => vi.fn());
 const renameRunningSessionMock = vi.hoisted(() => vi.fn());
 const deleteRunningSessionMock = vi.hoisted(() => vi.fn());
@@ -44,7 +57,7 @@ const updateRunningSessionNotesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
-  getRunningSession: getRunningSessionMock,
+  getActivity: getActivityMock,
   getPlannedWorkoutBySession: getPlannedWorkoutBySessionMock,
   renameRunningSession: renameRunningSessionMock,
   deleteRunningSession: deleteRunningSessionMock,
@@ -350,7 +363,7 @@ beforeEach(() => {
   params.value = { id: "run-1" };
   unitState.value = "mi";
   // Sensible defaults; individual tests override.
-  getRunningSessionMock.mockResolvedValue(runningSession(intervalTrackpoints()));
+  getActivityMock.mockResolvedValue(runningSession(intervalTrackpoints()));
   getPlannedWorkoutBySessionMock.mockResolvedValue(intervalsPlan());
   renameRunningSessionMock.mockImplementation(async (_t, _id, name) => ({
     ...runningSession([]),
@@ -414,7 +427,7 @@ describe("RunningDetailPage — splits ledger", () => {
   it("Step 2b: hides the toggle when no linked plan says intervals (miles-only)", async () => {
     // The session STILL carries server-computed interval candidates — the
     // client gate (completesPlan?.run_type === "intervals") must hide them.
-    getRunningSessionMock.mockResolvedValue(runningSession(steadyTrackpoints()));
+    getActivityMock.mockResolvedValue(runningSession(steadyTrackpoints()));
     getPlannedWorkoutBySessionMock.mockResolvedValue(null);
 
     render(<RunningDetailPage />);
@@ -441,8 +454,8 @@ describe("RunningDetailPage — unit refetch", () => {
     const { rerender } = render(<RunningDetailPage />);
 
     await screen.findByText("Mi 1");
-    expect(getRunningSessionMock).toHaveBeenCalledTimes(1);
-    expect(getRunningSessionMock).toHaveBeenLastCalledWith("test-token", "run-1", "mi");
+    expect(getActivityMock).toHaveBeenCalledTimes(1);
+    expect(getActivityMock).toHaveBeenLastCalledWith("test-token", "run-1", "mi");
 
     // Flip the (mocked) unit context to km and re-render: the detail effect
     // depends on the unit, so it must refetch the km-shaped response rather
@@ -451,9 +464,9 @@ describe("RunningDetailPage — unit refetch", () => {
     rerender(<RunningDetailPage />);
 
     await waitFor(() => {
-      expect(getRunningSessionMock).toHaveBeenCalledTimes(2);
+      expect(getActivityMock).toHaveBeenCalledTimes(2);
     });
-    expect(getRunningSessionMock).toHaveBeenLastCalledWith("test-token", "run-1", "km");
+    expect(getActivityMock).toHaveBeenLastCalledWith("test-token", "run-1", "km");
   });
 });
 
@@ -471,7 +484,7 @@ describe("RunningDetailPage — heart-rate zones", () => {
   it("omits the widget when the run has no heart_rate_zones block", async () => {
     const noZones = runningSession(steadyTrackpoints());
     delete noZones.heart_rate_zones;
-    getRunningSessionMock.mockResolvedValue(noZones);
+    getActivityMock.mockResolvedValue(noZones);
     getPlannedWorkoutBySessionMock.mockResolvedValue(null);
 
     render(<RunningDetailPage />);
@@ -537,7 +550,7 @@ describe("RunningDetailPage — preserved behaviors", () => {
 
 describe("RunningDetailPage — treadmill badge + environment", () => {
   it("shows the Treadmill badge and calibrate action for an indoor run", async () => {
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       environment: "indoor",
     });
@@ -551,7 +564,7 @@ describe("RunningDetailPage — treadmill badge + environment", () => {
   });
 
   it("hides the badge and calibrate action for an outdoor run", async () => {
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       environment: "outdoor",
     });
@@ -565,7 +578,7 @@ describe("RunningDetailPage — treadmill badge + environment", () => {
   });
 
   it("toggling to Indoor calls setRunningSessionEnvironment after confirm", async () => {
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       environment: "outdoor",
     });
@@ -592,7 +605,7 @@ describe("RunningDetailPage — treadmill badge + environment", () => {
   });
 
   it("does not call the API when the confirm is dismissed", async () => {
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       environment: "outdoor",
     });
@@ -611,7 +624,7 @@ describe("RunningDetailPage — treadmill badge + environment", () => {
 
 describe("RunningDetailPage — notes", () => {
   it("empty note shows the affordance; adding text saves it and renders it as prose", async () => {
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       notes: null,
     });
@@ -639,7 +652,7 @@ describe("RunningDetailPage — notes", () => {
   });
 
   it("rolls back and toasts when the note save fails", async () => {
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       notes: null,
     });
@@ -666,7 +679,7 @@ describe("RunningDetailPage — notes", () => {
 
 describe("RunningDetailPage — conditional recaps + map", () => {
   it("indoor run with no route renders no map slot", async () => {
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       environment: "indoor",
       route: undefined,
@@ -688,7 +701,7 @@ describe("RunningDetailPage — conditional recaps + map", () => {
       max_heart_rate_bpm: null,
     };
     delete noHr.heart_rate_zones;
-    getRunningSessionMock.mockResolvedValue(noHr);
+    getActivityMock.mockResolvedValue(noHr);
     getPlannedWorkoutBySessionMock.mockResolvedValue(null);
 
     render(<RunningDetailPage />);
@@ -711,7 +724,7 @@ describe("RunningDetailPage — conditional recaps + map", () => {
       ),
       elevation_gain_meters: null,
     };
-    getRunningSessionMock.mockResolvedValue(noElev);
+    getActivityMock.mockResolvedValue(noElev);
     getPlannedWorkoutBySessionMock.mockResolvedValue(null);
 
     render(<RunningDetailPage />);
@@ -729,7 +742,7 @@ describe("RunningDetailPage — calibration", () => {
     // distance AND rescaled server splits (one full mile + a 0.1 mi partial),
     // so the header and the splits table both reflect the new distance —
     // proving the whole session (splits included) was replaced.
-    getRunningSessionMock.mockResolvedValue({
+    getActivityMock.mockResolvedValue({
       ...runningSession(steadyTrackpoints()),
       environment: "indoor",
       distance_meters: 2.2 * METERS_PER_MILE,
@@ -805,5 +818,73 @@ describe("RunningDetailPage — calibration", () => {
     // The rescaled pace (966 s → 16:06) renders verbatim in the Mi 1 row.
     const mi1Row = screen.getByText("Mi 1").closest("tr")!;
     expect(within(mi1Row).getAllByText("16:06").length).toBeGreaterThan(0);
+  });
+});
+
+// The activity-photos SOW shipped the strip on the workout detail page only;
+// these pin it onto the run detail too.
+describe("RunningDetailPage — photos", () => {
+  const photo = {
+    id: "ph_1",
+    url: "https://example.test/full.jpg",
+    thumb_url: "https://example.test/thumb.jpg",
+    width: 1200,
+    height: 900,
+    caption: null,
+    position: 0,
+  };
+
+  it("renders the photo strip for the owner even with no photos yet", async () => {
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.getByTestId("photo-strip")).toHaveAttribute("data-photo-count", "0");
+  });
+
+  it("threads the session's photos into the strip", async () => {
+    getActivityMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      photos: [photo],
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.getByTestId("photo-strip")).toHaveAttribute("data-photo-count", "1");
+  });
+
+  // Calibrate replaces the WHOLE session from a response typed as the narrower
+  // RunningSession, which doesn't restate photos — they must survive anyway or
+  // the strip blanks out mid-session.
+  it("keeps the photos when a calibrate replaces the session", async () => {
+    getActivityMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "indoor",
+      distance_meters: 2.2 * METERS_PER_MILE,
+      raw_distance_meters: 2.2 * METERS_PER_MILE,
+      photos: [photo],
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+    calibrateRunningSessionMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "indoor",
+      distance_meters: 1.1 * METERS_PER_MILE,
+      raw_distance_meters: 2.2 * METERS_PER_MILE,
+    });
+
+    render(<RunningDetailPage />);
+
+    expect(await screen.findByTestId("photo-strip")).toHaveAttribute("data-photo-count", "1");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Calibrate distance" }));
+    const input = await screen.findByLabelText(/Corrected distance/);
+    fireEvent.change(input, { target: { value: "1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Calibrate" }));
+
+    await waitFor(() => {
+      expect(calibrateRunningSessionMock).toHaveBeenCalled();
+    });
+    expect(screen.getByTestId("photo-strip")).toHaveAttribute("data-photo-count", "1");
   });
 });

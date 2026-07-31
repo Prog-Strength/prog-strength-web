@@ -7,16 +7,17 @@ import { clearToken, getToken } from "@/lib/auth";
 import {
   calibrateRunningSession,
   deleteRunningSession,
+  getActivity,
   getPlannedWorkoutBySession,
-  getRunningSession,
   renameRunningSession,
   setRunningSessionEnvironment,
   unlinkPlannedWorkout,
   updateRunningSessionNotes,
+  type Activity,
   type PlannedWorkout,
-  type RunningSession,
 } from "@/lib/api";
 import { useDistanceUnit } from "@/lib/distance-unit-context";
+import { useProfile } from "@/lib/profile-context";
 import { useToast } from "@/components/toast";
 import { formatDuration } from "@/lib/format";
 import { buildPaceStrip, parseTargetPace } from "@/lib/running-splits";
@@ -32,6 +33,7 @@ import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
 import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceRecap } from "./_components/PaceRecap";
 import { HeartRateZones } from "@/components/activity-detail/HeartRateZones";
+import { PhotoStrip } from "@/components/activity-detail/PhotoStrip";
 
 /**
  * Run detail. Header carries a back link, an inline-editable run name,
@@ -49,8 +51,13 @@ export default function RunningDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { unit, unitLabel, formatDistance, formatPace, formatElevation } = useDistanceUnit();
+  const { profile } = useProfile();
 
-  const [session, setSession] = useState<RunningSession | null>(null);
+  // Typed as the unified `Activity` (a superset of RunningSession) rather than
+  // RunningSession: `photos` and `user_id` ride on the unified read shape only,
+  // and the photo strip needs both. Same endpoint, same params — `getActivity`
+  // is `getRunningSession` with the fuller type.
+  const [session, setSession] = useState<Activity | null>(null);
   const [completesPlan, setCompletesPlan] = useState<PlannedWorkout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -82,7 +89,7 @@ export default function RunningDetailPage() {
     getPlannedWorkoutBySession(token, id, "activity")
       .then(setCompletesPlan)
       .catch(() => {});
-    getRunningSession(token, id, unit)
+    getActivity(token, id, unit)
       .then((s) => {
         setError(null);
         setNotFound(false);
@@ -98,6 +105,27 @@ export default function RunningDetailPage() {
         setError(msg);
       });
   }, [id, unit, router, handleAuthError]);
+
+  // Re-fetch the detail so the photo strip reflects an add / delete / reorder.
+  // The photos ride along on the same response, so one fetch refreshes the
+  // strip without an extra hop — mirroring the workout detail page.
+  const reloadPhotos = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      setSession(await getActivity(token, id, unit));
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      toast.error(err instanceof Error ? err.message : "Failed to refresh photos");
+    }
+  }, [id, unit, handleAuthError, toast]);
+
+  // This detail route only ever serves the viewer's own activities
+  // (GET /activities/{id} is scoped to the authed user — another user's id
+  // 404s), so the viewer is the owner. When the DTO carries `user_id` we still
+  // confirm it matches the profile; when it's absent we fall back to true
+  // rather than hiding the owner controls on the user's own session.
+  const isOwner = session ? (session.user_id ? profile?.id === session.user_id : true) : false;
 
   // The splits/intervals/summary all arrive server-derived; the only client
   // mapping is trackpoints → chart coordinates.
@@ -211,7 +239,10 @@ export default function RunningDetailPage() {
     }
     try {
       const updated = await calibrateRunningSession(token, id, session.raw_distance_meters, unit);
-      setSession(updated);
+      // Calibrate replaces the WHOLE session, but its typed wrapper returns the
+      // narrower RunningSession — carry the photos over so the strip doesn't
+      // blank out until the next load.
+      setSession((s) => ({ ...updated, photos: s?.photos, user_id: s?.user_id }));
       toast.success("Reset to the original distance.");
     } catch (err) {
       if (handleAuthError(err)) return;
@@ -332,7 +363,20 @@ export default function RunningDetailPage() {
             <NotesEditor notes={session.notes} onSave={handleSaveNotes} />
           </div>
 
-          {/* 2 — Quiet inline strip: numbers support, they don't lead. */}
+          {/* 2 — Media. Sits between the overview (lead + note) and the work
+              (numbers, splits, charts), the same slot the workout detail gives
+              it. Self-hides for a non-owner with no photos. */}
+          {(isOwner || (session.photos && session.photos.length > 0)) && (
+            <PhotoStrip
+              photos={session.photos ?? []}
+              activityId={session.id}
+              activityName={session.name?.trim() || runFallbackName(session.start_time)}
+              isOwner={isOwner}
+              onPhotosChanged={reloadPhotos}
+            />
+          )}
+
+          {/* 3 — Quiet inline strip: numbers support, they don't lead. */}
           <dl className="flex flex-wrap gap-x-8 gap-y-3 border-y border-[var(--border)] py-4">
             <StripEntry
               label="Distance"
@@ -357,7 +401,7 @@ export default function RunningDetailPage() {
             )}
           </dl>
 
-          {/* 3 — Plan context: ✓ pill + unlink + prescription, directly under
+          {/* 4 — Plan context: ✓ pill + unlink + prescription, directly under
               the strip (SOW Resolved Q1). */}
           {completesPlan && (
             <div className="flex flex-col gap-2">
@@ -386,7 +430,7 @@ export default function RunningDetailPage() {
             </div>
           )}
 
-          {/* 4 — Operational chrome: quiet editorial line (run only). */}
+          {/* 5 — Operational chrome: quiet editorial line (run only). */}
           {isRun && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <EnvironmentToggle
@@ -418,10 +462,10 @@ export default function RunningDetailPage() {
             </div>
           )}
 
-          {/* 5 — Route map (self-hides when route is undefined). */}
+          {/* 6 — Route map (self-hides when route is undefined). */}
           <MapView route={session.route} discipline="run" label="Run route map" />
 
-          {/* 6 — The Miles. */}
+          {/* 7 — The Miles. */}
           <section className="flex flex-col gap-3">
             <SectionKicker>The Miles</SectionKicker>
             <SplitsSpine
@@ -439,7 +483,7 @@ export default function RunningDetailPage() {
             />
           </section>
 
-          {/* 7 — Sibling recaps. */}
+          {/* 8 — Sibling recaps. */}
           <PaceRecap points={paceStrip} stripSummary={session.strip_summary ?? null} unit={unit} />
           {hasPlottableSeries(hrStrip) && (
             <HeartRateRecap
@@ -457,7 +501,7 @@ export default function RunningDetailPage() {
             />
           )}
 
-          {/* 8 — Time in heart-rate zones (gate the whole section). */}
+          {/* 9 — Time in heart-rate zones (gate the whole section). */}
           {session.heart_rate_zones && session.heart_rate_zones.zones.length > 0 && (
             <section className="flex flex-col gap-3">
               <SectionKicker>Time in heart-rate zones</SectionKicker>
@@ -477,8 +521,9 @@ export default function RunningDetailPage() {
           onClose={() => setCalibrateOpen(false)}
           onCalibrated={(updated) => {
             // Replace the WHOLE session (including trackpoints) so the header
-            // and the trackpoint-derived splits stay consistent.
-            setSession(updated);
+            // and the trackpoint-derived splits stay consistent — but carry the
+            // photos over, which the narrower calibrate shape doesn't restate.
+            setSession((s) => ({ ...updated, photos: s?.photos, user_id: s?.user_id }));
             setCalibrateOpen(false);
           }}
         />
