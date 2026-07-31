@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { Exercise, TimelinePost } from "@/lib/api";
+import type { Exercise, TimelinePhotoCover, TimelinePost } from "@/lib/api";
 import { ReactionBar } from "./ReactionBar";
 import { CommentThread } from "./CommentThread";
 import { WorkoutTimelineSummary } from "./WorkoutTimelineSummary";
@@ -110,6 +110,14 @@ export function TimelinePostCard({
         <WorkoutTimelineSummary sourceId={post.source_id} exercises={exercises} />
       )}
 
+      {post.content.photo && (
+        <PhotoCover
+          photo={post.content.photo}
+          photoCount={post.content.photo_count}
+          alt={post.content.title || "Activity photo"}
+        />
+      )}
+
       <StatRow metrics={post.content.metrics} />
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] pt-4">
@@ -131,6 +139,44 @@ export function TimelinePostCard({
 
       {showComments && <CommentThread postId={post.id} onCountChange={setCommentCount} />}
     </article>
+  );
+}
+
+/**
+ * The card's photo slot: a single cover thumbnail at the source photo's own
+ * aspect ratio, so the feed reserves its space up front and does not reflow as
+ * the image loads (mirrors <RouteMap>'s reserved media box). When the activity
+ * carries more than one photo, a "+N" badge counts the rest; tapping the card
+ * (this cover included) deep-links to the detail page's gallery — no lightbox
+ * or carousel lives here.
+ */
+function PhotoCover({
+  photo,
+  photoCount,
+  alt,
+}: {
+  photo: TimelinePhotoCover;
+  photoCount?: number;
+  alt: string;
+}) {
+  // Fall back to a 4:3 frame when dimensions are missing/zero so the reserved
+  // box is still sane and the layout stays stable.
+  const ratio = photo.width > 0 && photo.height > 0 ? `${photo.width} / ${photo.height}` : "4 / 3";
+  const extra = photoCount && photoCount > 1 ? photoCount - 1 : 0;
+
+  return (
+    <div
+      className="relative w-full overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface-2)]"
+      style={{ aspectRatio: ratio }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={photo.thumb_url} alt={alt} loading="lazy" className="h-full w-full object-cover" />
+      {extra > 0 && (
+        <span className="absolute bottom-2 right-2 rounded-full border border-[var(--accent-line)] bg-[var(--accent-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--accent)]">
+          +{extra}
+        </span>
+      )}
+    </div>
   );
 }
 
