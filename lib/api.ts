@@ -107,6 +107,11 @@ export type Workout = {
   // Heart-rate / effort enrichment from the linked TCX. Null when activity_id
   // is null; carries `trackpoints` only on the single-workout detail load.
   enrichment?: WorkoutEnrichment | null;
+  // User-attached photos, ordered by `position`. Threaded through from the
+  // unified Activity DTO by `activityToWorkout` so the detail page renders the
+  // photo strip off the same fetch. Present only on the detail read (and only
+  // when photo storage is configured); absent on list rows.
+  photos?: ActivityPhoto[];
 };
 
 /** A catalog entry — the canonical definition of an exercise. */
@@ -1973,6 +1978,11 @@ export type TimelinePhotoCover = {
  * ≠ "no photos"; it means the feature is off).
  */
 export type Activity = RunningSession & {
+  // The owning user. Present on the unified read shape (the base
+  // `RunningSession` DTO omits it because no running surface needs it); carried
+  // here so ownership-gated detail affordances (e.g. the photo strip's owner
+  // controls) can compare it against the viewer's profile id.
+  user_id?: string;
   summary?: ActivitySummary;
   details?: StrengthActivityDetails | EnduranceActivityDetails;
   photos?: ActivityPhoto[];
@@ -2259,6 +2269,7 @@ export function activityToWorkout(a: Activity): Workout {
   const hasTcx = a.source_activity_id !== "";
   return {
     id: a.id,
+    user_id: a.user_id,
     name: a.name ?? undefined,
     performed_at: a.start_time,
     ended_at:
@@ -2269,6 +2280,9 @@ export function activityToWorkout(a: Activity): Workout {
     exercises: details?.exercises ?? [],
     created_at: a.created_at,
     personal_records_set: details?.personal_records_set ?? [],
+    // Photos ride along when the DTO carries them (detail read + storage
+    // configured); left undefined otherwise so a photo-less strip renders.
+    photos: a.photos,
     activity_id: hasTcx ? a.id : null,
     enrichment: hasTcx
       ? {

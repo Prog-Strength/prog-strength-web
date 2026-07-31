@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
@@ -25,6 +25,8 @@ import { formatRecapDate, leadHeadline, prSubhead } from "@/lib/workout-recap";
 import { RecapExerciseList } from "./_components/recap-exercise-list";
 import { MuscleBodyMap } from "./_components/muscle-body-map";
 import { HeartRateEffortCard } from "./_components/HeartRateEffortCard";
+import { PhotoStrip } from "@/components/activity-detail/PhotoStrip";
+import { useProfile } from "@/lib/profile-context";
 
 /**
  * Single-workout detail route — the one-stop record of a logged session,
@@ -53,6 +55,7 @@ export default function WorkoutDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const { profile } = useProfile();
 
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -97,6 +100,28 @@ export default function WorkoutDetailPage() {
   const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
 
   const handleSaved = (updated: Workout) => setWorkout(updated);
+
+  // Re-fetch the workout so the photo strip reflects an add / delete / reorder.
+  // The photos ride along on the same getWorkout response (threaded through
+  // activityToWorkout), so one fetch refreshes the strip without an extra hop.
+  const reloadPhotos = useCallback(async () => {
+    if (!id) return;
+    const token = getToken();
+    if (!token) return;
+    try {
+      const updated = await getWorkout(token, id);
+      setWorkout(updated);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to refresh photos");
+    }
+  }, [id]);
+
+  // This detail route only ever serves the viewer's own activities
+  // (GET /activities/{id} is scoped to the authed user — another user's id
+  // 404s), so the viewer is the owner. When the DTO carries `user_id` we still
+  // confirm it matches the profile; when it's absent we fall back to true
+  // rather than hiding the owner controls on the user's own session.
+  const isOwner = workout ? (workout.user_id ? profile?.id === workout.user_id : true) : false;
 
   const handleDelete = async () => {
     if (!workout) return;
@@ -223,6 +248,18 @@ export default function WorkoutDetailPage() {
               <Lead workout={workout} exerciseMap={exerciseMap} />
 
               <Reflection notes={workout.notes} />
+
+              {/* Media sits between the overview (lead + reflection) and the
+                  work (stats + exercises), per the session-recap grammar. */}
+              {(isOwner || (workout.photos && workout.photos.length > 0)) && (
+                <PhotoStrip
+                  photos={workout.photos ?? []}
+                  activityId={workout.id}
+                  activityName={photoActivityName(workout)}
+                  isOwner={isOwner}
+                  onPhotosChanged={reloadPhotos}
+                />
+              )}
 
               <div className="flex flex-col gap-8 md:flex-row md:items-center md:gap-12">
                 <MuscleBodyMap workout={workout} exercises={exercises} />
@@ -438,6 +475,14 @@ function headerSubtitle(workout: Workout): string {
     workout.ended_at ? formatDuration(workout.performed_at, workout.ended_at) : null,
   ].filter((p): p is string => Boolean(p));
   return parts.join(" · ");
+}
+
+/**
+ * A short label for a photo's generated alt text ("Photo from {name}") — the
+ * meaningful session name when set, else the recap date.
+ */
+function photoActivityName(workout: Workout): string {
+  return hasMeaningfulName(workout.name) ? workout.name! : formatRecapDate(workout.performed_at);
 }
 
 function displayUnit(unit: "lb" | "kg"): string {
