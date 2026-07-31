@@ -26,6 +26,7 @@ import { RecapExerciseList } from "./_components/recap-exercise-list";
 import { MuscleBodyMap } from "./_components/muscle-body-map";
 import { HeartRateEffortCard } from "./_components/HeartRateEffortCard";
 import { PhotoStrip } from "@/components/activity-detail/PhotoStrip";
+import { VideoStrip } from "@/components/activity-detail/VideoStrip";
 import { useProfile } from "@/lib/profile-context";
 
 /**
@@ -258,6 +259,20 @@ export default function WorkoutDetailPage() {
                   activityName={photoActivityName(workout)}
                   isOwner={isOwner}
                   onPhotosChanged={reloadPhotos}
+                />
+              )}
+
+              {/* Videos share the media slot with photos. Rendered on EVERY
+                  activity detail route, not just this one — see
+                  sows/activity-videos.md and the PhotoStrip regression it
+                  cites. */}
+              {(isOwner || (workout.videos && workout.videos.length > 0)) && (
+                <VideoStrip
+                  videos={workout.videos ?? []}
+                  activityId={workout.id}
+                  activityName={photoActivityName(workout)}
+                  isOwner={isOwner}
+                  onVideosChanged={reloadPhotos}
                 />
               )}
 

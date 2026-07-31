@@ -117,6 +117,9 @@ export type Workout = {
   // photo strip off the same fetch. Present only on the detail read (and only
   // when photo storage is configured); absent on list rows.
   photos?: ActivityPhoto[];
+  // Attached videos, threaded through by activityToWorkout exactly as photos
+  // are, so the detail page renders the video strip off the same fetch.
+  videos?: ActivityVideo[];
 };
 
 /** A catalog entry — the canonical definition of an exercise. */
@@ -1949,6 +1952,30 @@ export type EnduranceActivityDetails = {
  * `caption` is null when unset. `position` is the 0-based display order
  * the reorder endpoint maintains.
  */
+/**
+ * One user-attached video on an activity, as GET /activities/{id} embeds it.
+ *
+ * `url` is a presigned GET of the ORIGINAL uploaded file — nothing is
+ * transcoded, so this is byte-identical to what the camera produced.
+ * `poster_url` is a server-bounded JPEG the client generated at upload time,
+ * and is **null** when that generation failed (a browser that can't decode the
+ * container still gets to keep its video). `duration_seconds`/`width`/`height`
+ * are client-reported display hints — the aspect-ratio box and duration badge
+ * read them, nothing load-bearing does.
+ */
+export type ActivityVideo = {
+  id: string;
+  url: string;
+  poster_url: string | null;
+  content_type: string;
+  byte_size: number;
+  duration_seconds: number | null;
+  width: number | null;
+  height: number | null;
+  caption: string | null;
+  position: number;
+};
+
 export type ActivityPhoto = {
   id: string;
   url: string;
@@ -1991,6 +2018,10 @@ export type Activity = RunningSession & {
   summary?: ActivitySummary;
   details?: StrengthActivityDetails | EnduranceActivityDetails;
   photos?: ActivityPhoto[];
+  // Attached videos, ordered by position. Present on the detail read for EVERY
+  // activity type when video storage is configured; the key is absent (not an
+  // empty array) when it isn't, so absent != "no videos".
+  videos?: ActivityVideo[];
 };
 
 /** One page of unified activities plus the keyset cursor for the next. */
@@ -2196,6 +2227,185 @@ export async function deleteActivityPhoto(
 }
 
 /**
+ * The reservation returned by POST /activities/{id}/videos — step 1 of the
+ * two-phase upload. `upload_url` is a short-lived presigned S3 PUT the browser
+ * writes the file to DIRECTLY; the bytes never transit the API.
+ */
+export type VideoUploadReservation = {
+  video_id: string;
+  upload_url: string;
+  expires_at: string; // RFC3339
+};
+
+/**
+ * POST /activities/{id}/videos — reserve an upload slot.
+ *
+ * The declared `byte_size` is a courtesy check so an obviously-oversize file
+ * fails before the upload starts; the server re-derives the real size from S3
+ * at completion, so lying here only delays the rejection.
+ *
+ * Throws the API's `error` envelope: 415 unsupported_media_type (container not
+ * in the allowlist), 413 file_too_large, 409 video_limit_reached, 503
+ * video_storage_unavailable.
+ */
+export async function reserveActivityVideo(
+  token: string,
+  activityId: string,
+  meta: {
+    content_type: string;
+    byte_size: number;
+    duration_seconds?: number | null;
+    width?: number | null;
+    height?: number | null;
+    caption?: string | null;
+  },
+): Promise<VideoUploadReservation> {
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(activityId)}/videos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(meta),
+  });
+  const reserved = await unwrap<VideoUploadReservation | null>(resp, null);
+  if (!reserved) throw new Error("API did not return an upload reservation");
+  return reserved;
+}
+
+/**
+ * PUT the file straight to S3 using the presigned URL from the reservation.
+ *
+ * Uses XMLHttpRequest rather than `fetch` for ONE reason: fetch exposes no
+ * upload-progress events, and a multi-hundred-megabyte upload without a
+ * progress bar is indistinguishable from a hang. This is the only XHR in the
+ * codebase and that's why.
+ *
+ * No Authorization header — the presigned URL carries its own signature, and
+ * adding one would break it. `Content-Type` MUST match what was signed.
+ */
+export function uploadVideoToStorage(
+  uploadUrl: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl, true);
+    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.upload.onprogress = (e) => {
+      if (onProgress && e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+    xhr.onerror = () => reject(new Error("Upload failed. Check your connection and try again."));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(file);
+  });
+}
+
+/**
+ * POST /activities/{id}/videos/{video_id}/complete — step 3. Confirms the
+ * uploaded object and attaches the client-generated poster frame.
+ *
+ * The poster is OPTIONAL: pass null when the browser couldn't decode a frame.
+ * The server stores the video regardless and returns `poster_url: null`.
+ */
+export async function completeActivityVideo(
+  token: string,
+  activityId: string,
+  videoId: string,
+  poster: Blob | null,
+): Promise<ActivityVideo> {
+  const form = new FormData();
+  if (poster) form.append("poster", poster, "poster.jpg");
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/videos/${encodeURIComponent(
+      videoId,
+    )}/complete`,
+    {
+      method: "POST",
+      // No Content-Type: the browser sets the multipart boundary itself.
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+  const created = await unwrap<ActivityVideo | null>(resp, null);
+  if (!created) throw new Error("API did not return the completed video");
+  return created;
+}
+
+/**
+ * PATCH /activities/{id}/videos/{video_id}. Sets a caption (null clears it).
+ * Returns the activity's full ordered video list.
+ */
+export async function updateActivityVideoCaption(
+  token: string,
+  activityId: string,
+  videoId: string,
+  caption: string | null,
+): Promise<ActivityVideo[]> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/videos/${encodeURIComponent(
+      videoId,
+    )}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ caption }),
+    },
+  );
+  return unwrap<ActivityVideo[]>(resp, []);
+}
+
+/**
+ * PUT /activities/{id}/videos/order. `videoIds` must be EXACTLY the activity's
+ * current videos, once each — a partial list is a 400, not a partial reorder.
+ */
+export async function reorderActivityVideos(
+  token: string,
+  activityId: string,
+  videoIds: string[],
+): Promise<ActivityVideo[]> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/videos/order`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ video_ids: videoIds }),
+    },
+  );
+  return unwrap<ActivityVideo[]>(resp, []);
+}
+
+/** DELETE /activities/{id}/videos/{video_id}. */
+export async function deleteActivityVideo(
+  token: string,
+  activityId: string,
+  videoId: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/videos/${encodeURIComponent(
+      videoId,
+    )}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
  * POST /activities. Creates an activity through the typed unified
  * surface; the descriptor for `activity_type` owns validation and the
  * write path (strength routes through the workout machinery: PR
@@ -2289,6 +2499,7 @@ export function activityToWorkout(a: Activity): Workout {
     // Photos ride along when the DTO carries them (detail read + storage
     // configured); left undefined otherwise so a photo-less strip renders.
     photos: a.photos,
+    videos: a.videos,
     activity_id: hasTcx ? a.id : null,
     enrichment: hasTcx
       ? {

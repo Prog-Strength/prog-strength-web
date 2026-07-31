@@ -44,6 +44,15 @@ vi.mock("@/components/activity-detail/PhotoStrip", () => ({
   ),
 }));
 
+// The video strip is stubbed to a marker echoing its count; its own behavior is
+// covered by VideoStrip.test.tsx. What each PAGE suite must prove is that the
+// route renders it at all — the regression the photo rollout shipped.
+vi.mock("@/components/activity-detail/VideoStrip", () => ({
+  VideoStrip: ({ videos }: { videos: unknown[] }) => (
+    <div data-testid="video-strip" data-video-count={videos.length} />
+  ),
+}));
+
 // API mock: spread the real module so types/helpers stay intact, then
 // override only the network calls this page makes.
 const getActivityMock = vi.hoisted(() => vi.fn());
@@ -886,5 +895,41 @@ describe("RunningDetailPage — photos", () => {
       expect(calibrateRunningSessionMock).toHaveBeenCalled();
     });
     expect(screen.getByTestId("photo-strip")).toHaveAttribute("data-photo-count", "1");
+  });
+});
+
+// Route coverage, running.
+describe("RunningDetailPage — videos", () => {
+  const video = {
+    id: "vid_1",
+    url: "https://example.test/v.mp4",
+    poster_url: null,
+    content_type: "video/quicktime",
+    byte_size: 999,
+    duration_seconds: 30,
+    width: 1080,
+    height: 1920,
+    caption: null,
+    position: 0,
+  };
+
+  it("renders the video strip for the owner even with no videos yet", async () => {
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.getByTestId("video-strip")).toHaveAttribute("data-video-count", "0");
+  });
+
+  it("threads the run's videos into the strip", async () => {
+    getActivityMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      videos: [video],
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.getByTestId("video-strip")).toHaveAttribute("data-video-count", "1");
   });
 });
