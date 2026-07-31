@@ -254,6 +254,19 @@ export function firstSymbolLayerId(map: OverlayMap): string | undefined {
   return map.getStyle()?.layers?.find((l) => l.type === "symbol")?.id;
 }
 
+/**
+ * Whether a COMPLETE overlay install is present on the live style.
+ *
+ * Checks the LAST layer in the install order, never the first. If an install
+ * throws partway — a style that reported itself ready and wasn't — the early
+ * layers exist while the rest do not, and keying off `ps-route-line` would make
+ * that half-built state look finished forever, permanently suppressing the
+ * retry. The last layer is present only when the whole set is.
+ */
+export function overlaysInstalled(map: OverlayMap): boolean {
+  return Boolean(map.getLayer(OVERLAY_LAYER_IDS[OVERLAY_LAYER_IDS.length - 1]));
+}
+
 /** An empty FeatureCollection — the resting state of every driven source. */
 export const EMPTY_FC = { type: "FeatureCollection", features: [] } as const;
 

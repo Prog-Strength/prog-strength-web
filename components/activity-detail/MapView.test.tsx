@@ -17,6 +17,7 @@ vi.mock("@/lib/config", () => ({
 }));
 
 import { createMapStub } from "@/lib/test-fixtures/maplibre-stub";
+import { OVERLAY_LAYER_IDS } from "@/lib/map-overlays";
 import { MAP_STYLE_STORAGE_KEY } from "@/lib/map-styles";
 import { MapView } from "./MapView";
 
@@ -119,6 +120,87 @@ describe("MapView", () => {
       .map((c) => c[0] as { id: string; paint?: Record<string, unknown> })
       .find((l) => l.id === "ps-route-line");
     expect(line?.paint?.["line-color"]).toBe("#9cc7b8");
+  });
+
+  // REGRESSION. The route silently failed to appear on the heavy topographic
+  // basemap, and switching styles a few times would sometimes bring it back.
+  //
+  // `isStyleLoaded()` is `style.loaded()`, which stays false while ANY source
+  // is still loading. The topographic style carries 114 layers across four
+  // sources (contours, planet, outdoor, terrain-rgb), so it is still loading
+  // when its LAST `styledata` fires — every install attempt bails on the
+  // not-loaded guard, and nothing ever calls it again. `styledata` firing again
+  // was an assumption, not a guarantee.
+  //
+  // `idle` is the guarantee: it fires once the map has finished loading and
+  // rendering, at which point isStyleLoaded() is necessarily true.
+  describe("when the style is still loading at every styledata", () => {
+    it("still installs the route, via the idle backstop", () => {
+      stub.isStyleLoaded.mockReturnValue(false);
+
+      render(<MapView route={route()} discipline="hike" />);
+      // Faithful to the bug: nothing installed yet.
+      expect(stub.addLayer).not.toHaveBeenCalled();
+
+      // Sources settle; the map goes idle.
+      stub.isStyleLoaded.mockReturnValue(true);
+      stub.emit("idle");
+
+      const layerIds = stub.addLayer.mock.calls.map((c) => (c[0] as { id: string }).id);
+      expect(layerIds).toContain("ps-route-casing");
+      expect(layerIds).toContain("ps-route-line");
+      expect(stub.addSource.mock.calls.map((c) => c[0])).toContain("ps-route");
+    });
+
+    it("does not reinstall on every subsequent idle", () => {
+      render(<MapView route={route()} discipline="hike" />);
+      const addsAfterMount = stub.addLayer.mock.calls.length;
+      expect(addsAfterMount).toBeGreaterThan(0);
+
+      // `idle` fires after every settle — pan, zoom, tile load. Reinstalling
+      // each time would tear down and rebuild the route continuously.
+      stub.emit("idle");
+      stub.emit("idle");
+
+      expect(stub.addLayer.mock.calls.length).toBe(addsAfterMount);
+    });
+
+    // The backstop must not become a one-shot: a style change wipes the
+    // overlays, so a later idle has to put them back even if that style's
+    // styledata was also unusable.
+    it("reinstalls on a later idle once the overlays have been wiped", () => {
+      render(<MapView route={route()} discipline="hike" />);
+      expect(stub.addLayer.mock.calls.length).toBeGreaterThan(0);
+
+      // What setStyle does, without emitting a usable styledata.
+      for (const id of OVERLAY_LAYER_IDS) stub.removeLayer(id);
+      stub.removeSource("ps-route");
+      stub.addLayer.mockClear();
+
+      stub.emit("idle");
+
+      expect(stub.addLayer.mock.calls.map((c) => (c[0] as { id: string }).id)).toContain(
+        "ps-route-line",
+      );
+    });
+
+    // If an install throws partway, the early layers exist and the last does
+    // not. Keying "already installed" off the FIRST layer would make that
+    // half-built state look finished forever and permanently suppress the
+    // retry — the route would stay half-drawn for the life of the page.
+    it("retries a half-finished install rather than treating it as done", () => {
+      render(<MapView route={route()} discipline="hike" />);
+
+      // Drop only the last layer, as an install that threw near the end would.
+      stub.removeLayer(OVERLAY_LAYER_IDS[OVERLAY_LAYER_IDS.length - 1]);
+      stub.addLayer.mockClear();
+
+      stub.emit("idle");
+
+      expect(stub.addLayer.mock.calls.map((c) => (c[0] as { id: string }).id)).toContain(
+        "ps-route-line",
+      );
+    });
   });
 
   describe("without a MapTiler key", () => {
