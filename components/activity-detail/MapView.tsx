@@ -11,7 +11,12 @@ import {
   travelledSegments,
   type MileMarker,
 } from "@/lib/elevation-scrub";
-import { installOverlays, updateScrub, type OverlayMap } from "@/lib/map-overlays";
+import {
+  installOverlays,
+  overlaysInstalled,
+  updateScrub,
+  type OverlayMap,
+} from "@/lib/map-overlays";
 import {
   MAP_STYLES,
   availableStyles,
@@ -85,10 +90,13 @@ type MapViewProps = {
  *     zoom and — because MapTiler bills per *session*, the binding meter on
  *     every plan — keeps one visit to one session no matter how many styles the
  *     user cycles through (SOW Risk R6).
- *  2. **Overlays reinstall on `styledata`.** `setStyle()` destroys every source,
- *     layer, and image we added, so the route is re-installed on every style
- *     load rather than added once at mount. This is Risk R2, the highest-
- *     probability defect in the SOW; see lib/map-overlays.ts.
+ *  2. **Overlays reinstall on `styledata` AND on `idle`.** `setStyle()` destroys
+ *     every source, layer, and image we added, so the route is re-installed on
+ *     every style load rather than added once at mount (Risk R2; see
+ *     lib/map-overlays.ts). `styledata` alone is not enough: it can fire its
+ *     last event for a style while sources are still loading, leaving
+ *     `isStyleLoaded()` false at every opportunity and the route never
+ *     installed. `idle` is the backstop that makes installation certain.
  */
 export function MapView({
   route,
@@ -157,11 +165,20 @@ export function MapView({
     mapRef.current = map;
     appliedStyleRef.current = styleId;
 
-    const install = () => {
+    // `trusted` means the caller knows the map has settled (the `idle` event)
+    // and should not defer to `isStyleLoaded()`, which upstream documents as
+    // unreliable in both directions — it can read false for outstanding
+    // operations that do not actually block adding a layer.
+    // See maplibre-gl-js#7327.
+    const install = (trusted = false) => {
       if (installingRef.current) return;
-      // addLayer throws against a style that has not finished loading; further
-      // styledata events will follow, so skipping early is safe.
-      if (!map.isStyleLoaded()) return;
+      // addLayer throws against a style that has not finished loading, so an
+      // untrusted attempt is abandoned. `idle` guarantees another one.
+      if (!trusted && !map.isStyleLoaded()) return;
+      // Already fully installed against this style document. `idle` fires after
+      // every settle (pan, zoom, tile load), and a teardown-and-rebuild on each
+      // would thrash the route continuously.
+      if (overlaysInstalled(map as unknown as OverlayMap)) return;
       installingRef.current = true;
       try {
         const st = scrubStateRef.current;
@@ -180,12 +197,32 @@ export function MapView({
           travelled: travelledSegments(st.trackpoints ?? [], st.scrubIndex),
           scrubCoord: coordAt(st.trackpoints ?? [], st.scrubIndex),
         });
+      } catch {
+        // A style that reported ready and wasn't. `overlaysInstalled` keys off
+        // the LAST layer, so this half-built state does not read as finished
+        // and the next `idle` retries from a clean teardown.
       } finally {
         installingRef.current = false;
       }
     };
 
-    map.on("styledata", install);
+    const onStyleData = () => install(false);
+    const onIdle = () => install(true);
+    map.on("styledata", onStyleData);
+    // THE GUARANTEE, and the fix for a regression where the route silently
+    // never appeared on the topographic basemap.
+    //
+    // `isStyleLoaded()` is `style.loaded()`, which stays false while ANY source
+    // is still loading. A heavy style — topographic is 114 layers across four
+    // sources — is still loading when its LAST `styledata` fires, so every
+    // install attempt bails on the guard above and nothing calls it again.
+    // "further styledata events will follow" was an assumption, not a promise.
+    //
+    // `idle` is the promise: MapLibre fires it once the map has finished
+    // loading and rendering everything it can, at which point `isStyleLoaded()`
+    // is necessarily true. It fires repeatedly thereafter, which is why
+    // `install` early-returns when the route is already present.
+    map.on("idle", onIdle);
 
     // --- map → profile -----------------------------------------------------
     // Hovering the route highlights the matching point on the elevation
@@ -224,7 +261,8 @@ export function MapView({
     });
 
     return () => {
-      map.off("styledata", install);
+      map.off("styledata", onStyleData);
+      map.off("idle", onIdle);
       map.off("mousemove", onMove);
       map.off("mouseout", onOut);
       map.remove();

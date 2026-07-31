@@ -32,6 +32,8 @@ export type StubMap = {
   off: ReturnType<typeof vi.fn>;
   once: ReturnType<typeof vi.fn>;
   remove: ReturnType<typeof vi.fn>;
+  /** Fire every listener registered for an event, as MapLibre would. */
+  emit: (event: string) => void;
 };
 
 /**
@@ -45,8 +47,11 @@ export function createMapStub(styleLayers: { id: string; type: string }[] = []):
   const layers = new Map<string, unknown>();
   const sources = new Map<string, unknown>();
   const images = new Set<string>();
-  /** Registered `styledata` listeners, replayed by setStyle. */
-  const styleDataHandlers: (() => void)[] = [];
+  /** Every registered listener, by event name, so a test can emit any of them. */
+  const handlers = new Map<string, (() => void)[]>();
+  const emit = (event: string) => {
+    for (const cb of handlers.get(event) ?? []) cb();
+  };
 
   const stub: StubMap = {
     addSource: vi.fn((id: string, spec: unknown) => {
@@ -82,13 +87,15 @@ export function createMapStub(styleLayers: { id: string; type: string }[] = []):
       layers.clear();
       sources.clear();
       images.clear();
-      for (const cb of styleDataHandlers) cb();
+      emit("styledata");
     }),
     isStyleLoaded: vi.fn(() => true),
     fitBounds: vi.fn(),
     on: vi.fn((event: string, cb: () => void) => {
+      handlers.set(event, [...(handlers.get(event) ?? []), cb]);
+      // styledata fires immediately on registration, as it does for a style
+      // that is already loading when the listener attaches.
       if (event === "styledata") {
-        styleDataHandlers.push(cb);
         cb();
       }
     }),
@@ -97,6 +104,7 @@ export function createMapStub(styleLayers: { id: string; type: string }[] = []):
       if (event === "load") cb();
     }),
     remove: vi.fn(),
+    emit,
   };
   return stub;
 }
