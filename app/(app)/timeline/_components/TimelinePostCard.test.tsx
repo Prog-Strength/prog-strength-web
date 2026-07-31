@@ -162,6 +162,103 @@ describe("TimelinePostCard", () => {
     expect(screen.queryByTestId("route-map")).not.toBeInTheDocument();
   });
 
+  it("renders the cover image with the thumb_url when content.photo is present", () => {
+    render(
+      <TimelinePostCard
+        post={post({
+          content: {
+            title: "Leg Day",
+            subtitle: "",
+            metrics: [],
+            href: "/workouts/w1",
+            photo: { thumb_url: "https://cdn.example/thumb.jpg", width: 800, height: 600 },
+            photo_count: 1,
+          },
+        })}
+        exercises={[]}
+      />,
+    );
+    const img = screen.getByRole("img", { name: "Leg Day" });
+    expect(img).toHaveAttribute("src", "https://cdn.example/thumb.jpg");
+  });
+
+  it("shows a +N badge (photo_count - 1) when more than one photo is attached", () => {
+    render(
+      <TimelinePostCard
+        post={post({
+          content: {
+            title: "Leg Day",
+            subtitle: "",
+            metrics: [],
+            href: "/workouts/w1",
+            photo: { thumb_url: "https://cdn.example/thumb.jpg", width: 800, height: 600 },
+            photo_count: 3,
+          },
+        })}
+        exercises={[]}
+      />,
+    );
+    expect(screen.getByText("+2")).toBeInTheDocument();
+  });
+
+  it("shows no badge when photo_count is 1", () => {
+    render(
+      <TimelinePostCard
+        post={post({
+          content: {
+            title: "Leg Day",
+            subtitle: "",
+            metrics: [],
+            href: "/workouts/w1",
+            photo: { thumb_url: "https://cdn.example/thumb.jpg", width: 800, height: 600 },
+            photo_count: 1,
+          },
+        })}
+        exercises={[]}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Leg Day" })).toBeInTheDocument();
+    expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
+  });
+
+  it("shows no badge when photo_count is absent (single implied cover)", () => {
+    render(
+      <TimelinePostCard
+        post={post({
+          content: {
+            title: "Leg Day",
+            subtitle: "",
+            metrics: [],
+            href: "/workouts/w1",
+            photo: { thumb_url: "https://cdn.example/thumb.jpg", width: 800, height: 600 },
+          },
+        })}
+        exercises={[]}
+      />,
+    );
+    expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
+  });
+
+  it("renders no cover image when content.photo is null/absent", () => {
+    const { rerender } = render(<TimelinePostCard post={post()} exercises={[]} />);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    rerender(
+      <TimelinePostCard
+        post={post({
+          content: {
+            title: "Leg Day",
+            subtitle: "",
+            metrics: [],
+            href: "/workouts/w1",
+            photo: null,
+          },
+        })}
+        exercises={[]}
+      />,
+    );
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
   it("renders big-value stats from content.metrics", () => {
     render(
       <TimelinePostCard

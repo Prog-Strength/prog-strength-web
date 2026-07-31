@@ -12,6 +12,19 @@ vi.mock("@/lib/auth", () => ({
   clearToken: vi.fn(),
 }));
 
+// The viewer's profile — the detail page reads it to gate owner affordances
+// (the photo strip). The fixtures carry no user_id, so the page falls back to
+// treating the viewer as owner on their own session either way.
+vi.mock("@/lib/profile-context", () => ({
+  useProfile: () => ({ profile: { id: "user-1", display_name: "Sam" } }),
+}));
+
+// The photo strip is stubbed to a marker; its own behavior is covered by
+// PhotoStrip.test.tsx. This keeps the detail-page test focused on layout/wiring.
+vi.mock("@/components/activity-detail/PhotoStrip", () => ({
+  PhotoStrip: () => <div data-testid="photo-strip" />,
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: replaceMock }),
   useParams: () => ({ id: "wkt-canonical" }),

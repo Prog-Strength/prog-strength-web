@@ -107,6 +107,11 @@ export type Workout = {
   // Heart-rate / effort enrichment from the linked TCX. Null when activity_id
   // is null; carries `trackpoints` only on the single-workout detail load.
   enrichment?: WorkoutEnrichment | null;
+  // User-attached photos, ordered by `position`. Threaded through from the
+  // unified Activity DTO by `activityToWorkout` so the detail page renders the
+  // photo strip off the same fetch. Present only on the detail read (and only
+  // when photo storage is configured); absent on list rows.
+  photos?: ActivityPhoto[];
 };
 
 /** A catalog entry — the canonical definition of an exercise. */
@@ -1933,15 +1938,54 @@ export type EnduranceActivityDetails = {
 };
 
 /**
+ * One user-attached photo on an activity, as GET /activities/{id} embeds
+ * it (and as the photo write endpoints return it). `url` is a full-size
+ * presigned GET; `thumb_url` a downsized derivative for grids/covers.
+ * `caption` is null when unset. `position` is the 0-based display order
+ * the reorder endpoint maintains.
+ */
+export type ActivityPhoto = {
+  id: string;
+  url: string;
+  thumb_url: string;
+  width: number;
+  height: number;
+  caption: string | null;
+  position: number;
+};
+
+/**
+ * The compact cover derivative the timeline card carries for a post whose
+ * source activity has photos — just enough to render the first photo's
+ * thumbnail at the right aspect ratio. Null on posts with no photos.
+ */
+export type TimelinePhotoCover = {
+  thumb_url: string;
+  width: number;
+  height: number;
+};
+
+/**
  * One unified activity as GET /activities returns it. Structurally the
  * base DTO `RunningSession` already models (same wire fields — see the
  * comment above), plus `summary` and `details`. `details` is present on
  * detail reads and, for strength items, on list rows too; discriminate
  * with `"exercises" in details` (or `activity_type`).
+ *
+ * `photos` is present on the detail read (`GET /activities/{id}`) only when
+ * photo storage is configured — an empty array when the activity has none,
+ * and the key is omitted entirely when storage is unconfigured (so absent
+ * ≠ "no photos"; it means the feature is off).
  */
 export type Activity = RunningSession & {
+  // The owning user. Present on the unified read shape (the base
+  // `RunningSession` DTO omits it because no running surface needs it); carried
+  // here so ownership-gated detail affordances (e.g. the photo strip's owner
+  // controls) can compare it against the viewer's profile id.
+  user_id?: string;
   summary?: ActivitySummary;
   details?: StrengthActivityDetails | EnduranceActivityDetails;
+  photos?: ActivityPhoto[];
 };
 
 /** One page of unified activities plus the keyset cursor for the next. */
@@ -2030,6 +2074,123 @@ export async function getActivity(
 }
 
 /**
+ * POST /activities/{id}/photos. Uploads one photo as multipart/form-data
+ * under the field `photo`, with an optional `caption` field, and returns
+ * the created photo (with its presigned URLs, dimensions, and assigned
+ * position).
+ *
+ * As with `uploadAvatar`, we deliberately do NOT set a Content-Type header
+ * — the browser fills in `multipart/form-data; boundary=...` for the
+ * FormData body, and setting it manually would drop the boundary and break
+ * server-side parsing.
+ *
+ * The server is authoritative on size and content type; non-2xx surfaces
+ * the API's `error` envelope as the thrown message (413 file_too_large,
+ * 415 unsupported_media_type, 409 photo_limit_reached, 503
+ * photo_storage_unavailable).
+ */
+export async function uploadActivityPhoto(
+  token: string,
+  activityId: string,
+  file: File,
+  caption?: string,
+): Promise<ActivityPhoto> {
+  const form = new FormData();
+  form.append("photo", file);
+  if (caption !== undefined) form.append("caption", caption);
+  const resp = await fetch(`${config.apiUrl}/activities/${encodeURIComponent(activityId)}/photos`, {
+    method: "POST",
+    // No Content-Type: the browser sets the multipart boundary itself.
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const created = await unwrap<ActivityPhoto | null>(resp, null);
+  if (!created) throw new Error("API did not return the created photo");
+  return created;
+}
+
+/**
+ * PATCH /activities/{id}/photos/{photo_id}. Sets a photo's caption (pass
+ * `null` to clear it) and returns the updated photo.
+ */
+export async function updateActivityPhotoCaption(
+  token: string,
+  activityId: string,
+  photoId: string,
+  caption: string | null,
+): Promise<ActivityPhoto> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/photos/${encodeURIComponent(
+      photoId,
+    )}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ caption }),
+    },
+  );
+  const updated = await unwrap<ActivityPhoto | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated photo");
+  return updated;
+}
+
+/**
+ * PUT /activities/{id}/photos/order. Reorders the activity's photos; the
+ * body is the COMPLETE ordered list of photo ids (not a partial diff).
+ * Returns the reordered `photos` array.
+ */
+export async function reorderActivityPhotos(
+  token: string,
+  activityId: string,
+  photoIds: string[],
+): Promise<ActivityPhoto[]> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/photos/order`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ photo_ids: photoIds }),
+    },
+  );
+  return unwrap<ActivityPhoto[]>(resp, []);
+}
+
+/**
+ * DELETE /activities/{id}/photos/{photo_id}. Removes a single photo.
+ * Throws the API's `error` envelope on non-2xx.
+ */
+export async function deleteActivityPhoto(
+  token: string,
+  activityId: string,
+  photoId: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/photos/${encodeURIComponent(
+      photoId,
+    )}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
+/**
  * POST /activities. Creates an activity through the typed unified
  * surface; the descriptor for `activity_type` owns validation and the
  * write path (strength routes through the workout machinery: PR
@@ -2108,6 +2269,7 @@ export function activityToWorkout(a: Activity): Workout {
   const hasTcx = a.source_activity_id !== "";
   return {
     id: a.id,
+    user_id: a.user_id,
     name: a.name ?? undefined,
     performed_at: a.start_time,
     ended_at:
@@ -2118,6 +2280,9 @@ export function activityToWorkout(a: Activity): Workout {
     exercises: details?.exercises ?? [],
     created_at: a.created_at,
     personal_records_set: details?.personal_records_set ?? [],
+    // Photos ride along when the DTO carries them (detail read + storage
+    // configured); left undefined otherwise so a photo-less strip renders.
+    photos: a.photos,
     activity_id: hasTcx ? a.id : null,
     enrichment: hasTcx
       ? {
@@ -2966,6 +3131,12 @@ export type TimelinePost = {
     // Future run geometry (see TimelineRoute). Absent on every current API
     // response; <RouteMap> renders a placeholder until this is populated.
     route?: TimelineRoute | null;
+    // Cover thumbnail for the source activity's first photo (null when it
+    // has none). `photo_count` is the total attached, so the card can badge
+    // "+N" over the cover. Both are omitted when photo storage is
+    // unconfigured server-side.
+    photo?: TimelinePhotoCover | null;
+    photo_count?: number;
   };
   reactions: ReactionSummary;
   comment_count: number;
