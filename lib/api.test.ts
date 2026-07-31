@@ -9,6 +9,7 @@ import {
   createWorkoutFromTCX,
   deleteActivity,
   deletePlannedWorkout,
+  deleteActivityPhoto,
   deleteWorkout,
   detachWorkoutTCX,
   getActivity,
@@ -28,12 +29,15 @@ import {
   listWhoopRecovery,
   listWorkouts,
   removeFollower,
+  reorderActivityPhotos,
   requestFollow,
   setRunningSessionEnvironment,
   unlinkPlannedWorkout,
   updateActivity,
+  updateActivityPhotoCaption,
   updateRunningSessionNotes,
   updateWorkout,
+  uploadActivityPhoto,
 } from "@/lib/api";
 
 // Unit tests for the running best-efforts + 1RM history client methods.
@@ -1362,5 +1366,101 @@ describe("workout TCX endpoints (unified aliases)", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`${BASE}/activities/wk_2/tcx`);
     expect(init.method).toBe("DELETE");
+  });
+});
+
+describe("activity photos", () => {
+  const photo = {
+    id: "ph_1",
+    url: "https://cdn/full.jpg",
+    thumb_url: "https://cdn/thumb.jpg",
+    width: 1200,
+    height: 800,
+    caption: null,
+    position: 0,
+  };
+
+  it("uploadActivityPhoto POSTs multipart with the photo field and no Content-Type", async () => {
+    const fetchMock = mockFetchOk(photo);
+    const file = new File(["x"], "shot.jpg", { type: "image/jpeg" });
+
+    const result = await uploadActivityPhoto(TOKEN, "act_1", file);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/act_1/photos`);
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({ Authorization: `Bearer ${TOKEN}` });
+    expect(init.body).toBeInstanceOf(FormData);
+    expect((init.body as FormData).get("photo")).toBe(file);
+    expect((init.body as FormData).has("caption")).toBe(false);
+    expect(result).toEqual(photo);
+  });
+
+  it("uploadActivityPhoto appends caption when provided", async () => {
+    const fetchMock = mockFetchOk(photo);
+    const file = new File(["x"], "shot.jpg", { type: "image/jpeg" });
+
+    await uploadActivityPhoto(TOKEN, "act_1", file, "leg day");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.body as FormData).get("caption")).toBe("leg day");
+  });
+
+  it("uploadActivityPhoto surfaces the API error (e.g. 413)", async () => {
+    mockFetchError("file_too_large");
+    const file = new File(["x"], "shot.jpg", { type: "image/jpeg" });
+    await expect(uploadActivityPhoto(TOKEN, "act_1", file)).rejects.toThrow("file_too_large");
+  });
+
+  it("updateActivityPhotoCaption PATCHes the caption JSON", async () => {
+    const fetchMock = mockFetchOk({ ...photo, caption: "hi" });
+
+    const result = await updateActivityPhotoCaption(TOKEN, "act_1", "ph_1", "hi");
+
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/act_1/photos/ph_1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ caption: "hi" }),
+    });
+    expect(result.caption).toBe("hi");
+  });
+
+  it("updateActivityPhotoCaption sends null to clear", async () => {
+    const fetchMock = mockFetchOk(photo);
+
+    await updateActivityPhotoCaption(TOKEN, "act_1", "ph_1", null);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.body).toBe(JSON.stringify({ caption: null }));
+  });
+
+  it("reorderActivityPhotos PUTs the complete ordered id list", async () => {
+    const fetchMock = mockFetchOk([photo]);
+
+    const result = await reorderActivityPhotos(TOKEN, "act_1", ["ph_2", "ph_1"]);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/activities/act_1/photos/order`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ photo_ids: ["ph_2", "ph_1"] }),
+    });
+    expect(result).toEqual([photo]);
+  });
+
+  it("deleteActivityPhoto DELETEs the photo and resolves on 204", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(deleteActivityPhoto(TOKEN, "act_1", "ph_1")).resolves.toBeUndefined();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${BASE}/activities/act_1/photos/ph_1`);
+    expect(init.method).toBe("DELETE");
+    expect(init.headers).toEqual({ Authorization: `Bearer ${TOKEN}` });
+  });
+
+  it("deleteActivityPhoto surfaces the API error on non-2xx", async () => {
+    mockFetchError("not found");
+    await expect(deleteActivityPhoto(TOKEN, "act_1", "ph_1")).rejects.toThrow("not found");
   });
 });
