@@ -9,13 +9,14 @@ import { WorkoutTimelineSummary } from "./WorkoutTimelineSummary";
 import { RouteMap } from "./RouteMap";
 import { StatRow } from "./StatRow";
 import { Avatar } from "@/components/social/Avatar";
-import { SOURCE_META, formatOccurredAt } from "./reactions";
+import { postMeta, formatOccurredAt } from "./reactions";
 import { useProfile } from "@/lib/profile-context";
 
 /**
  * Milestone source types get a celebratory banner across the top of the card;
- * workout/run posts (the day-to-day feed) do not. The copy mirrors SOURCE_META
- * but is intentionally separate so the banner can carry its own emphatic tone.
+ * session posts (the day-to-day feed) do not. The copy mirrors the meta in
+ * ./reactions but is intentionally separate so the banner can carry its own
+ * emphatic tone.
  */
 const MILESTONE: Partial<Record<TimelinePost["source_type"], { emoji: string; label: string }>> = {
   pr: { emoji: "🏆", label: "Personal Record" },
@@ -23,14 +24,17 @@ const MILESTONE: Partial<Record<TimelinePost["source_type"], { emoji: string; la
 };
 
 /**
- * One feed card — a confident athletic ActivityCard. Presentation switches on
- * `source_type`: a celebratory milestone banner for PRs/best efforts, a route
- * map slot for runs, and the expandable exercise/muscle breakdown
- * (<WorkoutTimelineSummary>) for workouts. The body renders the API's
- * denormalized `content` block (title/subtitle deep-linking to the source via
- * `content.href`, plus a big-value <StatRow> built from `content.metrics`).
- * A "You" badge marks the viewer's own posts. Hosts the kudos <ReactionBar>
- * and a comments affordance that toggles the lazy-loading <CommentThread>.
+ * One feed card — a confident athletic ActivityCard. The celebratory milestone
+ * banner switches on `source_type` (PR / best effort); the two sport-specific
+ * slots switch on `activity_type` — a route map for runs, the expandable
+ * exercise/muscle breakdown (<WorkoutTimelineSummary>) for lifts. Every other
+ * sport, including ones this build has never heard of, renders the shared body:
+ * the API's denormalized `content` block (title/subtitle deep-linking to the
+ * source via `content.href`, plus a big-value <StatRow> built from
+ * `content.metrics`). That is what lets the API add an activity type without a
+ * web deploy. A "You" badge marks the viewer's own posts. Hosts the kudos
+ * <ReactionBar> and a comments affordance that toggles the lazy-loading
+ * <CommentThread>.
  */
 export function TimelinePostCard({
   post,
@@ -47,7 +51,7 @@ export function TimelinePostCard({
   // comments in the thread without a feed refetch.
   const [commentCount, setCommentCount] = useState(post.comment_count);
 
-  const meta = SOURCE_META[post.source_type];
+  const meta = postMeta(post);
   const milestone = MILESTONE[post.source_type];
   const author = post.author;
   const authorHref = author.username ? `/u/${author.username}` : null;
@@ -104,9 +108,9 @@ export function TimelinePostCard({
         )}
       </Link>
 
-      {post.source_type === "run" && <RouteMap route={post.content.route} />}
+      {post.activity_type === "running" && <RouteMap route={post.content.route} />}
 
-      {post.source_type === "workout" && (
+      {post.activity_type === "strength_training" && (
         <WorkoutTimelineSummary sourceId={post.source_id} exercises={exercises} />
       )}
 

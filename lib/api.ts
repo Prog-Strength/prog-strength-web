@@ -2877,11 +2877,20 @@ export async function getExerciseOneRMHistory(
 // prog-strength-docs/sows/user-timeline-feed.md.
 
 /**
- * Which source domain a timeline post was projected from. Drives the
- * per-type glyph/label on the card; the denormalized `content` block
- * means the renderer never has to fetch the source row itself.
+ * Which source DOMAIN a timeline post was projected from — not which sport.
+ * Every training session, whatever its type, is an `activity` post; the sport
+ * lives on `TimelinePost.activity_type`. `pr` and `best_effort` are the two
+ * genuinely different domains (a personal-record event, a running best
+ * effort), which is why they remain distinct members.
+ *
+ * This replaced the old `"workout" | "run"` split in api PR for issue #90: a
+ * per-sport source type meant the API needed a schema migration for every new
+ * activity type, and a hike therefore never reached the feed at all. Switch
+ * per-sport rendering on `activity_type` instead — and always handle the
+ * unknown case, since a type can now appear in the feed before this file
+ * learns its name.
  */
-export type TimelineSourceType = "workout" | "run" | "pr" | "best_effort";
+export type TimelineSourceType = "activity" | "pr" | "best_effort";
 
 /** The four reaction types a post accepts. Mirrored on the API side. */
 export type ReactionType = "like" | "strong" | "fire" | "celebrate";
@@ -2937,6 +2946,14 @@ export type TimelineRoute = {
 export type TimelinePost = {
   id: string;
   source_type: TimelineSourceType;
+  /**
+   * The sport of the underlying session, present on `activity` posts and
+   * absent on `pr`/`best_effort` (which aren't sessions). Typed as a wider
+   * `string` than `ActivityType` on purpose: the API's type registry can
+   * register a new sport without a web deploy, so a card must render an
+   * unfamiliar value rather than assume the union is exhaustive.
+   */
+  activity_type?: ActivityType | (string & {});
   source_id: string;
   occurred_at: string; // RFC3339
   visibility: string;

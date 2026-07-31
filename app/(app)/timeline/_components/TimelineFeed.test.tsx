@@ -45,7 +45,8 @@ beforeEach(() => {
 function post(id: string, title: string): TimelinePost {
   return {
     id,
-    source_type: "workout",
+    source_type: "activity",
+    activity_type: "strength_training",
     source_id: `w_${id}`,
     occurred_at: "2026-06-10T12:00:00Z",
     visibility: "private",
