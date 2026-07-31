@@ -24,6 +24,7 @@ import { MapView } from "@/components/activity-detail/MapView";
 import { SectionKicker } from "@/components/activity-detail/SectionKicker";
 import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
+import { HeartRateZones } from "@/components/activity-detail/HeartRateZones";
 
 /**
  * Hike detail. The same session-recap grammar as the run detail page, but
@@ -351,6 +352,16 @@ export default function HikingDetailPage() {
               maxBpm={session.max_heart_rate_bpm}
               unit={unit}
             />
+          )}
+
+          {/* 6 — Time in heart-rate zones. The same standard widget the run
+              detail renders, off the same server-computed block — a hike with
+              HR earns the breakdown as much as a run does. */}
+          {session.heart_rate_zones && session.heart_rate_zones.zones.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <SectionKicker discipline="hike">Time in heart-rate zones</SectionKicker>
+              <HeartRateZones zones={session.heart_rate_zones} />
+            </section>
           )}
         </div>
       </div>

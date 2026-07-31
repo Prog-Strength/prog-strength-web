@@ -186,4 +186,32 @@ describe("HeartRateZones", () => {
     const { container } = render(<HeartRateZones zones={zones({ zones: [] })} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it("frames itself with its own card chrome and heading by default", () => {
+    const { container } = render(<HeartRateZones zones={zones()} />);
+    expect(screen.getByText("Heart rate zones")).toBeInTheDocument();
+    expect((container.firstChild as HTMLElement).className).toContain("border");
+  });
+
+  // Nesting inside a host card that already owns the border and the section
+  // heading (the workout page's "Heart rate & effort" card) must not double up
+  // on either — but the bars themselves are identical either way.
+  it("drops the card chrome and heading when framed is false", () => {
+    const { container } = render(<HeartRateZones zones={zones()} framed={false} />);
+    expect(screen.queryByText("Heart rate zones")).not.toBeInTheDocument();
+    expect((container.firstChild as HTMLElement).className).not.toContain("border");
+    for (const name of ["Recovery", "Aerobic", "Tempo", "Threshold", "VO2max"]) {
+      expect(screen.getByText(name)).toBeInTheDocument();
+    }
+  });
+
+  it("still shows the calibrating banner when unframed", () => {
+    render(
+      <HeartRateZones
+        zones={zones({ reference_confidence: "calibrating", calibrating: true })}
+        framed={false}
+      />,
+    );
+    expect(screen.getByText(CALIBRATING_COPY)).toBeInTheDocument();
+  });
 });

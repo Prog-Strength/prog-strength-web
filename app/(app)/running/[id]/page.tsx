@@ -31,7 +31,7 @@ import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
 import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
 import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceRecap } from "./_components/PaceRecap";
-import { HeartRateZones } from "./_components/HeartRateZones";
+import { HeartRateZones } from "@/components/activity-detail/HeartRateZones";
 
 /**
  * Run detail. Header carries a back link, an inline-editable run name,

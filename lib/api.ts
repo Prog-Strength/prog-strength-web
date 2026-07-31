@@ -75,6 +75,11 @@ export type WorkoutEnrichment = {
   max_heart_rate_bpm: number | null;
   total_calories: number | null;
   trackpoints?: WorkoutHRTrackpoint[];
+  // Backend-computed time-in-zone breakdown over the attached TCX's HR stream,
+  // the same block a run or hike carries — the API emits it for any activity
+  // type with per-point HR. Detail-only (it rides the trackpoints), and absent
+  // when the TCX carries no usable heart rate.
+  heart_rate_zones?: HeartRateZones;
 };
 
 /**
@@ -2262,7 +2267,8 @@ export async function deleteActivity(token: string, id: string): Promise<void> {
  *   and the enrichment activity IS the workout row, so `activity_id`
  *   echoes the workout's own id (exactly what the legacy DTO returned).
  *   HR trackpoints ride along on detail reads only, projected onto the
- *   elapsed-time HR axis the workout chart consumes.
+ *   elapsed-time HR axis the workout chart consumes, as does the server's
+ *   `heart_rate_zones` time-in-zone breakdown.
  */
 export function activityToWorkout(a: Activity): Workout {
   const details = a.details && "exercises" in a.details ? a.details : undefined;
@@ -2299,6 +2305,7 @@ export function activityToWorkout(a: Activity): Workout {
               heart_rate_bpm: tp.heart_rate_bpm,
             })),
           }),
+          ...(a.heart_rate_zones && { heart_rate_zones: a.heart_rate_zones }),
         }
       : null,
   };
