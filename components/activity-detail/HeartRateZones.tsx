@@ -1,15 +1,26 @@
 /**
- * Heart-rate zones widget for the running detail page. Presentational and
- * prop-driven over the response's `heart_rate_zones` block: a ranked list of
- * five horizontal zone bars (one per zone, ordered high→low so the hardest
- * effort leads), each with its zone name + bpm range, a full-width track whose
- * fill length = time_pct in that zone's color, and the time and percent
- * right-aligned in a fixed column. The bar *is* the legend — each fill sits
- * beside its own figures, so time-in-zone reads from the graphic itself.
+ * Heart-rate zones widget — the STANDARD time-in-zone surface for every
+ * activity detail page that has heart rate, not a running-only one. Time in
+ * zone is a property of the heart-rate stream, not of the sport, so a hike, a
+ * TCX-enriched lift, and a run all render the identical widget; the API emits
+ * `heart_rate_zones` on any activity carrying per-point HR. A new activity type
+ * gets this for free — render it wherever the block is non-empty.
+ *
+ * Presentational and prop-driven over the response's `heart_rate_zones` block:
+ * a ranked list of five horizontal zone bars (one per zone, ordered high→low so
+ * the hardest effort leads), each with its zone name + bpm range, a full-width
+ * track whose fill length = time_pct in that zone's color, and the time and
+ * percent right-aligned in a fixed column. The bar *is* the legend — each fill
+ * sits beside its own figures, so time-in-zone reads from the graphic itself.
  * A quiet banner shows while the backend's max-HR estimate is still calibrating.
  *
  * Built in the hand-rolled idiom of PaceStrip — tokens only (the separable
  * --zone-1..5 scale, design-system v0.4.2), no charting dependency, no raw hex.
+ *
+ * `framed` controls the card chrome. Default (true) is the standalone card the
+ * run and hike pages drop into their own section. Pass `framed={false}` to nest
+ * it inside a host card that already owns the border/background and the
+ * section's heading — the workout page's "Heart rate & effort" card does this.
  */
 
 import type { HeartRateZones as HRZones } from "@/lib/api";
@@ -25,7 +36,13 @@ function zoneVar(zone: number): string {
 const CALIBRATING_COPY =
   "Calibrating — zones will sharpen as Prog Strength learns your heart rate.";
 
-export function HeartRateZones({ zones }: { zones: HRZones | null | undefined }) {
+export function HeartRateZones({
+  zones,
+  framed = true,
+}: {
+  zones: HRZones | null | undefined;
+  framed?: boolean;
+}) {
   if (!zones || zones.zones.length === 0) return null;
 
   const calibrating = zones.reference_confidence !== "calibrated";
@@ -34,14 +51,17 @@ export function HeartRateZones({ zones }: { zones: HRZones | null | undefined })
   // copy so the prop array is never mutated.
   const ranked = [...zones.zones].sort((a, b) => b.zone - a.zone);
 
-  const card =
-    "rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3";
+  const card = framed
+    ? "rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+    : "";
 
   return (
     <div className={card}>
-      <div className="mb-3 text-[10px] uppercase tracking-wider text-[var(--faint)]">
-        Heart rate zones
-      </div>
+      {framed && (
+        <div className="mb-3 text-[10px] uppercase tracking-wider text-[var(--faint)]">
+          Heart rate zones
+        </div>
+      )}
 
       {/* Ranked time-in-zone bars, one row per zone (high→low). */}
       <ul className="flex flex-col gap-2.5">

@@ -1201,6 +1201,56 @@ describe("activityToWorkout adapter", () => {
     });
   });
 
+  // The API emits heart_rate_zones for any activity carrying per-point HR, so a
+  // TCX-enriched lift gets the same block a run does; the adapter has to carry
+  // it onto the enrichment the workout page reads.
+  it("carries heart_rate_zones through onto the enrichment", () => {
+    const zones = {
+      model: "percent_max_hr",
+      max_hr_reference_bpm: 191,
+      reference_source: "p99_recent_runs",
+      reference_confidence: "calibrated",
+      calibrating: false,
+      total_hr_seconds: 3170,
+      zones: [
+        {
+          zone: 1,
+          name: "Recovery",
+          lower_pct: 0,
+          upper_pct: 0.6,
+          min_bpm: 0,
+          max_bpm: 114,
+          time_seconds: 3170,
+          time_pct: 1,
+        },
+      ],
+    };
+    const enriched = {
+      ...strengthActivity,
+      ingest_source: "manual_tcx",
+      source_activity_id: "garmin-123",
+      heart_rate_zones: zones,
+    };
+
+    const w = activityToWorkout(enriched as Parameters<typeof activityToWorkout>[0]);
+
+    expect(w.enrichment?.heart_rate_zones).toEqual(zones);
+  });
+
+  // A lift whose TCX carries no usable HR: the key is absent on the wire, and
+  // the adapter must not invent it (the card gates on presence).
+  it("omits heart_rate_zones when the activity has none", () => {
+    const enriched = {
+      ...strengthActivity,
+      ingest_source: "manual_tcx",
+      source_activity_id: "garmin-123",
+    };
+
+    const w = activityToWorkout(enriched as Parameters<typeof activityToWorkout>[0]);
+
+    expect(w.enrichment).not.toHaveProperty("heart_rate_zones");
+  });
+
   it("normalizes a zero-exercise import (wire exercises: null) to []", () => {
     const imported = {
       ...strengthActivity,
