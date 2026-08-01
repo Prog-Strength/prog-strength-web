@@ -4,25 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import { getDashboardSummary, getMe, type DashboardSummary } from "@/lib/api";
-import {
-  adaptDashboard,
-  type DashboardData,
-  type LiftingView,
-  type RunningView,
-  type StepsView,
-  type BodyweightView,
-} from "@/lib/dashboard";
+import { adaptDashboard, type DashboardData } from "@/lib/dashboard";
 import { compact } from "./_components/compact";
-import { formatDuration } from "@/lib/format";
-import { Spark } from "./_components/spark";
-import { StepsGoalBars } from "./_components/steps-goal-bars";
-import { BigNum } from "./_components/big-num";
-import { MetaRow } from "./_components/meta-row";
-import { MacroBar } from "./_components/macro-bar";
 import { Kpi, type KpiDelta } from "./_components/kpi";
 import { CommandBar } from "./_components/command-bar";
-import { MiniCard, MiniCardEmpty, MiniCardSkeleton } from "./_components/mini-card";
+import { MiniCardSkeleton } from "./_components/mini-card";
 import { RecoveryCard } from "./_components/whoop-card";
+import {
+  RunningCard,
+  LiftingCard,
+  StepsCard,
+  NutritionCard,
+  BodyweightCard,
+  StreakCard,
+} from "./_components/tile-renderer";
 
 /**
  * Dashboard — the command-center surface.
@@ -143,15 +138,15 @@ export default function DashboardPage() {
               <KpiStrip data={data} />
               <CommandBar onSubmit={handleCommand} />
               <CardGrid>
-                <RunningCard section={data.running} />
-                <LiftingCard section={data.lifting} />
-                <StepsCard section={data.steps} />
-                <NutritionCard section={data.nutrition} />
-                <BodyweightCard section={data.bodyweight} />
+                <RunningCard section={data.running} href={DEEP_LINKS.running} />
+                <LiftingCard section={data.lifting} href={DEEP_LINKS.lifting} />
+                <StepsCard section={data.steps} href={DEEP_LINKS.steps} />
+                <NutritionCard section={data.nutrition} href={DEEP_LINKS.nutrition} />
+                <BodyweightCard section={data.bodyweight} href={DEEP_LINKS.bodyweight} />
                 {data.recovery.present && (
                   <RecoveryCard section={data.recovery} href={DEEP_LINKS.recovery} />
                 )}
-                <StreakCard streak={data.streak} />
+                <StreakCard streak={data.streak} href={DEEP_LINKS.streak} />
               </CardGrid>
             </>
           ) : null}
@@ -234,172 +229,5 @@ function KpiStripSkeleton() {
         </div>
       ))}
     </div>
-  );
-}
-
-// --- Domain cards -------------------------------------------------
-
-function RunningCard({ section }: { section: DashboardData["running"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Running" href={DEEP_LINKS.running}>
-        <MiniCardEmpty cta="Import a run to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: RunningView = section;
-  return (
-    <MiniCard title="Running" href={DEEP_LINKS.running}>
-      <BigNum value={v.currentWeek.distance} suffix={`${v.unit} this week`} />
-      <Spark points={v.spark.points} className="h-7 w-full text-[var(--discipline-run-dot)]" />
-      <MetaRow
-        items={[
-          { label: "runs", value: compact(v.currentWeek.runCount) },
-          { label: "pace", value: v.pace },
-          { label: "last", value: v.latestRun ? `${v.latestRun.distance} ${v.unit}` : null },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function LiftingCard({ section }: { section: DashboardData["lifting"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Lifting" href={DEEP_LINKS.lifting}>
-        <MiniCardEmpty cta="Log a workout to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: LiftingView = section;
-  return (
-    <MiniCard title="Lifting" href={DEEP_LINKS.lifting}>
-      <BigNum
-        value={compact(v.currentWeek.sessions)}
-        suffix={v.currentWeek.sessions === 1 ? "session this week" : "sessions this week"}
-      />
-      <Spark points={v.spark} className="h-7 w-full text-[var(--discipline-lift-dot)]" />
-      <MetaRow
-        items={[
-          { label: "time", value: formatDuration(v.currentWeek.durationSeconds) },
-          { label: "sets", value: compact(v.currentWeek.sets) },
-          { label: "PRs", value: compact(v.currentWeek.prs) },
-          {
-            label: "1RM",
-            value: v.headline1rm ? `${compact(v.headline1rm.value)} ${v.headline1rm.unit}` : null,
-          },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function StepsCard({ section }: { section: DashboardData["steps"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Steps" href={DEEP_LINKS.steps}>
-        <MiniCardEmpty cta="Log your steps to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: StepsView = section;
-  return (
-    <MiniCard title="Steps" href={DEEP_LINKS.steps}>
-      <BigNum value={compact(v.today)} suffix="today" />
-      <StepsGoalBars spark={v.spark} avg={v.avg} goal={v.goal} />
-      <MetaRow
-        items={[
-          { label: "avg", value: compact(v.avg) },
-          { label: "goal", value: v.goal !== null ? compact(v.goal) : "set a goal" },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function NutritionCard({ section }: { section: DashboardData["nutrition"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Nutrition" href={DEEP_LINKS.nutrition}>
-        <MiniCardEmpty cta="Log a meal to start tracking" />
-      </MiniCard>
-    );
-  }
-  const { today, goals } = section;
-  return (
-    <MiniCard title="Nutrition" href={DEEP_LINKS.nutrition}>
-      <BigNum value={compact(today.calories)} suffix="kcal today" />
-      <div className="flex flex-col gap-2">
-        <MacroBar kind="protein" value={today.protein_g} goal={goals ? goals.protein_g : null} />
-        <MacroBar kind="carbs" value={today.carbs_g} goal={goals ? goals.carbs_g : null} />
-        <MacroBar kind="fat" value={today.fat_g} goal={goals ? goals.fat_g : null} />
-      </div>
-    </MiniCard>
-  );
-}
-
-function BodyweightCard({ section }: { section: DashboardData["bodyweight"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Bodyweight" href={DEEP_LINKS.bodyweight}>
-        <MiniCardEmpty cta="Log a reading to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: BodyweightView = section;
-  const rate =
-    v.ratePerWeek !== null && Number.isFinite(v.ratePerWeek)
-      ? `${v.ratePerWeek > 0 ? "+" : ""}${v.ratePerWeek.toFixed(1)} ${v.unit}/wk`
-      : null;
-  return (
-    <MiniCard title="Bodyweight" href={DEEP_LINKS.bodyweight}>
-      <BigNum value={compact(v.current)} suffix={v.unit} />
-      <Spark points={v.spark} className="h-7 w-full text-[var(--muted)]" />
-      <MetaRow
-        items={[
-          { label: "rate", value: rate },
-          {
-            label: "goal",
-            value: v.goal ? `${compact(v.goal.weight)} ${v.goal.unit}` : "set a goal",
-          },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function StreakCard({ streak }: { streak: DashboardData["streak"] }) {
-  if (streak.isNew) {
-    return (
-      <MiniCard title="Streak" href={DEEP_LINKS.streak}>
-        <BigNum value="—" suffix="start your streak" />
-        <p className="text-sm text-[var(--muted)]">Log any activity to begin a weekly streak.</p>
-      </MiniCard>
-    );
-  }
-  const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
-  return (
-    <MiniCard title="Streak" href={DEEP_LINKS.streak}>
-      <BigNum value={compact(streak.weeks)} suffix={streak.weeks === 1 ? "week" : "weeks"} />
-      <div className="flex items-center gap-1.5">
-        {dayLabels.map((label, i) => {
-          const active = streak.week[i] ?? false;
-          return (
-            <span
-              key={i}
-              aria-label={`${label}${active ? " active" : ""}`}
-              className="flex h-5 w-5 items-center justify-center rounded text-[10px] font-medium"
-              style={{
-                backgroundColor: active ? "var(--accent-soft)" : "var(--surface-2)",
-                color: active ? "var(--accent)" : "var(--faint)",
-              }}
-            >
-              {label}
-            </span>
-          );
-        })}
-      </div>
-      <MetaRow items={[{ label: "this week", value: `${streak.activeDaysThisWeek}/7 days` }]} />
-    </MiniCard>
   );
 }
