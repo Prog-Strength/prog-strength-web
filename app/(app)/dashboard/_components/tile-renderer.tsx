@@ -28,7 +28,9 @@ import type {
   LiftingView,
   StepsView,
   BodyweightView,
+  BloodPressureView,
 } from "@/lib/dashboard";
+import { BP_CATEGORIES } from "@/lib/blood-pressure";
 import { compact } from "./compact";
 import { formatDuration } from "@/lib/format";
 import { Spark } from "./spark";
@@ -231,10 +233,14 @@ export function StreakCard({ streak, href }: { streak: DashboardData["streak"]; 
   );
 }
 
-// Interim placeholder card. The full BloodPressureCard (latest reading,
-// category tone, dual spark) lands with the dashboard-card task; this keeps
-// the tile switch exhaustive in the meantime.
-function BloodPressureCard({
+/** Compact "time since" for the latest reading — a short local date. */
+function readingDate(measuredAt: string): string {
+  const d = new Date(measuredAt);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function BloodPressureCard({
   section,
   href,
 }: {
@@ -244,13 +250,30 @@ function BloodPressureCard({
   if (!section.present) {
     return (
       <MiniCard title="Blood Pressure" href={href}>
-        <MiniCardEmpty cta="Log a reading to start tracking" />
+        <MiniCardEmpty cta="Log your first reading" />
       </MiniCard>
     );
   }
+  const v: BloodPressureView = section;
   return (
     <MiniCard title="Blood Pressure" href={href}>
-      <BigNum value={`${section.latest.systolic}/${section.latest.diastolic}`} />
+      <BigNum value={`${v.latest.systolic}/${v.latest.diastolic}`} />
+      <Spark
+        points={v.systolicSpark}
+        points2={v.diastolicSpark}
+        className="h-7 w-full text-[var(--accent)]"
+        accent2="var(--muted)"
+      />
+      <MetaRow
+        items={[
+          { label: "category", value: BP_CATEGORIES[v.category].label },
+          {
+            label: "30d avg",
+            value: v.avg30 ? `${v.avg30.systolic}/${v.avg30.diastolic}` : null,
+          },
+          { label: "last", value: readingDate(v.latest.measured_at) },
+        ]}
+      />
     </MiniCard>
   );
 }

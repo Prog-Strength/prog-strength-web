@@ -46,4 +46,34 @@ describe("Spark", () => {
     const { container } = render(<Spark points={[1, 2]} accent="var(--success)" />);
     expect(polyline(container)!.getAttribute("stroke")).toBe("var(--success)");
   });
+
+  it("draws two polylines on a shared scale when a second series is given", () => {
+    // series 1 spans [10,20]; series 2 spans [0,40]. Combined extent is
+    // [0,40], so series 1's own max (20) must NOT reach the top of the box —
+    // it should sit at the vertical middle of the shared scale.
+    const { container } = render(
+      <Spark points={[10, 20]} points2={[0, 40]} accent="var(--accent)" accent2="var(--muted)" />,
+    );
+    const lines = container.querySelectorAll("polyline");
+    expect(lines).toHaveLength(2);
+    expect(lines[0].getAttribute("stroke")).toBe("var(--accent)");
+    expect(lines[1].getAttribute("stroke")).toBe("var(--muted)");
+
+    const y = (line: Element, idx: number) =>
+      Number(line.getAttribute("points")!.trim().split(/\s+/)[idx].split(",")[1]);
+    // Shared scale: series 2's top point (40) is the global max → highest
+    // (smallest y); its bottom (0) is the global min → lowest (largest y).
+    const s2Top = y(lines[1], 1); // value 40
+    const s2Bottom = y(lines[1], 0); // value 0
+    const s1Top = y(lines[0], 1); // value 20 — the midpoint of [0,40]
+    expect(s2Top).toBeLessThan(s1Top);
+    expect(s1Top).toBeLessThan(s2Bottom);
+    // Series 1's high point (20) sits mid-scale, not pinned to the top edge.
+    expect(s1Top).toBeGreaterThan(s2Top);
+  });
+
+  it("ignores a degenerate second series (renders only the first line)", () => {
+    const { container } = render(<Spark points={[1, 2, 3]} points2={[9]} />);
+    expect(container.querySelectorAll("polyline")).toHaveLength(1);
+  });
 });
