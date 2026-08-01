@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
 import {
@@ -26,7 +26,8 @@ import { BpAbout } from "./_components/bp-about";
  *   - Command bar (route into /chat?prompt=… — also the natural-language
  *     log path, e.g. "122 over 78 this morning")
  *   - Range tabs (30 / 60 / 90 / All) whose border-b doubles as the
- *     separator; the range drives the `since` we fetch with
+ *     separator; the range is a client-side viewing window over the
+ *     all-time set we fetch once (like bodyweight's whole-range list)
  *   - Hero trend card (chart + stat tiles)
  *   - Pencil-Log toolbar → BpLogModal
  *   - Reading rail (day-grouped, whole-day paginated)
@@ -47,6 +48,14 @@ const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
   { key: "all", label: "All", days: null },
 ];
 
+/** Epoch-ms cutoff for a range's client-side window, or null for "all"
+ * (no filter). Readings on/after this instant fall inside the range. */
+function sinceForRange(range: RangeKey): number | null {
+  const def = RANGES.find((r) => r.key === range);
+  if (!def || def.days === null) return null;
+  return Date.now() - def.days * 24 * 60 * 60 * 1000;
+}
+
 export default function BloodPressurePage() {
   const router = useRouter();
   const isMobile = useSyncExternalStore(
@@ -55,7 +64,7 @@ export default function BloodPressurePage() {
     getMobileServerSnapshot,
   );
 
-  const [entries, setEntries] = useState<BloodPressureEntry[] | null>(null);
+  const [allEntries, setAllEntries] = useState<BloodPressureEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30");
 
@@ -90,24 +99,19 @@ export default function BloodPressurePage() {
     [router],
   );
 
-  // Fetch with a `since` derived from the active range, so the chart,
-  // tiles, and rail all read off the same range-filtered set. Re-runs on
-  // range change (via the effect's dependency) — matching bodyweight's
-  // refetch-driven data flow.
+  // Fetch the ENTIRE reading history once (no `since`), then let the range
+  // tabs window it client-side. The empty state is a property of the whole
+  // history, not of the selected range — so it must trigger regardless of
+  // which tab is active. Mutations refetch this same all-time list.
   const refetch = useCallback(() => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
     }
-    const rangeDef = RANGES.find((r) => r.key === range);
-    const since =
-      rangeDef && rangeDef.days !== null
-        ? new Date(Date.now() - rangeDef.days * 24 * 60 * 60 * 1000).toISOString()
-        : undefined;
-    listBloodPressure(token, since ? { since } : {})
+    listBloodPressure(token, {})
       .then((rows) =>
-        setEntries(
+        setAllEntries(
           [...rows].sort(
             (a, b) => new Date(b.measured_at).getTime() - new Date(a.measured_at).getTime(),
           ),
@@ -117,7 +121,7 @@ export default function BloodPressurePage() {
         if (handleAuthError(err)) return;
         setError(err.message);
       });
-  }, [router, range, handleAuthError]);
+  }, [router, handleAuthError]);
 
   useEffect(() => {
     refetch();
@@ -186,8 +190,16 @@ export default function BloodPressurePage() {
       .finally(() => setDeleteBusy(false));
   }
 
-  const rangeEntries = entries ?? [];
-  const isEmpty = entries !== null && entries.length === 0 && range === "all";
+  // Client-side range window over the all-time set. "all" applies no
+  // filter; the others keep readings on/after the range's cutoff.
+  const rangeEntries = useMemo(() => {
+    const all = allEntries ?? [];
+    const since = sinceForRange(range);
+    if (since === null) return all;
+    return all.filter((e) => new Date(e.measured_at).getTime() >= since);
+  }, [allEntries, range]);
+
+  const isEmpty = allEntries !== null && allEntries.length === 0;
   const tz = browserTz();
 
   return (
@@ -227,7 +239,7 @@ export default function BloodPressurePage() {
             }
           />
 
-          {entries === null ? (
+          {allEntries === null ? (
             <p className="text-sm text-[var(--muted)]">Loading…</p>
           ) : isEmpty ? (
             <EmptyState onLog={() => setShowLog(true)} />
@@ -244,17 +256,14 @@ export default function BloodPressurePage() {
                   />
                 </div>
 
-                {rangeEntries.length === 0 ? (
-                  <p className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted)]">
-                    No readings in this range — try widening the time range above.
-                  </p>
-                ) : (
-                  <BpReadingsTimeline
-                    entries={rangeEntries}
-                    onEdit={(entry) => setEditingEntry(entry)}
-                    onDelete={(entry) => setDeletingEntry(entry)}
-                  />
-                )}
+                {/* When the range window is empty but the user has history
+                    elsewhere (isEmpty is false here), BpReadingsTimeline
+                    renders its own "widen the range" affordance. */}
+                <BpReadingsTimeline
+                  entries={rangeEntries}
+                  onEdit={(entry) => setEditingEntry(entry)}
+                  onDelete={(entry) => setDeletingEntry(entry)}
+                />
               </section>
 
               <BpAbout />
