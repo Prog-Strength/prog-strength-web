@@ -11,6 +11,7 @@
  */
 
 import { config } from "@/lib/config";
+import type { TileId } from "@/lib/dashboard-tiles";
 
 /**
  * A single set within a workout exercise.
@@ -4408,6 +4409,48 @@ export type DashboardRecovery = {
 };
 
 /**
+ * This week's aggregate for an endurance tile (walking/cycling/hiking):
+ * total distance (metric meters), session count, and total moving time.
+ */
+export type DashboardEnduranceCurrentWeek = {
+  distance_meters: number;
+  session_count: number;
+  duration_seconds: number;
+};
+
+/**
+ * The most recent endurance session for an endurance tile, or null when
+ * there is none. `distance_meters` is metric; `start_time` is RFC3339.
+ */
+export type DashboardEnduranceLatest = {
+  name: string | null;
+  distance_meters: number;
+  duration_seconds: number;
+  start_time: string;
+} | null;
+
+/**
+ * The dashboard's walking widget. `current_week` carries this week's
+ * distance/session/time totals; `latest_session` is the most recent
+ * session (nullable). `weekly_distance_spark` is weekly distances
+ * (meters), oldest→newest. All distances are metric meters.
+ */
+export type DashboardWalking = {
+  current_week: DashboardEnduranceCurrentWeek;
+  latest_session: DashboardEnduranceLatest;
+  weekly_distance_spark: number[];
+};
+
+/** The dashboard's cycling widget — identical shape to walking. */
+export type DashboardCycling = DashboardWalking;
+
+/**
+ * The dashboard's hiking widget — the endurance shape plus this week's
+ * total elevation gain (metric meters).
+ */
+export type DashboardHiking = DashboardWalking & { elevation_gain_meters: number };
+
+/**
  * The dashboard's streak widget. ALWAYS present (zeroed for a brand-new
  * user). `week` is 7 booleans Mon→Sun marking which days had activity.
  */
@@ -4418,21 +4461,27 @@ export type DashboardStreak = {
 };
 
 /**
- * GET /dashboard/summary response payload (the envelope's `data`). Each
- * section is null when the user has no data for it (e.g. `running: null`
- * with no logged runs); `streak` is always present. Distances are metric
- * meters; weights are in the user's stored unit. Mirrors the API contract
- * exactly (snake_case); the display adapter in lib/dashboard.ts converts
- * toward the user's preferred units.
+ * GET /dashboard/summary response payload (the envelope's `data`). The
+ * shape is layout-aware: `layout` is the ordered list of enabled tile
+ * ids, and each section key is ABSENT when its tile isn't in the layout
+ * and `null` when the tile is enabled but has no data (e.g. `running:
+ * null` with no logged runs). Distances are metric meters; weights are in
+ * the user's stored unit. Mirrors the API contract exactly (snake_case);
+ * the display adapter in lib/dashboard.ts converts toward the user's
+ * preferred units.
  */
 export type DashboardSummary = {
-  running: DashboardRunning | null;
-  lifting: DashboardLifting | null;
-  steps: DashboardSteps | null;
-  nutrition: DashboardNutrition | null;
-  bodyweight: DashboardBodyweight | null;
-  recovery: DashboardRecovery | null;
-  streak: DashboardStreak;
+  layout: TileId[];
+  running?: DashboardRunning | null;
+  walking?: DashboardWalking | null;
+  cycling?: DashboardCycling | null;
+  hiking?: DashboardHiking | null;
+  lifting?: DashboardLifting | null;
+  steps?: DashboardSteps | null;
+  nutrition?: DashboardNutrition | null;
+  bodyweight?: DashboardBodyweight | null;
+  recovery?: DashboardRecovery | null;
+  streak?: DashboardStreak;
 };
 
 /**
@@ -4454,6 +4503,22 @@ export async function getDashboardSummary(
     },
   );
   return unwrap<DashboardSummary | null>(resp, null);
+}
+
+/**
+ * PUT /dashboard/layout. Persists the user's ordered enabled tile ids
+ * (the add/remove/reorder result). The server responds 204 No Content on
+ * success — there's no body to parse, so this checks `resp.ok` directly.
+ */
+export async function putDashboardLayout(token: string, tileIds: TileId[]): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/dashboard/layout`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tile_ids: tileIds }),
+  });
+  if (!resp.ok) {
+    throw new Error(`PUT /dashboard/layout failed: ${resp.status}`);
+  }
 }
 
 /**

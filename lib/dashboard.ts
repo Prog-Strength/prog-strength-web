@@ -21,6 +21,8 @@
 
 import type {
   DashboardBodyweight,
+  DashboardCycling,
+  DashboardHiking,
   DashboardLifting,
   DashboardMacros,
   DashboardNutrition,
@@ -29,8 +31,10 @@ import type {
   DashboardSteps,
   DashboardStreak,
   DashboardSummary,
+  DashboardWalking,
   ResolvedProfile,
 } from "@/lib/api";
+import type { TileId } from "@/lib/dashboard-tiles";
 import {
   formatDistanceValue,
   formatPaceValue,
@@ -71,6 +75,34 @@ export type RunningView = {
   spark: SparkSeries; // weekly distances in display unit
   unit: DistanceUnit;
 };
+
+/**
+ * Display view-model shared by the endurance widgets (walking/cycling).
+ * Distances are display-unit strings/points; `unit` is the user's
+ * display unit so the card can render the right suffix. `durationSeconds`
+ * is this week's total moving time.
+ */
+export type EnduranceView = {
+  currentWeek: { distance: string; sessionCount: number };
+  durationSeconds: number;
+  latest: {
+    name: string | null;
+    distance: string;
+    durationSeconds: number;
+    startTime: string;
+  } | null;
+  spark: SparkSeries; // weekly distances in display unit
+  unit: DistanceUnit;
+};
+
+/** Display view-model for the walking widget. */
+export type WalkingView = EnduranceView;
+
+/** Display view-model for the cycling widget. */
+export type CyclingView = EnduranceView;
+
+/** Display view-model for the hiking widget — endurance plus elevation gain (meters). */
+export type HikingView = EnduranceView & { elevationGainMeters: number };
 
 /** Display view-model for the lifting widget. Weights stay in their stored unit. */
 export type LiftingView = {
@@ -143,7 +175,12 @@ export type Section<T> = { present: false } | ({ present: true } & T);
 
 /** The full dashboard display view-model — one entry per widget. */
 export type DashboardData = {
+  /** The ordered enabled tile ids from the server; `[]` when no layout. */
+  layout: TileId[];
   running: Section<RunningView>;
+  walking: Section<WalkingView>;
+  cycling: Section<CyclingView>;
+  hiking: Section<HikingView>;
   lifting: Section<LiftingView>;
   steps: Section<StepsView>;
   nutrition: Section<NutritionView>;
@@ -177,6 +214,45 @@ function adaptRunning(running: DashboardRunning, unit: DistanceUnit): RunningVie
       unit,
     },
     unit,
+  };
+}
+
+/** Shared endurance-shape adapter (walking/cycling; hiking extends it). */
+function adaptEndurance(e: DashboardWalking, unit: DistanceUnit): EnduranceView {
+  return {
+    currentWeek: {
+      distance: formatDistanceValue(e.current_week.distance_meters, unit),
+      sessionCount: e.current_week.session_count,
+    },
+    durationSeconds: e.current_week.duration_seconds,
+    latest: e.latest_session
+      ? {
+          name: e.latest_session.name,
+          distance: formatDistanceValue(e.latest_session.distance_meters, unit),
+          durationSeconds: e.latest_session.duration_seconds,
+          startTime: e.latest_session.start_time,
+        }
+      : null,
+    spark: {
+      points: e.weekly_distance_spark.map((m) => distanceToDisplay(m, unit)),
+      unit,
+    },
+    unit,
+  };
+}
+
+function adaptWalking(walking: DashboardWalking, unit: DistanceUnit): WalkingView {
+  return adaptEndurance(walking, unit);
+}
+
+function adaptCycling(cycling: DashboardCycling, unit: DistanceUnit): CyclingView {
+  return adaptEndurance(cycling, unit);
+}
+
+function adaptHiking(hiking: DashboardHiking, unit: DistanceUnit): HikingView {
+  return {
+    ...adaptEndurance(hiking, unit),
+    elevationGainMeters: hiking.elevation_gain_meters,
   };
 }
 
@@ -261,7 +337,11 @@ export function adaptDashboard(
 
   if (!summary) {
     return {
+      layout: [],
       running: { present: false },
+      walking: { present: false },
+      cycling: { present: false },
+      hiking: { present: false },
       lifting: { present: false },
       steps: { present: false },
       nutrition: { present: false },
@@ -272,8 +352,18 @@ export function adaptDashboard(
   }
 
   return {
+    layout: summary.layout ?? [],
     running: summary.running
       ? { present: true, ...adaptRunning(summary.running, distanceUnit) }
+      : { present: false },
+    walking: summary.walking
+      ? { present: true, ...adaptWalking(summary.walking, distanceUnit) }
+      : { present: false },
+    cycling: summary.cycling
+      ? { present: true, ...adaptCycling(summary.cycling, distanceUnit) }
+      : { present: false },
+    hiking: summary.hiking
+      ? { present: true, ...adaptHiking(summary.hiking, distanceUnit) }
       : { present: false },
     lifting: summary.lifting
       ? { present: true, ...adaptLifting(summary.lifting) }
@@ -288,6 +378,8 @@ export function adaptDashboard(
     recovery: summary.recovery
       ? { present: true, ...adaptRecovery(summary.recovery) }
       : { present: false },
-    streak: adaptStreak(summary.streak),
+    streak: summary.streak
+      ? adaptStreak(summary.streak)
+      : { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
   };
 }

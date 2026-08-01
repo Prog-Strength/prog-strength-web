@@ -1,62 +1,64 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/auth";
-import { getDashboardSummary, getMe, type DashboardSummary } from "@/lib/api";
 import {
-  adaptDashboard,
-  type DashboardData,
-  type LiftingView,
-  type RunningView,
-  type StepsView,
-  type BodyweightView,
-} from "@/lib/dashboard";
-import { compact } from "./_components/compact";
-import { formatDuration } from "@/lib/format";
-import { Spark } from "./_components/spark";
-import { StepsGoalBars } from "./_components/steps-goal-bars";
-import { BigNum } from "./_components/big-num";
-import { MetaRow } from "./_components/meta-row";
-import { MacroBar } from "./_components/macro-bar";
-import { Kpi, type KpiDelta } from "./_components/kpi";
+  getDashboardSummary,
+  getMe,
+  putDashboardLayout,
+  type DashboardSummary,
+  type ResolvedProfile,
+} from "@/lib/api";
+import { adaptDashboard, type DashboardData } from "@/lib/dashboard";
+import type { TileId } from "@/lib/dashboard-tiles";
 import { CommandBar } from "./_components/command-bar";
-import { MiniCard, MiniCardEmpty, MiniCardSkeleton } from "./_components/mini-card";
-import { RecoveryCard } from "./_components/whoop-card";
+import { MiniCardSkeleton } from "./_components/mini-card";
+import { TileGrid } from "./_components/tile-grid";
+import { EditBar } from "./_components/edit-bar";
+import { AddTileTray } from "./_components/add-tile-tray";
+import { removeTile, addTile } from "./_components/layout-ops";
 
 /**
  * Dashboard — the command-center surface.
  *
- * A single GET /dashboard/summary feeds a dense KPI strip + a grid of
- * per-domain mini-cards, each deep-linking into its full page. The page
- * is calm power-user density (Linear-earned, not a trading terminal):
- * mono tabular numerals, hairline dividers, status-encoded deltas, and
- * the periwinkle accent reserved for the command bar's active chrome.
+ * A single GET /dashboard/summary feeds a grid of customizable, per-domain
+ * mini-tiles, each deep-linking into its full page. The persisted layout (an
+ * ordered TileId[]) drives which tiles render and in what order; an edit-mode
+ * state machine lets the user reorder (drag), remove, and add tiles against a
+ * local `draft`, persisting on Done (PUT /dashboard/layout) and discarding on
+ * Cancel. The command bar stays pinned above the grid — it is chrome, not a
+ * tile — and is never draggable or removable.
  *
  * Data flow mirrors the bodyweight page's fetch+useState pattern: a token
- * guard up front (missing → /login), then getMe → getDashboardSummary
- * keyed on the profile's IANA timezone, with a 401 clearing the token and
- * routing to /login. While the one fetch is in flight the strip + grid
- * render as skeletons rather than a page spinner. The W1 adapter
- * (adaptDashboard) turns the summary into the display view-model; every
- * null section degrades independently to an inviting empty CTA, and a
- * brand-new (isNew) streak reads "start your streak" — never 0 / NaN%.
+ * guard up front (missing → /login), then getMe → getDashboardSummary keyed on
+ * the BROWSER's IANA timezone (the same source the nutrition/chat/running
+ * surfaces use — the saved profile tz can be stale and made the dashboard's
+ * "today" window disagree with the nutrition page), with a 401 clearing the
+ * token and routing to /login. The same fetch runs on mount and again after a
+ * successful save so newly-added tiles pick up their data. While the fetch is
+ * in flight the grid renders as skeletons rather than a page spinner. Every
+ * null section degrades independently to an inviting empty CTA, and an empty
+ * layout offers a calm CTA into edit mode so the user can add their first tile.
  */
 
-const DEEP_LINKS = {
-  running: "/activities?view=running",
-  lifting: "/workouts",
-  steps: "/activities?view=steps",
-  nutrition: "/nutrition",
-  bodyweight: "/bodyweight",
-  recovery: "/recovery",
-  streak: "/activities",
-} as const;
+/** The browser's wall-clock IANA zone — the window anchor for "today"/"this week". */
+function browserTz(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [draft, setDraft] = useState<TileId[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // The resolved profile is captured once at load and reused to re-adapt the
+  // summary on refetch (units/display copy come from the profile).
+  const meRef = useRef<ResolvedProfile | null>(null);
 
   const handleAuthError = useCallback(
     (err: Error) => {
@@ -81,14 +83,8 @@ export default function DashboardPage() {
       try {
         const me = await getMe(token);
         if (cancelled) return;
-        // Anchor day/week windows on the BROWSER's IANA timezone — the same
-        // source the nutrition, chat, running, and activities surfaces use.
-        // The saved profile tz can be stale/wrong, which made the dashboard's
-        // "today" window disagree with the (correct) nutrition page and pull
-        // an adjacent day's nutrition entries; the browser zone is the user's
-        // actual wall clock.
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const summary: DashboardSummary | null = await getDashboardSummary(token, tz);
+        meRef.current = me;
+        const summary: DashboardSummary | null = await getDashboardSummary(token, browserTz());
         if (cancelled) return;
         setData(adaptDashboard(summary, me));
       } catch (err) {
@@ -108,6 +104,51 @@ export default function DashboardPage() {
     },
     [router],
   );
+
+  const onCustomize = useCallback(() => {
+    if (!data) return;
+    setDraft(data.layout);
+    setSaveError(null);
+    setMode("edit");
+  }, [data]);
+
+  const onReorder = useCallback((next: TileId[]) => {
+    setDraft(next);
+  }, []);
+
+  const onRemove = useCallback((id: TileId) => {
+    setDraft((d) => removeTile(d, id));
+  }, []);
+
+  const onAdd = useCallback((id: TileId) => {
+    setDraft((d) => addTile(d, id));
+  }, []);
+
+  const onCancel = useCallback(() => {
+    setMode("view");
+    setSaveError(null);
+  }, []);
+
+  const onDone = useCallback(async () => {
+    const token = getToken();
+    const me = meRef.current;
+    if (!token || !me) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await putDashboardLayout(token, draft);
+      // Refetch so newly-added tiles pick up their (previously unloaded) data.
+      const summary: DashboardSummary | null = await getDashboardSummary(token, browserTz());
+      setData(adaptDashboard(summary, me));
+      setMode("view");
+    } catch (err) {
+      if (handleAuthError(err as Error)) return;
+      // Stay in edit mode with the draft intact; surface the error inline.
+      setSaveError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, handleAuthError]);
 
   const loading = data === null && error === null;
 
@@ -130,29 +171,38 @@ export default function DashboardPage() {
 
           {loading ? (
             <>
-              <KpiStripSkeleton />
               <CommandBar onSubmit={handleCommand} />
-              <CardGrid>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <MiniCardSkeleton key={i} />
                 ))}
-              </CardGrid>
+              </div>
             </>
           ) : data ? (
             <>
-              <KpiStrip data={data} />
               <CommandBar onSubmit={handleCommand} />
-              <CardGrid>
-                <RunningCard section={data.running} />
-                <LiftingCard section={data.lifting} />
-                <StepsCard section={data.steps} />
-                <NutritionCard section={data.nutrition} />
-                <BodyweightCard section={data.bodyweight} />
-                {data.recovery.present && (
-                  <RecoveryCard section={data.recovery} href={DEEP_LINKS.recovery} />
-                )}
-                <StreakCard streak={data.streak} />
-              </CardGrid>
+              <EditBar
+                mode={mode}
+                saving={saving}
+                saveError={saveError}
+                onCustomize={onCustomize}
+                onCancel={onCancel}
+                onDone={onDone}
+              />
+              {mode === "view" && data.layout.length === 0 ? (
+                <EmptyDashboard onCustomize={onCustomize} />
+              ) : (
+                <>
+                  <TileGrid
+                    layout={mode === "edit" ? draft : data.layout}
+                    data={data}
+                    mode={mode}
+                    onReorder={onReorder}
+                    onRemove={onRemove}
+                  />
+                  {mode === "edit" && <AddTileTray draft={draft} onAdd={onAdd} />}
+                </>
+              )}
             </>
           ) : null}
         </div>
@@ -161,245 +211,26 @@ export default function DashboardPage() {
   );
 }
 
-// --- KPI strip ----------------------------------------------------
-
-function CardGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>;
-}
-
-/** Signed-percentage delta → status tone. Up = good, down = bad. Null → no delta. */
-function pctDelta(deltaPct: number | null): KpiDelta | null {
-  if (deltaPct === null || !Number.isFinite(deltaPct)) return null;
-  const rounded = Math.round(deltaPct);
-  if (rounded === 0) return null;
-  const sign = rounded > 0 ? "+" : "";
-  return { text: `${sign}${rounded}%`, tone: rounded > 0 ? "good" : "bad" };
-}
-
-function KpiStrip({ data }: { data: DashboardData }) {
-  const { running, lifting, steps, nutrition, bodyweight, streak } = data;
-
+/**
+ * EmptyDashboard — the calm view-mode CTA shown when the persisted layout has
+ * no tiles. It routes the user straight into edit mode, where the add-tile tray
+ * lists every available tile.
+ */
+function EmptyDashboard({ onCustomize }: { onCustomize: () => void }) {
   return (
-    <div className="grid grid-cols-2 divide-y divide-[var(--border)] rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-6 [&>*]:border-[var(--border)] sm:[&>*]:border-r lg:[&>*:not(:last-child)]:border-r">
-      <Kpi
-        label="Streak"
-        value={streak.isNew ? "—" : compact(streak.weeks)}
-        unit={streak.isNew ? "new" : streak.weeks === 1 ? "wk" : "wks"}
-      />
-      <Kpi
-        label="Run"
-        discipline="run"
-        value={running.present ? running.currentWeek.distance : "—"}
-        unit={running.present ? running.unit : undefined}
-        delta={running.present ? pctDelta(running.currentWeek.deltaPct) : null}
-      />
-      <Kpi
-        label="Lift"
-        discipline="lift"
-        value={lifting.present ? compact(lifting.currentWeek.sessions) : "—"}
-        unit={
-          lifting.present
-            ? lifting.currentWeek.sessions === 1
-              ? "session"
-              : "sessions"
-            : undefined
-        }
-      />
-      <Kpi
-        label="Steps"
-        value={steps.present ? compact(steps.today) : "—"}
-        unit={steps.present ? "today" : undefined}
-      />
-      <Kpi
-        label="Fuel"
-        value={nutrition.present ? compact(nutrition.today.calories) : "—"}
-        unit={nutrition.present ? "kcal" : undefined}
-      />
-      <Kpi
-        label="Weight"
-        value={bodyweight.present ? compact(bodyweight.current) : "—"}
-        unit={bodyweight.present ? bodyweight.unit : undefined}
-      />
+    <div className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] px-6 py-12 text-center">
+      <p className="text-sm font-medium text-[var(--foreground)]">Your dashboard is empty</p>
+      <p className="max-w-sm text-xs text-[var(--muted)]">
+        Add tiles to track your running, lifting, steps, nutrition, and more — each opens its full
+        view.
+      </p>
+      <button
+        type="button"
+        onClick={onCustomize}
+        className="mt-1 rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90"
+      >
+        Add tiles
+      </button>
     </div>
-  );
-}
-
-function KpiStripSkeleton() {
-  return (
-    <div className="grid grid-cols-2 gap-px rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] sm:grid-cols-3 lg:grid-cols-6">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex flex-col gap-2 px-3 py-2.5">
-          <div className="h-3 w-12 animate-pulse rounded bg-[var(--surface-2)]" />
-          <div className="h-5 w-16 animate-pulse rounded bg-[var(--surface-2)]" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// --- Domain cards -------------------------------------------------
-
-function RunningCard({ section }: { section: DashboardData["running"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Running" href={DEEP_LINKS.running}>
-        <MiniCardEmpty cta="Import a run to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: RunningView = section;
-  return (
-    <MiniCard title="Running" href={DEEP_LINKS.running}>
-      <BigNum value={v.currentWeek.distance} suffix={`${v.unit} this week`} />
-      <Spark points={v.spark.points} className="h-7 w-full text-[var(--discipline-run-dot)]" />
-      <MetaRow
-        items={[
-          { label: "runs", value: compact(v.currentWeek.runCount) },
-          { label: "pace", value: v.pace },
-          { label: "last", value: v.latestRun ? `${v.latestRun.distance} ${v.unit}` : null },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function LiftingCard({ section }: { section: DashboardData["lifting"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Lifting" href={DEEP_LINKS.lifting}>
-        <MiniCardEmpty cta="Log a workout to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: LiftingView = section;
-  return (
-    <MiniCard title="Lifting" href={DEEP_LINKS.lifting}>
-      <BigNum
-        value={compact(v.currentWeek.sessions)}
-        suffix={v.currentWeek.sessions === 1 ? "session this week" : "sessions this week"}
-      />
-      <Spark points={v.spark} className="h-7 w-full text-[var(--discipline-lift-dot)]" />
-      <MetaRow
-        items={[
-          { label: "time", value: formatDuration(v.currentWeek.durationSeconds) },
-          { label: "sets", value: compact(v.currentWeek.sets) },
-          { label: "PRs", value: compact(v.currentWeek.prs) },
-          {
-            label: "1RM",
-            value: v.headline1rm ? `${compact(v.headline1rm.value)} ${v.headline1rm.unit}` : null,
-          },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function StepsCard({ section }: { section: DashboardData["steps"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Steps" href={DEEP_LINKS.steps}>
-        <MiniCardEmpty cta="Log your steps to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: StepsView = section;
-  return (
-    <MiniCard title="Steps" href={DEEP_LINKS.steps}>
-      <BigNum value={compact(v.today)} suffix="today" />
-      <StepsGoalBars spark={v.spark} avg={v.avg} goal={v.goal} />
-      <MetaRow
-        items={[
-          { label: "avg", value: compact(v.avg) },
-          { label: "goal", value: v.goal !== null ? compact(v.goal) : "set a goal" },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function NutritionCard({ section }: { section: DashboardData["nutrition"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Nutrition" href={DEEP_LINKS.nutrition}>
-        <MiniCardEmpty cta="Log a meal to start tracking" />
-      </MiniCard>
-    );
-  }
-  const { today, goals } = section;
-  return (
-    <MiniCard title="Nutrition" href={DEEP_LINKS.nutrition}>
-      <BigNum value={compact(today.calories)} suffix="kcal today" />
-      <div className="flex flex-col gap-2">
-        <MacroBar kind="protein" value={today.protein_g} goal={goals ? goals.protein_g : null} />
-        <MacroBar kind="carbs" value={today.carbs_g} goal={goals ? goals.carbs_g : null} />
-        <MacroBar kind="fat" value={today.fat_g} goal={goals ? goals.fat_g : null} />
-      </div>
-    </MiniCard>
-  );
-}
-
-function BodyweightCard({ section }: { section: DashboardData["bodyweight"] }) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Bodyweight" href={DEEP_LINKS.bodyweight}>
-        <MiniCardEmpty cta="Log a reading to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: BodyweightView = section;
-  const rate =
-    v.ratePerWeek !== null && Number.isFinite(v.ratePerWeek)
-      ? `${v.ratePerWeek > 0 ? "+" : ""}${v.ratePerWeek.toFixed(1)} ${v.unit}/wk`
-      : null;
-  return (
-    <MiniCard title="Bodyweight" href={DEEP_LINKS.bodyweight}>
-      <BigNum value={compact(v.current)} suffix={v.unit} />
-      <Spark points={v.spark} className="h-7 w-full text-[var(--muted)]" />
-      <MetaRow
-        items={[
-          { label: "rate", value: rate },
-          {
-            label: "goal",
-            value: v.goal ? `${compact(v.goal.weight)} ${v.goal.unit}` : "set a goal",
-          },
-        ]}
-      />
-    </MiniCard>
-  );
-}
-
-function StreakCard({ streak }: { streak: DashboardData["streak"] }) {
-  if (streak.isNew) {
-    return (
-      <MiniCard title="Streak" href={DEEP_LINKS.streak}>
-        <BigNum value="—" suffix="start your streak" />
-        <p className="text-sm text-[var(--muted)]">Log any activity to begin a weekly streak.</p>
-      </MiniCard>
-    );
-  }
-  const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
-  return (
-    <MiniCard title="Streak" href={DEEP_LINKS.streak}>
-      <BigNum value={compact(streak.weeks)} suffix={streak.weeks === 1 ? "week" : "weeks"} />
-      <div className="flex items-center gap-1.5">
-        {dayLabels.map((label, i) => {
-          const active = streak.week[i] ?? false;
-          return (
-            <span
-              key={i}
-              aria-label={`${label}${active ? " active" : ""}`}
-              className="flex h-5 w-5 items-center justify-center rounded text-[10px] font-medium"
-              style={{
-                backgroundColor: active ? "var(--accent-soft)" : "var(--surface-2)",
-                color: active ? "var(--accent)" : "var(--faint)",
-              }}
-            >
-              {label}
-            </span>
-          );
-        })}
-      </div>
-      <MetaRow items={[{ label: "this week", value: `${streak.activeDaysThisWeek}/7 days` }]} />
-    </MiniCard>
   );
 }

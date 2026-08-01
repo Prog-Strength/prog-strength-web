@@ -1,0 +1,270 @@
+/**
+ * TileCard — the exhaustive dashboard tile renderer.
+ *
+ * A single `switch` over `TileId` maps every catalog id to its domain card,
+ * threading the matching section from `DashboardData` and the catalog `href`.
+ * The `never` default is the SOW's compile-time exhaustiveness guard: adding a
+ * new `TileId` without a case here is a TYPE error, so a tile can never ship
+ * without a card.
+ *
+ * The six original page-local cards (running/lifting/steps/nutrition/
+ * bodyweight/streak) live here now — moved out of `page.tsx` and refactored to
+ * take an explicit `href` prop (matching the walking/cycling/hiking/recovery
+ * signatures) instead of reaching into the page's `DEEP_LINKS`. Their bodies
+ * are otherwise unchanged. They are re-exported so `page.tsx` (pre-W6) can keep
+ * importing them.
+ *
+ * Recovery is the one tile whose section can be "enabled but not present" (the
+ * user added the tile but hasn't connected Whoop): when enabled-but-absent it
+ * renders the `RecoveryCardEmpty` connect CTA. The other cards each own their
+ * `!section.present` empty state internally.
+ */
+"use client";
+
+import { type TileId, tileEntry } from "@/lib/dashboard-tiles";
+import type {
+  DashboardData,
+  RunningView,
+  LiftingView,
+  StepsView,
+  BodyweightView,
+} from "@/lib/dashboard";
+import { compact } from "./compact";
+import { formatDuration } from "@/lib/format";
+import { Spark } from "./spark";
+import { StepsGoalBars } from "./steps-goal-bars";
+import { BigNum } from "./big-num";
+import { MetaRow } from "./meta-row";
+import { MacroBar } from "./macro-bar";
+import { MiniCard, MiniCardEmpty } from "./mini-card";
+import { WalkingCard } from "./walking-card";
+import { CyclingCard } from "./cycling-card";
+import { HikingCard } from "./hiking-card";
+import { RecoveryCard, RecoveryCardEmpty } from "./whoop-card";
+
+export function RunningCard({
+  section,
+  href,
+}: {
+  section: DashboardData["running"];
+  href: string;
+}) {
+  if (!section.present) {
+    return (
+      <MiniCard title="Running" href={href}>
+        <MiniCardEmpty cta="Import a run to start tracking" />
+      </MiniCard>
+    );
+  }
+  const v: RunningView = section;
+  return (
+    <MiniCard title="Running" href={href}>
+      <BigNum value={v.currentWeek.distance} suffix={`${v.unit} this week`} />
+      <Spark points={v.spark.points} className="h-7 w-full text-[var(--discipline-run-dot)]" />
+      <MetaRow
+        items={[
+          { label: "runs", value: compact(v.currentWeek.runCount) },
+          { label: "pace", value: v.pace },
+          { label: "last", value: v.latestRun ? `${v.latestRun.distance} ${v.unit}` : null },
+        ]}
+      />
+    </MiniCard>
+  );
+}
+
+export function LiftingCard({
+  section,
+  href,
+}: {
+  section: DashboardData["lifting"];
+  href: string;
+}) {
+  if (!section.present) {
+    return (
+      <MiniCard title="Lifting" href={href}>
+        <MiniCardEmpty cta="Log a workout to start tracking" />
+      </MiniCard>
+    );
+  }
+  const v: LiftingView = section;
+  return (
+    <MiniCard title="Lifting" href={href}>
+      <BigNum
+        value={compact(v.currentWeek.sessions)}
+        suffix={v.currentWeek.sessions === 1 ? "session this week" : "sessions this week"}
+      />
+      <Spark points={v.spark} className="h-7 w-full text-[var(--discipline-lift-dot)]" />
+      <MetaRow
+        items={[
+          { label: "time", value: formatDuration(v.currentWeek.durationSeconds) },
+          { label: "sets", value: compact(v.currentWeek.sets) },
+          { label: "PRs", value: compact(v.currentWeek.prs) },
+          {
+            label: "1RM",
+            value: v.headline1rm ? `${compact(v.headline1rm.value)} ${v.headline1rm.unit}` : null,
+          },
+        ]}
+      />
+    </MiniCard>
+  );
+}
+
+export function StepsCard({ section, href }: { section: DashboardData["steps"]; href: string }) {
+  if (!section.present) {
+    return (
+      <MiniCard title="Steps" href={href}>
+        <MiniCardEmpty cta="Log your steps to start tracking" />
+      </MiniCard>
+    );
+  }
+  const v: StepsView = section;
+  return (
+    <MiniCard title="Steps" href={href}>
+      <BigNum value={compact(v.today)} suffix="today" />
+      <StepsGoalBars spark={v.spark} avg={v.avg} goal={v.goal} />
+      <MetaRow
+        items={[
+          { label: "avg", value: compact(v.avg) },
+          { label: "goal", value: v.goal !== null ? compact(v.goal) : "set a goal" },
+        ]}
+      />
+    </MiniCard>
+  );
+}
+
+export function NutritionCard({
+  section,
+  href,
+}: {
+  section: DashboardData["nutrition"];
+  href: string;
+}) {
+  if (!section.present) {
+    return (
+      <MiniCard title="Nutrition" href={href}>
+        <MiniCardEmpty cta="Log a meal to start tracking" />
+      </MiniCard>
+    );
+  }
+  const { today, goals } = section;
+  return (
+    <MiniCard title="Nutrition" href={href}>
+      <BigNum value={compact(today.calories)} suffix="kcal today" />
+      <div className="flex flex-col gap-2">
+        <MacroBar kind="protein" value={today.protein_g} goal={goals ? goals.protein_g : null} />
+        <MacroBar kind="carbs" value={today.carbs_g} goal={goals ? goals.carbs_g : null} />
+        <MacroBar kind="fat" value={today.fat_g} goal={goals ? goals.fat_g : null} />
+      </div>
+    </MiniCard>
+  );
+}
+
+export function BodyweightCard({
+  section,
+  href,
+}: {
+  section: DashboardData["bodyweight"];
+  href: string;
+}) {
+  if (!section.present) {
+    return (
+      <MiniCard title="Bodyweight" href={href}>
+        <MiniCardEmpty cta="Log a reading to start tracking" />
+      </MiniCard>
+    );
+  }
+  const v: BodyweightView = section;
+  const rate =
+    v.ratePerWeek !== null && Number.isFinite(v.ratePerWeek)
+      ? `${v.ratePerWeek > 0 ? "+" : ""}${v.ratePerWeek.toFixed(1)} ${v.unit}/wk`
+      : null;
+  return (
+    <MiniCard title="Bodyweight" href={href}>
+      <BigNum value={compact(v.current)} suffix={v.unit} />
+      <Spark points={v.spark} className="h-7 w-full text-[var(--muted)]" />
+      <MetaRow
+        items={[
+          { label: "rate", value: rate },
+          {
+            label: "goal",
+            value: v.goal ? `${compact(v.goal.weight)} ${v.goal.unit}` : "set a goal",
+          },
+        ]}
+      />
+    </MiniCard>
+  );
+}
+
+export function StreakCard({ streak, href }: { streak: DashboardData["streak"]; href: string }) {
+  if (streak.isNew) {
+    return (
+      <MiniCard title="Streak" href={href}>
+        <BigNum value="—" suffix="start your streak" />
+        <p className="text-sm text-[var(--muted)]">Log any activity to begin a weekly streak.</p>
+      </MiniCard>
+    );
+  }
+  const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
+  return (
+    <MiniCard title="Streak" href={href}>
+      <BigNum value={compact(streak.weeks)} suffix={streak.weeks === 1 ? "week" : "weeks"} />
+      <div className="flex items-center gap-1.5">
+        {dayLabels.map((label, i) => {
+          const active = streak.week[i] ?? false;
+          return (
+            <span
+              key={i}
+              aria-label={`${label}${active ? " active" : ""}`}
+              className="flex h-5 w-5 items-center justify-center rounded text-[10px] font-medium"
+              style={{
+                backgroundColor: active ? "var(--accent-soft)" : "var(--surface-2)",
+                color: active ? "var(--accent)" : "var(--faint)",
+              }}
+            >
+              {label}
+            </span>
+          );
+        })}
+      </div>
+      <MetaRow items={[{ label: "this week", value: `${streak.activeDaysThisWeek}/7 days` }]} />
+    </MiniCard>
+  );
+}
+
+/**
+ * Render one tile by id. The exhaustive `switch` is the compile-time guard: a
+ * new `TileId` with no case makes the `never` default fail to type-check.
+ */
+export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
+  const href = tileEntry(id).href;
+  switch (id) {
+    case "running":
+      return <RunningCard section={data.running} href={href} />;
+    case "walking":
+      return <WalkingCard section={data.walking} href={href} />;
+    case "cycling":
+      return <CyclingCard section={data.cycling} href={href} />;
+    case "hiking":
+      return <HikingCard section={data.hiking} href={href} />;
+    case "lifting":
+      return <LiftingCard section={data.lifting} href={href} />;
+    case "steps":
+      return <StepsCard section={data.steps} href={href} />;
+    case "nutrition":
+      return <NutritionCard section={data.nutrition} href={href} />;
+    case "bodyweight":
+      return <BodyweightCard section={data.bodyweight} href={href} />;
+    case "recovery":
+      return data.recovery.present ? (
+        <RecoveryCard section={data.recovery} href={href} />
+      ) : (
+        <RecoveryCardEmpty href={href} />
+      );
+    case "streak":
+      return <StreakCard streak={data.streak} href={href} />;
+    default: {
+      const _exhaustive: never = id;
+      return _exhaustive;
+    }
+  }
+}

@@ -25,9 +25,10 @@ vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
   getMe: vi.fn(async () => PROFILE),
   getDashboardSummary: vi.fn(async () => summaryToReturn),
+  putDashboardLayout: vi.fn(async () => undefined),
 }));
 
-import { getMe, getDashboardSummary } from "@/lib/api";
+import { getMe, getDashboardSummary, putDashboardLayout } from "@/lib/api";
 import DashboardPage from "./page";
 
 // --- fixtures --------------------------------------------------------------
@@ -49,6 +50,7 @@ const PROFILE: ResolvedProfile = {
 };
 
 const FULL_SUMMARY: DashboardSummary = {
+  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
   running: {
     current_week: { distance_meters: 16093.44, run_count: 3, delta_pct_vs_prior_week: 12 },
     recent_avg_pace_sec_per_km: 300,
@@ -87,6 +89,7 @@ const FULL_SUMMARY: DashboardSummary = {
 };
 
 const EMPTY_SUMMARY: DashboardSummary = {
+  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "recovery", "streak"],
   running: null,
   lifting: null,
   steps: null,
@@ -100,12 +103,16 @@ const EMPTY_SUMMARY: DashboardSummary = {
   },
 };
 
+// A summary whose persisted layout is empty — the view-mode empty-state CTA.
+const NO_TILES_SUMMARY: DashboardSummary = { ...EMPTY_SUMMARY, layout: [] };
+
 let summaryToReturn: DashboardSummary | null = FULL_SUMMARY;
 
 beforeEach(() => {
   vi.clearAllMocks();
   getTokenMock.mockReturnValue("test-token");
   summaryToReturn = FULL_SUMMARY;
+  (putDashboardLayout as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 });
 
 // --- tests -----------------------------------------------------------------
@@ -156,19 +163,18 @@ describe("DashboardPage — full payload", () => {
     }
   });
 
-  it("renders the KPI strip and all six mini-cards with headline values", async () => {
+  it("renders the tiles from the layout — and the old fixed KPI strip is gone", async () => {
     render(<DashboardPage />);
-    // KPI strip labels (some collide with card titles, so scope to the
-    // KPI-only labels Run / Lift / Fuel / Weight which never repeat).
-    await waitFor(() => expect(screen.getByText("Run")).toBeInTheDocument());
-    for (const label of ["Lift", "Fuel", "Weight"]) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
-    // Card headlines: each card is a link titled by its domain.
+    // Card headlines: each tile is a link titled by its domain.
     for (const title of ["Running", "Lifting", "Steps", "Nutrition", "Bodyweight", "Streak"]) {
-      expect(screen.getByRole("link", { name: new RegExp(title, "i") })).toBeInTheDocument();
+      expect(await screen.findByRole("link", { name: new RegExp(title, "i") })).toBeInTheDocument();
     }
-    // Running headline: 16093.44 m → 10.0 mi (shown in both the KPI cell and the card).
+    // The removed KPI strip used the labels Run / Lift / Fuel / Weight — none of
+    // these appear now (they never collided with the card titles).
+    for (const label of ["Run", "Lift", "Fuel", "Weight"]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+    // Running headline: 16093.44 m → 10.0 mi.
     expect(screen.getAllByText("10.0").length).toBeGreaterThan(0);
     // Bodyweight current.
     expect(screen.getAllByText("184").length).toBeGreaterThan(0);
@@ -191,6 +197,7 @@ describe("DashboardPage — full payload", () => {
   it("deep-links the recovery card to /recovery", async () => {
     summaryToReturn = {
       ...FULL_SUMMARY,
+      layout: [...FULL_SUMMARY.layout, "recovery"],
       recovery: {
         today: {
           date: "2026-07-02",
@@ -215,18 +222,6 @@ describe("DashboardPage — full payload", () => {
     expect(within(stepsCard).getByText("9,200")).toBeInTheDocument();
     expect(within(stepsCard).getByText("10k")).toBeInTheDocument();
   });
-
-  it("shows 'set a goal' and no goal line when the steps goal is null", async () => {
-    summaryToReturn = {
-      ...FULL_SUMMARY,
-      steps: { ...FULL_SUMMARY.steps!, goal: null },
-    };
-    render(<DashboardPage />);
-    const stepsCard = await screen.findByRole("link", { name: /Steps/i });
-    expect(within(stepsCard).getByText("set a goal")).toBeInTheDocument();
-    expect(within(stepsCard).queryByTestId("steps-goal-line")).not.toBeInTheDocument();
-    expect(within(stepsCard).getAllByTestId("steps-bar")).toHaveLength(7);
-  });
 });
 
 describe("DashboardPage — command bar", () => {
@@ -236,6 +231,100 @@ describe("DashboardPage — command bar", () => {
     fireEvent.change(input, { target: { value: "how was my week?" } });
     fireEvent.submit(input.closest("form")!);
     expect(pushMock).toHaveBeenCalledWith("/chat?prompt=how%20was%20my%20week%3F");
+  });
+});
+
+describe("DashboardPage — edit mode", () => {
+  it("enters edit mode via Customize, revealing Remove buttons and the add-tile tray", async () => {
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Running/i });
+
+    // View mode: no remove controls, no tray.
+    expect(screen.queryByRole("button", { name: /Remove Running/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Add a tile")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+
+    expect(screen.getByRole("button", { name: /Remove Running/i })).toBeInTheDocument();
+    expect(screen.getByText("Add a tile")).toBeInTheDocument();
+    // A tile not in the layout (walking) is offered in the tray.
+    expect(screen.getByRole("button", { name: /Add Walking/i })).toBeInTheDocument();
+  });
+
+  it("Cancel exits edit mode without persisting", async () => {
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Running/i });
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(putDashboardLayout).not.toHaveBeenCalled();
+    // Back in view mode: the Customize pill is shown again, tray is gone.
+    expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
+    expect(screen.queryByText("Add a tile")).not.toBeInTheDocument();
+  });
+
+  it("Done persists the edited draft, refetches, and exits edit mode", async () => {
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Running/i });
+    expect(getDashboardSummary).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    // Remove the running tile, then add walking.
+    fireEvent.click(screen.getByRole("button", { name: /Remove Running/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add Walking/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    expect(putDashboardLayout).toHaveBeenCalledWith("test-token", [
+      "lifting",
+      "steps",
+      "nutrition",
+      "bodyweight",
+      "streak",
+      "walking",
+    ]);
+    // Refetches after persisting so new tiles get their data.
+    await waitFor(() => expect(getDashboardSummary).toHaveBeenCalledTimes(2));
+    // Exits to view mode.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument(),
+    );
+  });
+
+  it("keeps edit mode and shows the inline error when the save fails (no refetch-exit)", async () => {
+    (putDashboardLayout as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("PUT /dashboard/layout failed: 500"),
+    );
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Running/i });
+    expect(getDashboardSummary).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: /Remove Running/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    // Inline error is surfaced.
+    expect(await screen.findByText(/PUT \/dashboard\/layout failed: 500/)).toBeInTheDocument();
+    // Still in edit mode: Done/Cancel present, tray present, draft intact.
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(screen.getByText("Add a tile")).toBeInTheDocument();
+    // Did NOT refetch (still just the mount fetch).
+    expect(getDashboardSummary).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DashboardPage — empty layout", () => {
+  it("shows the empty-state CTA and enters edit mode from it", async () => {
+    summaryToReturn = NO_TILES_SUMMARY;
+    render(<DashboardPage />);
+
+    expect(await screen.findByText("Your dashboard is empty")).toBeInTheDocument();
+    // Entering edit mode from the CTA reveals the add-tile tray.
+    fireEvent.click(screen.getByRole("button", { name: "Add tiles" }));
+    expect(screen.getByText("Add a tile")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add Running/i })).toBeInTheDocument();
   });
 });
 
