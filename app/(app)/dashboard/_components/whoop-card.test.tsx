@@ -2,7 +2,7 @@
 
 import { render, screen } from "@testing-library/react";
 import type { RecoveryView } from "@/lib/dashboard";
-import { RecoveryCard } from "./whoop-card";
+import { RecoveryCard, RecoveryCardEmpty } from "./whoop-card";
 
 const HREF = "/settings?tab=integrations";
 
@@ -53,5 +53,14 @@ describe("RecoveryCard", () => {
     render(<RecoveryCard section={view({ recoveryScore: null })} href={HREF} />);
     expect(screen.getByText("recovery")).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument();
+  });
+});
+
+describe("RecoveryCardEmpty", () => {
+  it("renders the connect-Whoop CTA and links into the given href", () => {
+    const { container } = render(<RecoveryCardEmpty href={HREF} />);
+    expect(screen.getByText("Recovery")).toBeInTheDocument();
+    expect(screen.getByText("Connect Whoop to see recovery")).toBeInTheDocument();
+    expect(container.querySelector("a")).toHaveAttribute("href", HREF);
   });
 });

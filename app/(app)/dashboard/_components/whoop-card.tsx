@@ -18,7 +18,7 @@ import type { RecoveryView } from "@/lib/dashboard";
 import { compact } from "./compact";
 import { BigNum } from "./big-num";
 import { MetaRow } from "./meta-row";
-import { MiniCard } from "./mini-card";
+import { MiniCard, MiniCardEmpty } from "./mini-card";
 import { Spark } from "./spark";
 
 export function RecoveryCard({ section, href }: { section: RecoveryView; href: string }) {
@@ -40,6 +40,22 @@ export function RecoveryCard({ section, href }: { section: RecoveryView; href: s
           },
         ]}
       />
+    </MiniCard>
+  );
+}
+
+/**
+ * RecoveryCardEmpty — the `present: false` variant of the recovery tile.
+ *
+ * Unlike the always-connected `RecoveryCard`, this renders when recovery is
+ * deliberately enabled on the layout but no Whoop reading is available (an
+ * unconnected user). It mirrors the log-your-X domain cards' empty grammar:
+ * a MiniCard wrapping an inviting CTA that links into the integrations page.
+ */
+export function RecoveryCardEmpty({ href }: { href: string }) {
+  return (
+    <MiniCard title="Recovery" href={href}>
+      <MiniCardEmpty cta="Connect Whoop to see recovery" />
     </MiniCard>
   );
 }
