@@ -25,10 +25,10 @@ import {
   draftFromProfile,
   heightToDisplay,
   heightUnitFor,
-  initialsOf,
   patchFromDraft,
   runeLength,
 } from "./_components/draft";
+import { AvatarRow } from "./_components/AvatarRow";
 import { Card, Field, inputClass } from "./_components/primitives";
 import { SegmentedToggle } from "@/components/segmented-toggle";
 import { SaveBar } from "./_components/SaveBar";
@@ -40,14 +40,10 @@ import { WhoopConnectionRow } from "./_components/whoop-connection-row";
  * diffed against an immutable `initial` baseline captured from `useProfile()`.
  * Editing any field mutates `draft` only — nothing saves on its own; a sticky
  * `SaveBar` appears when there are dirty keys and issues one `update(patch)` of
- * only the changed keys. Avatar upload/remove and calendar connect/disconnect
- * stay as immediate, out-of-band actions (not part of the draft).
+ * only the changed keys. Avatar upload/remove (see `AvatarRow`, which owns the
+ * pick → crop → upload flow) and calendar connect/disconnect stay as immediate,
+ * out-of-band actions (not part of the draft).
  */
-
-// Avatar client-side guards — UX only; the API is authoritative (2 MB,
-// image/png|jpeg|webp). Catching here gives a snappier rejection.
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-const ALLOWED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 const SAVED_FLASH_MS = 1800;
 
@@ -247,27 +243,11 @@ function SettingsPageInner() {
                   avatarUrl={profile?.avatar_url ?? null}
                   displayName={draft.display_name}
                   disabled={disabled}
-                  onPick={async (file) => {
-                    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
-                      toast.error("Use PNG, JPG, or WebP.");
-                      return;
-                    }
-                    if (file.size > MAX_AVATAR_BYTES) {
-                      toast.error("Image must be under 2 MB.");
-                      return;
-                    }
-                    try {
-                      await uploadAvatar(file);
-                    } catch (err: unknown) {
-                      toast.error(err instanceof Error ? err.message : "Failed to upload avatar");
-                    }
+                  onUpload={async (file) => {
+                    await uploadAvatar(file);
                   }}
                   onRemove={async () => {
-                    try {
-                      await removeAvatar();
-                    } catch (err: unknown) {
-                      toast.error(err instanceof Error ? err.message : "Failed to remove avatar");
-                    }
+                    await removeAvatar();
                   }}
                 />
 
@@ -617,112 +597,5 @@ function GoogleCalendarConnectionRow() {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * Avatar editor: a preview (current image or initials placeholder), a file
- * picker that uploads on selection, and a Remove button when an avatar is set.
- * Immediate / out-of-band (not part of the draft).
- */
-function AvatarRow({
-  avatarUrl,
-  displayName,
-  disabled,
-  onPick,
-  onRemove,
-}: {
-  avatarUrl: string | null;
-  displayName: string;
-  disabled: boolean;
-  onPick: (file: File) => Promise<void>;
-  onRemove: () => Promise<void>;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    // Reset the input so picking the same file again still fires change.
-    e.target.value = "";
-    if (!file) return;
-    setBusy(true);
-    try {
-      await onPick(file);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRemove() {
-    setBusy(true);
-    try {
-      await onRemove();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-3">
-        <AvatarPreview url={avatarUrl} name={displayName} />
-        <div className="flex flex-col gap-0.5">
-          <p className="text-sm font-medium">Avatar</p>
-          <p className="text-xs text-[var(--muted)]">PNG, JPG, or WebP, up to 2 MB.</p>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          aria-label="Upload avatar"
-          onChange={handlePick}
-          className="hidden"
-        />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={disabled || busy}
-          className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
-        >
-          {busy ? "Working…" : avatarUrl ? "Change" : "Upload"}
-        </button>
-        {avatarUrl && (
-          <button
-            type="button"
-            onClick={handleRemove}
-            disabled={disabled || busy}
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
-          >
-            Remove
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function AvatarPreview({ url, name }: { url: string | null; name: string }) {
-  if (url) {
-    // Presigned S3 / OAuth URLs are arbitrary remote hosts; next/image would
-    // require per-host remotePatterns config.
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={url}
-        alt={`${name.trim() || "Account"} avatar`}
-        className="h-12 w-12 shrink-0 rounded-full object-cover"
-      />
-    );
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface)] text-sm font-semibold uppercase text-[var(--foreground)]"
-    >
-      {initialsOf(name)}
-    </span>
   );
 }
