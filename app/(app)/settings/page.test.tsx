@@ -116,6 +116,13 @@ function profileCtx(over: Partial<ResolvedProfile> = {}) {
   };
 }
 
+// jsdom implements no object-URL API; the avatar crop step needs one for its
+// preview image.
+beforeAll(() => {
+  URL.createObjectURL = vi.fn(() => "blob:avatar");
+  URL.revokeObjectURL = vi.fn();
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   // Default tab is Profile; integration cases opt into ?tab=integrations.
@@ -389,6 +396,9 @@ describe("Settings — height", () => {
 });
 
 // --- Avatar (immediate / out of draft) -------------------------------------
+//
+// AvatarRow owns the pick → crop → upload flow and is tested in
+// _components/AvatarRow.test.tsx; these cover the page's wiring to it.
 
 describe("Settings — avatar", () => {
   it("renders an initials placeholder when no avatar is set", () => {
@@ -404,12 +414,13 @@ describe("Settings — avatar", () => {
     expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
   });
 
-  it("uploads a valid image immediately, not via the save bar", async () => {
+  it("opens the crop step rather than uploading the picked file, and stays out of the save bar", async () => {
     render(<SettingsPage />);
     const fileInput = screen.getByLabelText("Upload avatar");
     const png = new File(["x"], "a.png", { type: "image/png" });
     fireEvent.change(fileInput, { target: { files: [png] } });
-    await waitFor(() => expect(uploadAvatarMock).toHaveBeenCalledWith(png));
+    await screen.findByRole("dialog", { name: "Crop your avatar" });
+    expect(uploadAvatarMock).not.toHaveBeenCalled();
     expect(saveBar()).not.toBeInTheDocument();
   });
 
@@ -420,22 +431,13 @@ describe("Settings — avatar", () => {
     await waitFor(() => expect(removeAvatarMock).toHaveBeenCalled());
   });
 
-  it("rejects an oversized file and skips the upload", async () => {
-    render(<SettingsPage />);
-    const fileInput = screen.getByLabelText("Upload avatar");
-    const big = new File(["x"], "big.png", { type: "image/png" });
-    Object.defineProperty(big, "size", { value: 3 * 1024 * 1024 });
-    fireEvent.change(fileInput, { target: { files: [big] } });
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Image must be under 2 MB."));
-    expect(uploadAvatarMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects a non-image file and skips the upload", async () => {
+  it("rejects a non-image file before the crop step", async () => {
     render(<SettingsPage />);
     const fileInput = screen.getByLabelText("Upload avatar");
     const pdf = new File(["x"], "doc.pdf", { type: "application/pdf" });
     fireEvent.change(fileInput, { target: { files: [pdf] } });
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Use PNG, JPG, or WebP."));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(uploadAvatarMock).not.toHaveBeenCalled();
   });
 });
