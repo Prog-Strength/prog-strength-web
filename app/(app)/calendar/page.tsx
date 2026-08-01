@@ -506,63 +506,84 @@ export default function CalendarPage() {
             />
           </div>
 
-          {/* Single bordered month grid in the true-month-grid vocabulary:
-              a weekday header row over seven day columns plus a slim 8th
-              "Week" rollup column (repeat(7, 1fr) 84px). One row per visible
-              week, ruled with a top hairline so it reads as a real calendar.
+          {/* Month grid in the true-month-grid vocabulary, plus a weekly rollup
+              rail as a SEPARATE card beside it. The rail used to be an 8th
+              column inside the calendar's border, where it read as an eighth
+              weekday; detaching it behind a real gutter is the point.
+
+              Both cards are row-spanning children of one outer grid and take
+              `grid-template-rows: subgrid`, so they share the outer grid's rows
+              exactly. That keeps each rollup level with its week for free —
+              day cells are min-height, not fixed height, so a week carrying
+              more pills is taller and two independently-flowed cards would
+              drift apart.
+
               The grid is month-bounded (4–6 weeks; see buildMonthGrid), so it
               stops where the month stops — adjacent-month days appear only as
               greyed cells inside the boundary rows. */}
-          <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+          <div
+            className="grid gap-x-3"
+            style={{
+              gridTemplateColumns: "minmax(0,1fr) 128px",
+              gridTemplateRows: `auto repeat(${days.length / 7}, auto)`,
+            }}
+          >
             <div
-              className="grid border-b border-[var(--border)] bg-[var(--surface-2)]/40"
-              style={{ gridTemplateColumns: "repeat(7, minmax(0,1fr)) 84px" }}
+              className="grid overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]"
+              style={{
+                gridColumn: 1,
+                gridRow: "1 / -1",
+                gridTemplateColumns: "repeat(7, minmax(0,1fr))",
+                gridTemplateRows: "subgrid",
+              }}
             >
               {WEEKDAYS.map((d) => (
                 <div
                   key={d}
-                  className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]"
+                  className="bg-[var(--surface-2)]/40 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]"
                 >
                   {d}
                 </div>
               ))}
-              <div className="border-l border-[var(--border)] px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+              {days.map((day) => {
+                const inMonth = day.getMonth() === cursor.month;
+                const key = localDateKey(day);
+                const dayEvents = eventsByDate.get(key) ?? [];
+                const isToday = key === todayKey;
+                const isSelected = key === selected;
+                return (
+                  <DayCell
+                    key={key}
+                    day={day}
+                    inMonth={inMonth}
+                    isToday={isToday}
+                    isSelected={isSelected}
+                    events={dayEvents}
+                    onSelectDay={() => selectDay(key)}
+                    onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
+                    onNavigateActivity={(s) => router.push(activityDetailHref(s))}
+                    onOpenPlanned={(plan) => openPlannedForDay(key, plan)}
+                  />
+                );
+              })}
+            </div>
+
+            <div
+              data-testid="week-rail"
+              className="grid overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30"
+              style={{ gridColumn: 2, gridRow: "1 / -1", gridTemplateRows: "subgrid" }}
+            >
+              <div className="bg-[var(--surface-2)]/40 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                 Week
               </div>
-            </div>
-            {Array.from({ length: days.length / 7 }).map((_, w) => (
-              <div
-                key={`week-${w}`}
-                className="grid border-t border-[var(--border)] first:border-t-0"
-                style={{ gridTemplateColumns: "repeat(7, minmax(0,1fr)) 84px" }}
-              >
-                {days.slice(w * 7, w * 7 + 7).map((day) => {
-                  const inMonth = day.getMonth() === cursor.month;
-                  const key = localDateKey(day);
-                  const dayEvents = eventsByDate.get(key) ?? [];
-                  const isToday = key === todayKey;
-                  const isSelected = key === selected;
-                  return (
-                    <DayCell
-                      key={key}
-                      day={day}
-                      inMonth={inMonth}
-                      isToday={isToday}
-                      isSelected={isSelected}
-                      events={dayEvents}
-                      onSelectDay={() => selectDay(key)}
-                      onNavigateWorkout={(id) => router.push(`/workouts/${id}`)}
-                      onNavigateActivity={(s) => router.push(activityDetailHref(s))}
-                      onOpenPlanned={(plan) => openPlannedForDay(key, plan)}
-                    />
-                  );
-                })}
+              {Array.from({ length: days.length / 7 }).map((_, w) => (
                 <WeekColumn
+                  key={`week-${w}`}
                   week={weeklyStats[w]}
                   isCurrent={weekContainsToday(weeklyStats[w], todayKey)}
                 />
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
           {/* Expanded read-out of the selected day. Wrapped in a ref so

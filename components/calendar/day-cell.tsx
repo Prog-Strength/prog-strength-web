@@ -68,8 +68,12 @@ export function DayCell({
   // differently. Hover adds a faint slate wash so cells feel clickable
   // without spending colour. Greyed (inMonth=false) cells stay quiet but
   // still show their day number.
+  // border-t rules each cell off from the row above (and the weekday header
+  // off from week one). It lives on the cell rather than a per-week wrapper
+  // because the calendar card is a flat subgrid of day cells — there is no row
+  // element to hang a border on. See calendar/page.tsx.
   const baseClasses =
-    "flex min-h-[72px] cursor-pointer flex-col gap-1 border-l border-[var(--border)] p-1.5 transition hover:bg-[var(--surface-2)]/40 md:min-h-[104px] md:gap-1.5 md:p-2";
+    "flex min-h-[72px] cursor-pointer flex-col gap-1 border-l border-t border-[var(--border)] p-1.5 transition hover:bg-[var(--surface-2)]/40 md:min-h-[104px] md:gap-1.5 md:p-2";
   const fillClasses = isSelected
     ? "bg-[var(--accent-soft)] ring-1 ring-inset ring-[var(--accent-line)]"
     : inMonth
