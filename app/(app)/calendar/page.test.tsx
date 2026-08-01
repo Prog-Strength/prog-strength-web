@@ -380,20 +380,32 @@ describe("CalendarPage", () => {
     expect(
       lastWeekCells.some((c) => (c.getAttribute("aria-label") ?? "").includes(cursorMonthName)),
     ).toBe(true);
-    // Each Week column carries a trained-days indicator (N/M of in-month days).
-    expect(columns.some((c) => /\d+\/\d+/.test(c.textContent ?? ""))).toBe(true);
+    // Each Week cell carries its week's session count.
+    expect(columns.some((c) => /\d+ sessions?/.test(c.textContent ?? ""))).toBe(true);
     // Exactly the week containing today is emphasized as the current week.
     expect(columns.filter((c) => c.getAttribute("data-current") === "true")).toHaveLength(1);
   });
 
-  it("rolls weekly steps into the Week rollup column", async () => {
+  it("rolls weekly steps into the Week rollup rail", async () => {
     renderPage();
     await findDigest(TODAY);
 
     const columns = await screen.findAllByTestId("week-column");
     // The seeded step totals land in the cursor month, so at least one Week
-    // column carries a steps metric label (👟 with a separated total).
-    expect(columns.some((c) => /👟/.test(c.textContent ?? ""))).toBe(true);
+    // cell carries a steps metric (word label + a separated total).
+    expect(columns.some((c) => /Steps[\d,]+/.test(c.textContent ?? ""))).toBe(true);
+  });
+
+  it("renders the weekly rollup as a card separate from the calendar grid", async () => {
+    renderPage();
+    await findDigest(TODAY);
+
+    // The rail is its own bordered card, not an 8th column of the month grid —
+    // day cells must not be descendants of it.
+    const rail = await screen.findByTestId("week-rail");
+    const dayCells = screen.getAllByLabelText(new RegExp(`^[A-Za-z]+, [A-Za-z]+ \\d+, \\d{4}`));
+    expect(dayCells.some((c) => rail.contains(c))).toBe(false);
+    expect(screen.getAllByTestId("week-column").every((c) => rail.contains(c))).toBe(true);
   });
 
   it("greets the user by name with a month-consistency line", async () => {

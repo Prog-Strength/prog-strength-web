@@ -3,13 +3,20 @@
 import { useDistanceUnit } from "@/lib/distance-unit-context";
 
 /**
- * Slim per-week rollup cell — the 8th column of each week row in the
- * `true-month-grid` calendar. Where the surface used to carry a full-width
- * coaching strip beneath every week, the rollup now collapses into a compact
- * ~84px column carrying the same {@link WeeklyStat}: a trained-days indicator
- * plus that week's session count, lift time, run distance, and steps. The
- * coaching sentence is demoted (it now lives in the day detail and modals);
- * here the data reads at a glance, near-monochrome slate.
+ * Slim per-week rollup cell — one row of the weekly rail that sits BESIDE the
+ * calendar card, not inside it. The rail is its own bordered card separated by
+ * a real gutter, because as an 8th column of the month grid the rollup read as
+ * an eighth weekday; the gap is the whole point of the treatment. Row alignment
+ * with the calendar survives the split because both cards are row-spanning
+ * children of one outer grid using `grid-template-rows: subgrid`, so a week row
+ * that grows taller takes its rollup with it.
+ *
+ * Each cell carries that week's session count, run distance, lift time, and
+ * steps as label/value pairs. The labels are words, not pictographs: an earlier
+ * cut leaned on emoji as the label, which read as tacky and left the numbers
+ * ambiguous the moment the emoji were removed. The trained-days ratio is gone
+ * too — the calendar beside it already shows which days were trained, so the
+ * ratio was restating its neighbour.
  */
 
 /** One day's marks within a week: whether it's in the cursor month and trained. */
@@ -43,25 +50,44 @@ export function formatTotalDuration(minutes: number): string {
 }
 
 /**
- * One week's slim rollup column. Trained/total are derived from the in-month
- * days in `week.days` (out-of-month leading/trailing days don't count toward
- * the total). Metrics with a zero value are omitted so an empty week reads as
- * intentional rest rather than a wall of zeroes. The current week gets a quiet
- * stronger hairline — never violet, which is reserved for today/selected.
+ * One week's rollup cell. Metrics with a zero value are omitted so a rest week
+ * reads as intentional rest rather than a wall of zeroes; a week with nothing at
+ * all collapses to an em dash. Steps are shown independently of session count —
+ * a day of passive walking with no logged session is still a real number.
+ *
+ * The separating rule lives on each cell's top edge (not on a row wrapper),
+ * because the cells are flat children of a subgrid rail with no per-row element
+ * to hang a border on. The current week gets a quiet stronger hairline — never
+ * violet, which is reserved for today/selected.
  */
 export function WeekColumn({ week, isCurrent }: { week: WeeklyStat; isCurrent: boolean }) {
   const { formatDistance, unitLabel } = useDistanceUnit();
-  const trained = week.days.filter((d) => d.inMonth && d.trained).length;
-  const total = week.days.filter((d) => d.inMonth).length;
 
-  const metrics: { key: string; label: string }[] = [];
-  if (week.liftMinutes > 0)
-    metrics.push({ key: "lift", label: `🏋 ${formatTotalDuration(week.liftMinutes)}` });
+  const sessions =
+    week.activities > 0
+      ? `${week.activities} ${week.activities === 1 ? "session" : "sessions"}`
+      : null;
+
+  const metrics: { key: string; label: string; value: string }[] = [];
   if (week.runMeters > 0)
-    metrics.push({ key: "run", label: `🏃 ${formatDistance(week.runMeters)} ${unitLabel}` });
-  if (week.steps > 0) metrics.push({ key: "steps", label: `👟 ${formatSteps(week.steps)}` });
+    metrics.push({
+      key: "run",
+      label: "Run",
+      value: `${formatDistance(week.runMeters)} ${unitLabel}`,
+    });
+  if (week.liftMinutes > 0)
+    metrics.push({ key: "lift", label: "Lift", value: formatTotalDuration(week.liftMinutes) });
+  if (week.steps > 0)
+    metrics.push({ key: "steps", label: "Steps", value: formatSteps(week.steps) });
 
+  const empty = sessions === null && metrics.length === 0;
   const borderClass = isCurrent ? "border-[var(--border-strong)]" : "border-[var(--border)]";
+
+  // Screen readers get the same facts as one sentence rather than a column of
+  // orphaned label/value fragments.
+  const spoken = empty
+    ? "no activity"
+    : [sessions, ...metrics.map((m) => `${m.label} ${m.value}`)].filter(Boolean).join(", ");
 
   return (
     <div
@@ -70,27 +96,24 @@ export function WeekColumn({ week, isCurrent }: { week: WeeklyStat; isCurrent: b
       aria-label={`Week of ${week.weekStart.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
-      })}: trained ${trained} of ${total} days`}
-      className={`flex flex-col gap-1 border-l ${borderClass} bg-[var(--surface-2)]/30 px-2 py-1.5 text-[10px] leading-tight`}
+      })}: ${spoken}`}
+      className={`flex flex-col gap-1 border-t ${borderClass} px-2.5 py-2 text-[10px] leading-tight`}
     >
-      <span
-        className={`font-semibold tabular-nums ${
-          trained > 0 ? "text-[var(--foreground)]" : "text-[var(--muted)]"
-        }`}
-        title={`Trained ${trained} of ${total} days`}
-      >
-        {trained}/{total}
-      </span>
-      {week.activities > 0 && (
-        <span className="tabular-nums text-[var(--muted)]">
-          {week.activities} {week.activities === 1 ? "session" : "sessions"}
-        </span>
+      {empty ? (
+        <span className="text-[var(--faint)]">—</span>
+      ) : (
+        <>
+          {sessions && (
+            <span className="font-semibold tabular-nums text-[var(--foreground)]">{sessions}</span>
+          )}
+          {metrics.map((m) => (
+            <div key={m.key} className="flex items-baseline justify-between gap-1.5">
+              <span className="text-[var(--muted)]">{m.label}</span>
+              <span className="truncate tabular-nums text-[var(--foreground)]">{m.value}</span>
+            </div>
+          ))}
+        </>
       )}
-      {metrics.map((m) => (
-        <span key={m.key} className="truncate tabular-nums text-[var(--muted)]" title={m.label}>
-          {m.label}
-        </span>
-      ))}
     </div>
   );
 }
