@@ -24,6 +24,7 @@ function profile(overrides: Partial<ResolvedProfile> = {}): ResolvedProfile {
 }
 
 const fullSummary: DashboardSummary = {
+  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
   running: {
     current_week: { distance_meters: 21214.5, run_count: 3, delta_pct_vs_prior_week: 9.0 },
     recent_avg_pace_sec_per_km: 376.5,
@@ -181,6 +182,7 @@ describe("adaptDashboard — full payload", () => {
 describe("adaptDashboard — null sections", () => {
   it("marks each null section as not present", () => {
     const empty: DashboardSummary = {
+      layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "recovery", "streak"],
       running: null,
       lifting: null,
       steps: null,
@@ -358,5 +360,116 @@ describe("adaptDashboard — sanitization", () => {
     }
     expect(data.running.spark.points[0]).toBe(0);
     expect(data.lifting.spark[0]).toBe(0);
+  });
+});
+
+describe("adaptDashboard — layout-aware sections", () => {
+  const hikingBlock = {
+    current_week: { distance_meters: 16093.44, session_count: 2, duration_seconds: 7200 },
+    latest_session: {
+      name: "Ridge Loop",
+      distance_meters: 8046.72,
+      duration_seconds: 3600,
+      start_time: "2026-07-20T15:00:00Z",
+    },
+    weekly_distance_spark: [0.0, 8046.72, 16093.44],
+    elevation_gain_meters: 610.0,
+  };
+
+  it("carries layout, adapts present tiles, and marks absent/null tiles not present", () => {
+    const summary: DashboardSummary = {
+      layout: ["running", "hiking", "steps", "streak"],
+      hiking: hikingBlock,
+      steps: null,
+      streak: {
+        weeks: 4,
+        active_days_this_week: 2,
+        week: [true, true, false, false, false, false, false],
+      },
+    };
+    const data = adaptDashboard(summary, profile({ distance_unit: "mi" }));
+
+    expect(data.layout).toEqual(["running", "hiking", "steps", "streak"]);
+
+    // hiking present, distance converted to miles (16093.44 / 1609.344 = 10.0)
+    expect(data.hiking.present).toBe(true);
+    if (!data.hiking.present) throw new Error("hiking absent");
+    expect(data.hiking.currentWeek.distance).toBe("10.0");
+
+    // enabled-but-null → not present
+    expect(data.steps.present).toBe(false);
+    // absent key → not present
+    expect(data.running.present).toBe(false);
+    expect(data.walking.present).toBe(false);
+    expect(data.cycling.present).toBe(false);
+  });
+
+  it("converts hiking distances per unit and passes elevation gain through", () => {
+    const summary: DashboardSummary = {
+      layout: ["hiking"],
+      hiking: hikingBlock,
+    };
+
+    const mi = adaptDashboard(summary, profile({ distance_unit: "mi" }));
+    if (!mi.hiking.present) throw new Error("hiking absent");
+    expect(mi.hiking.currentWeek.distance).toBe("10.0"); // 16093.44 / 1609.344
+    expect(mi.hiking.unit).toBe("mi");
+    expect(mi.hiking.spark.unit).toBe("mi");
+    expect(mi.hiking.spark.points[2]).toBeCloseTo(10.0, 5);
+    expect(mi.hiking.latest?.distance).toBe("5.0"); // 8046.72 / 1609.344
+    expect(mi.hiking.durationSeconds).toBe(7200);
+    expect(mi.hiking.currentWeek.sessionCount).toBe(2);
+    expect(mi.hiking.elevationGainMeters).toBe(610.0);
+
+    const km = adaptDashboard(summary, profile({ distance_unit: "km" }));
+    if (!km.hiking.present) throw new Error("hiking absent");
+    expect(km.hiking.currentWeek.distance).toBe("16.1"); // 16093.44 / 1000
+    expect(km.hiking.spark.points[2]).toBeCloseTo(16.09344, 5);
+    expect(km.hiking.elevationGainMeters).toBe(610.0);
+  });
+
+  it("adapts walking and cycling endurance tiles", () => {
+    const summary: DashboardSummary = {
+      layout: ["walking", "cycling"],
+      walking: {
+        current_week: { distance_meters: 3218.688, session_count: 5, duration_seconds: 2400 },
+        latest_session: null,
+        weekly_distance_spark: [1000, 2000],
+      },
+      cycling: {
+        current_week: { distance_meters: 32186.88, session_count: 1, duration_seconds: 3600 },
+        latest_session: null,
+        weekly_distance_spark: [0, 32186.88],
+      },
+    };
+    const data = adaptDashboard(summary, profile({ distance_unit: "mi" }));
+
+    if (!data.walking.present) throw new Error("walking absent");
+    if (!data.cycling.present) throw new Error("cycling absent");
+    expect(data.walking.currentWeek.distance).toBe("2.0"); // 3218.688 / 1609.344
+    expect(data.walking.currentWeek.sessionCount).toBe(5);
+    expect(data.walking.latest).toBeNull();
+    expect(data.cycling.currentWeek.distance).toBe("20.0"); // 32186.88 / 1609.344
+    expect(data.cycling.durationSeconds).toBe(3600);
+  });
+
+  it("collapses a null summary to an empty layout and a brand-new streak", () => {
+    const data = adaptDashboard(null, profile());
+    expect(data.layout).toEqual([]);
+    expect(data.running).toEqual({ present: false });
+    expect(data.walking).toEqual({ present: false });
+    expect(data.cycling).toEqual({ present: false });
+    expect(data.hiking).toEqual({ present: false });
+    expect(data.lifting).toEqual({ present: false });
+    expect(data.steps).toEqual({ present: false });
+    expect(data.nutrition).toEqual({ present: false });
+    expect(data.bodyweight).toEqual({ present: false });
+    expect(data.recovery).toEqual({ present: false });
+    expect(data.streak.isNew).toBe(true);
+  });
+
+  it("falls back to a brand-new streak when the streak tile is absent", () => {
+    const data = adaptDashboard({ layout: ["running"] }, profile());
+    expect(data.streak).toEqual({ weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true });
   });
 });

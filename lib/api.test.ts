@@ -28,6 +28,7 @@ import {
   listRunningSessions,
   listWhoopRecovery,
   listWorkouts,
+  putDashboardLayout,
   removeFollower,
   reorderActivityPhotos,
   requestFollow,
@@ -564,6 +565,7 @@ describe("checkUsernameAvailable", () => {
 
 describe("getDashboardSummary", () => {
   const summary = {
+    layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
     running: {
       current_week: { distance_meters: 21214.5, run_count: 3, delta_pct_vs_prior_week: 9.0 },
       recent_avg_pace_sec_per_km: 376.5,
@@ -623,6 +625,29 @@ describe("getDashboardSummary", () => {
   it("rejects with the API error text on a non-ok response", async () => {
     mockFetchError("boom");
     await expect(getDashboardSummary(TOKEN, "America/Denver")).rejects.toThrow("boom");
+  });
+});
+
+describe("putDashboardLayout", () => {
+  it("PUTs the tile ids with the bearer header and resolves on a 204", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(putDashboardLayout(TOKEN, ["running", "hiking"])).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/dashboard/layout`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ tile_ids: ["running", "hiking"] }),
+    });
+  });
+
+  it("throws on a non-ok response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 422 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(putDashboardLayout(TOKEN, ["running"])).rejects.toThrow(
+      "PUT /dashboard/layout failed: 422",
+    );
   });
 });
 

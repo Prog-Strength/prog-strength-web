@@ -49,6 +49,7 @@ const PROFILE: ResolvedProfile = {
 };
 
 const FULL_SUMMARY: DashboardSummary = {
+  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
   running: {
     current_week: { distance_meters: 16093.44, run_count: 3, delta_pct_vs_prior_week: 12 },
     recent_avg_pace_sec_per_km: 300,
@@ -87,6 +88,7 @@ const FULL_SUMMARY: DashboardSummary = {
 };
 
 const EMPTY_SUMMARY: DashboardSummary = {
+  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "recovery", "streak"],
   running: null,
   lifting: null,
   steps: null,
