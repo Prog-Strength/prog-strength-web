@@ -15,6 +15,7 @@ function fixture(overrides: Partial<DashboardData> = {}): DashboardData {
     steps: { present: false },
     nutrition: { present: false },
     bodyweight: { present: false },
+    bloodPressure: { present: false },
     recovery: { present: false },
     streak: { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
     ...overrides,

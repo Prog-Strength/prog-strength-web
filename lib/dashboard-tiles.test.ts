@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
 
 describe("dashboard tile catalog", () => {
-  test("has exactly 10 tiles", () => {
-    expect(TILE_CATALOG.length).toBe(10);
+  test("has exactly 11 tiles", () => {
+    expect(TILE_CATALOG.length).toBe(11);
   });
 
   test("ids are in the Go catalog order", () => {
@@ -16,6 +16,7 @@ describe("dashboard tile catalog", () => {
       "steps",
       "nutrition",
       "bodyweight",
+      "blood_pressure",
       "recovery",
       "streak",
     ]);
@@ -44,6 +45,7 @@ describe("dashboard tile catalog", () => {
     steps: true,
     nutrition: true,
     bodyweight: true,
+    blood_pressure: true,
     recovery: true,
     streak: true,
   };

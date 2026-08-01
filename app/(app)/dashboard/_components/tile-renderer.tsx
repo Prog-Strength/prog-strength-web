@@ -231,6 +231,30 @@ export function StreakCard({ streak, href }: { streak: DashboardData["streak"]; 
   );
 }
 
+// Interim placeholder card. The full BloodPressureCard (latest reading,
+// category tone, dual spark) lands with the dashboard-card task; this keeps
+// the tile switch exhaustive in the meantime.
+function BloodPressureCard({
+  section,
+  href,
+}: {
+  section: DashboardData["bloodPressure"];
+  href: string;
+}) {
+  if (!section.present) {
+    return (
+      <MiniCard title="Blood Pressure" href={href}>
+        <MiniCardEmpty cta="Log a reading to start tracking" />
+      </MiniCard>
+    );
+  }
+  return (
+    <MiniCard title="Blood Pressure" href={href}>
+      <BigNum value={`${section.latest.systolic}/${section.latest.diastolic}`} />
+    </MiniCard>
+  );
+}
+
 /**
  * Render one tile by id. The exhaustive `switch` is the compile-time guard: a
  * new `TileId` with no case makes the `never` default fail to type-check.
@@ -254,6 +278,8 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
       return <NutritionCard section={data.nutrition} href={href} />;
     case "bodyweight":
       return <BodyweightCard section={data.bodyweight} href={href} />;
+    case "blood_pressure":
+      return <BloodPressureCard section={data.bloodPressure} href={href} />;
     case "recovery":
       return data.recovery.present ? (
         <RecoveryCard section={data.recovery} href={href} />

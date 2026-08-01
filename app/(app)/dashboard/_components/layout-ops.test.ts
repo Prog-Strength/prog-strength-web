@@ -115,7 +115,7 @@ describe("availableTiles", () => {
   it("returns all catalog entries for an empty list", () => {
     const result = availableTiles([]);
     expect(result.map((t) => t.id)).toEqual(TILE_CATALOG.map((t) => t.id));
-    expect(result).toHaveLength(10);
+    expect(result).toHaveLength(11);
   });
 
   it("returns an empty array when every tile is enabled", () => {
