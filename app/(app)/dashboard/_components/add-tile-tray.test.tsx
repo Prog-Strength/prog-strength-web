@@ -8,7 +8,7 @@ describe("AddTileTray", () => {
   it("lists only the not-enabled tiles for the draft", () => {
     render(<AddTileTray draft={["running"]} onAdd={() => {}} />);
 
-    // The nine other catalog titles are offered...
+    // The other catalog titles are offered...
     for (const title of [
       "Walking",
       "Cycling",
@@ -18,6 +18,10 @@ describe("AddTileTray", () => {
       "Nutrition",
       "Bodyweight",
       "Recovery",
+      "HRV Balance",
+      "Morning Vitals",
+      "Recovery Trend",
+      "Recovery Log",
       "Streak",
     ]) {
       expect(screen.getByText(title)).toBeInTheDocument();

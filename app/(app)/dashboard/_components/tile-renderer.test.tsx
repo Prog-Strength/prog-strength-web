@@ -1,8 +1,10 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen } from "@testing-library/react";
-import type { DashboardData, RecoveryView, BloodPressureView } from "@/lib/dashboard";
+import type { DashboardData, BloodPressureView } from "@/lib/dashboard";
+import type { TileId } from "@/lib/dashboard-tiles";
 import { TileCard } from "./tile-renderer";
+import { suppressedView } from "./recovery/fixtures";
 
 function fixture(overrides: Partial<DashboardData> = {}): DashboardData {
   return {
@@ -41,15 +43,26 @@ describe("TileCard", () => {
     expect(screen.getByText("Connect Whoop to see recovery")).toBeInTheDocument();
   });
 
-  it("renders the live recovery card when present", () => {
-    const recovery: RecoveryView = {
-      restingToday: 52,
-      recoveryScore: 74,
-      spark: [50, 51, 52, 53, 52],
-    };
-    render(<TileCard id="recovery" data={fixture({ recovery: { present: true, ...recovery } })} />);
-    expect(screen.getByText("52")).toBeInTheDocument();
-    expect(screen.getByText("bpm resting")).toBeInTheDocument();
+  const FAMILY: [TileId, string][] = [
+    ["recovery", "Recovery"],
+    ["hrv_balance", "HRV Balance"],
+    ["morning_vitals", "Morning Vitals"],
+    ["recovery_trend", "Recovery Trend"],
+    ["recovery_log", "Recovery Log"],
+  ];
+
+  it.each(FAMILY)("renders the %s card from the shared recovery section", (id, title) => {
+    render(
+      <TileCard id={id} data={fixture({ recovery: { present: true, ...suppressedView() } })} />,
+    );
+    expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
+    expect(screen.queryByText("Connect Whoop to see recovery")).not.toBeInTheDocument();
+  });
+
+  it.each(FAMILY)("renders the titled connect CTA for %s when recovery is absent", (id, title) => {
+    render(<TileCard id={id} data={fixture({ recovery: { present: false } })} />);
+    expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
+    expect(screen.getByText("Connect Whoop to see recovery")).toBeInTheDocument();
   });
 
   it("renders the blood-pressure empty CTA when the section is absent", () => {

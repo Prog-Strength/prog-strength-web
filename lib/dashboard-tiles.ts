@@ -16,6 +16,10 @@ export type TileId =
   | "bodyweight"
   | "blood_pressure"
   | "recovery"
+  | "hrv_balance"
+  | "morning_vitals"
+  | "recovery_trend"
+  | "recovery_log"
   | "streak";
 
 export type TileCatalogEntry = {
@@ -84,7 +88,31 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     id: "recovery",
     title: "Recovery",
     href: "/recovery",
-    description: "Whoop recovery and resting HR.",
+    description: "Today's readiness as a sentence, with baseline deltas.",
+  },
+  {
+    id: "hrv_balance",
+    title: "HRV Balance",
+    href: "/recovery",
+    description: "Today's HRV against your own balanced range.",
+  },
+  {
+    id: "morning_vitals",
+    title: "Morning Vitals",
+    href: "/recovery",
+    description: "Score, resting HR, and HRV vs your 30-day averages.",
+  },
+  {
+    id: "recovery_trend",
+    title: "Recovery Trend",
+    href: "/recovery",
+    description: "Which way your HRV is heading this week.",
+  },
+  {
+    id: "recovery_log",
+    title: "Recovery Log",
+    href: "/recovery",
+    description: "Your last few mornings as dated readings.",
   },
   {
     id: "streak",
