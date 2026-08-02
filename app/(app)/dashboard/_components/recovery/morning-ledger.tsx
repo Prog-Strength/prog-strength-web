@@ -83,12 +83,12 @@ function LedgerRow({
   }
 
   // Delta glyph vs the server baseline — the row's only splash of color.
-  let sign: { glyph: string; color: string } | null = null;
+  let sign: { glyph: string; color: string; label: string } | null = null;
   if (day.hrv !== null && baselineHrv !== null) {
     const d = day.hrv - baselineHrv;
-    if (d <= -3) sign = { glyph: "▼", color: "var(--warning)" };
-    else if (d >= 3) sign = { glyph: "▲", color: "var(--success)" };
-    else sign = { glyph: "▬", color: "var(--muted)" };
+    if (d <= -3) sign = { glyph: "▼", color: "var(--warning)", label: "below baseline" };
+    else if (d >= 3) sign = { glyph: "▲", color: "var(--success)", label: "above baseline" };
+    else sign = { glyph: "▬", color: "var(--muted)", label: "near baseline" };
   }
 
   return (
@@ -98,9 +98,12 @@ function LedgerRow({
         <span className="inline-flex w-16 items-center justify-end gap-1">
           {day.hrv !== null ? `${day.hrv} ms` : "— ms"}
           {sign && (
-            <span aria-hidden="true" style={{ color: sign.color }}>
-              {sign.glyph}
-            </span>
+            <>
+              <span aria-hidden="true" style={{ color: sign.color }}>
+                {sign.glyph}
+              </span>
+              <span className="sr-only">{sign.label}</span>
+            </>
           )}
         </span>
         <span className="w-14 text-right text-[var(--muted)]">

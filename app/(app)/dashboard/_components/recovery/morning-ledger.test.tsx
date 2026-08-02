@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen } from "@testing-library/react";
-import { calibratingView, noReadingView, suppressedView } from "./fixtures";
+import { calibratingView, legacyView, noReadingView, suppressedView } from "./fixtures";
 import { MorningLedgerCard } from "./morning-ledger";
 
 const HREF = "/recovery";
@@ -44,5 +44,10 @@ describe("MorningLedgerCard", () => {
   it("calibrating: the header shows honest n-of-14 progress", () => {
     render(<MorningLedgerCard section={calibratingView()} href={HREF} />);
     expect(screen.getByText(/9 of 14 nights/)).toBeInTheDocument();
+  });
+
+  it("legacy payload with no derived blocks reads as calibrating", () => {
+    render(<MorningLedgerCard section={legacyView()} href={HREF} />);
+    expect(screen.getByText("Log is calibrating.")).toBeInTheDocument();
   });
 });
