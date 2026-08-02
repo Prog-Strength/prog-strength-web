@@ -160,15 +160,55 @@ export type BloodPressureView = {
   diastolicSpark: number[];
 };
 
+export type RecoveryHrvStatus = "balanced" | "elevated" | "suppressed" | "unknown";
+export type RecoveryTrendDirection = "rising" | "falling" | "steady" | "unknown";
+
+/** A single date-aligned day in the recovery history; nulls preserved as null. */
+export type RecoveryDayPoint = {
+  date: string; // YYYY-MM-DD, local
+  restingHr: number | null;
+  recoveryScore: number | null;
+  hrv: number | null; // ms
+};
+
+/** Trailing baselines behind the tile; averages null until calibrated. */
+export type RecoveryBaselineView = {
+  windowDays: number;
+  restingHrAvg: number | null;
+  restingHrDays: number;
+  hrvAvg: number | null;
+  hrvStdDev: number | null;
+  hrvDays: number;
+  recoveryScoreAvg: number | null;
+  recoveryScoreDays: number;
+};
+
+/** Today's HRV vs the user's own baseline; bounds/z agree with status. */
+export type RecoveryHrvView = {
+  status: RecoveryHrvStatus;
+  balancedLow: number | null;
+  balancedHigh: number | null;
+  zScore: number | null;
+  trend: RecoveryTrendDirection;
+  shortAvg: number | null;
+};
+
 /**
  * Display view-model for the recovery widget (Whoop-sourced). Present only
  * for a connected user; the page renders NO card when absent. `restingToday`
- * / `recoveryScore` are null when Whoop has no reading yet today.
+ * / `recoveryScore` / `hrvToday` are null when Whoop has no reading yet today.
+ * `days` is the date-aligned history (nulls preserved); `baseline` and `hrv`
+ * are the always-present derived blocks. Server figures are displayed as
+ * received — the adapter never recomputes an average, band bound, or z-score.
  */
 export type RecoveryView = {
   restingToday: number | null;
   recoveryScore: number | null;
-  spark: number[]; // resting-HR trend, oldest→newest
+  hrvToday?: number | null; // NEW — was fetched and dropped
+  spark: number[]; // unchanged; resting-HR trend, oldest→newest
+  days?: RecoveryDayPoint[]; // NEW — date-aligned, nulls preserved
+  baseline?: RecoveryBaselineView; // NEW
+  hrv?: RecoveryHrvView; // NEW
 };
 
 /**
@@ -333,11 +373,66 @@ function adaptBloodPressure(bp: DashboardBloodPressure): BloodPressureView {
   };
 }
 
+const RECOVERY_STATUSES: readonly RecoveryHrvStatus[] = [
+  "balanced",
+  "elevated",
+  "suppressed",
+  "unknown",
+];
+const RECOVERY_TRENDS: readonly RecoveryTrendDirection[] = [
+  "rising",
+  "falling",
+  "steady",
+  "unknown",
+];
+
+/** Narrow an unknown server string to a known union member, else "unknown". */
+function recoveryStatus(s: string): RecoveryHrvStatus {
+  return (RECOVERY_STATUSES as readonly string[]).includes(s)
+    ? (s as RecoveryHrvStatus)
+    : "unknown";
+}
+
+function recoveryTrend(s: string): RecoveryTrendDirection {
+  return (RECOVERY_TRENDS as readonly string[]).includes(s)
+    ? (s as RecoveryTrendDirection)
+    : "unknown";
+}
+
 function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
   return {
     restingToday: recovery.today?.resting_heart_rate ?? null,
     recoveryScore: recovery.today?.recovery_score ?? null,
+    hrvToday: recovery.today?.hrv_rmssd_milli ?? null,
+    // Only the sparkline is sanitized (non-finite → 0, correct for a sparkline).
+    // The day series keeps its nulls — a null is "no reading", never a zero HR.
     spark: sanitizeSpark(recovery.resting_hr_spark),
+    days: recovery.days.map((d) => ({
+      date: d.date,
+      restingHr: d.resting_heart_rate,
+      recoveryScore: d.recovery_score,
+      hrv: d.hrv_rmssd_milli,
+    })),
+    // Server figures pass through unchanged — never re-derived from a partial
+    // series (house convention: a server average is a window figure).
+    baseline: {
+      windowDays: recovery.baseline.window_days,
+      restingHrAvg: recovery.baseline.resting_hr_avg,
+      restingHrDays: recovery.baseline.resting_hr_days,
+      hrvAvg: recovery.baseline.hrv_avg,
+      hrvStdDev: recovery.baseline.hrv_std_dev,
+      hrvDays: recovery.baseline.hrv_days,
+      recoveryScoreAvg: recovery.baseline.recovery_score_avg,
+      recoveryScoreDays: recovery.baseline.recovery_score_days,
+    },
+    hrv: {
+      status: recoveryStatus(recovery.hrv.status),
+      balancedLow: recovery.hrv.balanced_low,
+      balancedHigh: recovery.hrv.balanced_high,
+      zScore: recovery.hrv.z_score,
+      trend: recoveryTrend(recovery.hrv.trend),
+      shortAvg: recovery.hrv.short_avg,
+    },
   };
 }
 

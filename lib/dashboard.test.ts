@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { DashboardSummary, ResolvedProfile } from "@/lib/api";
+import type {
+  DashboardRecovery,
+  DashboardRecoveryBaseline,
+  DashboardRecoveryHrv,
+  DashboardSummary,
+  ResolvedProfile,
+} from "@/lib/api";
 import { adaptDashboard } from "@/lib/dashboard";
 
 // A profile seed; only weight_unit/distance_unit matter to the adapter,
@@ -217,6 +223,37 @@ describe("adaptDashboard — null sections", () => {
   });
 });
 
+const EMPTY_BASELINE: DashboardRecoveryBaseline = {
+  window_days: 30,
+  resting_hr_avg: null,
+  resting_hr_days: 0,
+  hrv_avg: null,
+  hrv_std_dev: null,
+  hrv_days: 0,
+  recovery_score_avg: null,
+  recovery_score_days: 0,
+};
+
+const UNKNOWN_HRV: DashboardRecoveryHrv = {
+  status: "unknown",
+  balanced_low: null,
+  balanced_high: null,
+  z_score: null,
+  trend: "unknown",
+  short_avg: null,
+};
+
+function recoveryBlock(over: Partial<DashboardRecovery>): DashboardRecovery {
+  return {
+    today: null,
+    resting_hr_spark: [],
+    days: [],
+    baseline: EMPTY_BASELINE,
+    hrv: UNKNOWN_HRV,
+    ...over,
+  };
+}
+
 describe("adaptDashboard — recovery (Whoop)", () => {
   it("marks a null recovery section as not present (unconnected user)", () => {
     const data = adaptDashboard(fullSummary, profile());
@@ -226,7 +263,7 @@ describe("adaptDashboard — recovery (Whoop)", () => {
   it("maps a recovery block's resting HR, score, and spark", () => {
     const withRecovery: DashboardSummary = {
       ...fullSummary,
-      recovery: {
+      recovery: recoveryBlock({
         today: {
           date: "2026-07-22",
           resting_heart_rate: 52,
@@ -234,7 +271,7 @@ describe("adaptDashboard — recovery (Whoop)", () => {
           hrv_rmssd_milli: 64.5,
         },
         resting_hr_spark: [55, 54, 53, 52, 52, 51, 52],
-      },
+      }),
     };
     const data = adaptDashboard(withRecovery, profile());
     if (!data.recovery.present) throw new Error("recovery absent");
@@ -247,7 +284,7 @@ describe("adaptDashboard — recovery (Whoop)", () => {
   it("keeps recovery present with null fields when Whoop has no reading yet today", () => {
     const noReading: DashboardSummary = {
       ...fullSummary,
-      recovery: { today: null, resting_hr_spark: [55, 54] },
+      recovery: recoveryBlock({ today: null, resting_hr_spark: [55, 54] }),
     };
     const data = adaptDashboard(noReading, profile());
     if (!data.recovery.present) throw new Error("recovery absent");
@@ -260,7 +297,7 @@ describe("adaptDashboard — recovery (Whoop)", () => {
   it("sanitizes NaN/Infinity out of the resting-HR spark", () => {
     const dirty: DashboardSummary = {
       ...fullSummary,
-      recovery: {
+      recovery: recoveryBlock({
         today: {
           date: "2026-07-22",
           resting_heart_rate: 52,
@@ -268,7 +305,7 @@ describe("adaptDashboard — recovery (Whoop)", () => {
           hrv_rmssd_milli: null,
         },
         resting_hr_spark: [Number.NaN, Number.POSITIVE_INFINITY, 52],
-      },
+      }),
     };
     const data = adaptDashboard(dirty, profile());
     if (!data.recovery.present) throw new Error("recovery absent");
@@ -276,6 +313,101 @@ describe("adaptDashboard — recovery (Whoop)", () => {
       expect(Number.isFinite(n)).toBe(true);
     }
     expect(data.recovery.spark).toEqual([0, 0, 52]);
+  });
+
+  it("surfaces today's HRV (previously dropped by the adapter)", () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: recoveryBlock({
+        today: {
+          date: "2026-07-02",
+          resting_heart_rate: 52,
+          recovery_score: 78,
+          hrv_rmssd_milli: 91,
+        },
+      }),
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+    expect(data.recovery.hrvToday).toBe(91);
+  });
+
+  it("preserves nulls in the days series (never zero-fills)", () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: recoveryBlock({
+        days: [
+          {
+            date: "2026-07-01",
+            resting_heart_rate: null,
+            recovery_score: null,
+            hrv_rmssd_milli: null,
+          },
+          {
+            date: "2026-07-02",
+            resting_heart_rate: 52,
+            recovery_score: 78,
+            hrv_rmssd_milli: 91,
+          },
+        ],
+      }),
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+    expect(data.recovery.days![0]).toEqual({
+      date: "2026-07-01",
+      restingHr: null,
+      recoveryScore: null,
+      hrv: null,
+    });
+    expect(data.recovery.days![1].hrv).toBe(91);
+  });
+
+  it("passes baseline and hrv figures through unchanged", () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: recoveryBlock({
+        baseline: {
+          window_days: 30,
+          resting_hr_avg: 52.4,
+          resting_hr_days: 27,
+          hrv_avg: 91.2,
+          hrv_std_dev: 12.6,
+          hrv_days: 26,
+          recovery_score_avg: 68.1,
+          recovery_score_days: 27,
+        },
+        hrv: {
+          status: "suppressed",
+          balanced_low: 78.6,
+          balanced_high: 103.8,
+          z_score: -1.37,
+          trend: "falling",
+          short_avg: 82.3,
+        },
+      }),
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+    expect(data.recovery.baseline!.hrvAvg).toBe(91.2);
+    expect(data.recovery.baseline!.hrvDays).toBe(26);
+    expect(data.recovery.hrv!.status).toBe("suppressed");
+    expect(data.recovery.hrv!.balancedLow).toBe(78.6);
+    expect(data.recovery.hrv!.zScore).toBe(-1.37);
+    expect(data.recovery.hrv!.trend).toBe("falling");
+  });
+
+  it('maps an unknown status/trend string to "unknown" (forward-compat)', () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: recoveryBlock({
+        hrv: { ...UNKNOWN_HRV, status: "sideways", trend: "wobbling" },
+      }),
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+    expect(data.recovery.hrv!.status).toBe("unknown");
+    expect(data.recovery.hrv!.trend).toBe("unknown");
   });
 });
 
