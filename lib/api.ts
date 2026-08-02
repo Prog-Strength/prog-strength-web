@@ -4499,20 +4499,64 @@ export type DashboardBloodPressure = {
 };
 
 /**
- * The dashboard's recovery widget, sourced from Whoop. Present only for
- * users with a connected Whoop account (omitted → null otherwise).
- * `today` is the latest daily recovery snapshot (null when Whoop has no
- * reading yet); `resting_hr_spark` is the recent resting-HR trend,
- * oldest→newest.
+ * A single day's recovery metrics in the dashboard payload — the shape shared
+ * by `today` and each entry of `days`. `date` is the user-local calendar day
+ * (YYYY-MM-DD); all three metrics are nullable (Whoop may have no reading).
+ */
+export type DashboardRecoveryDay = {
+  date: string;
+  resting_heart_rate: number | null;
+  recovery_score: number | null;
+  hrv_rmssd_milli: number | null;
+};
+
+/**
+ * Trailing baselines behind the recovery tile. Averages are null until their
+ * metric has `min_baseline_days` samples; the `*_days` counts are always
+ * present so a client can render calibration progress. `window_days` is the
+ * baseline window width (excludes today).
+ */
+export type DashboardRecoveryBaseline = {
+  window_days: number;
+  resting_hr_avg: number | null;
+  resting_hr_days: number;
+  hrv_avg: number | null;
+  hrv_std_dev: number | null;
+  hrv_days: number;
+  recovery_score_avg: number | null;
+  recovery_score_days: number;
+};
+
+/**
+ * Today's HRV read against the user's own baseline. Bounds and z-score derive
+ * from the same floored standard deviation, so they always agree with `status`.
+ * `status` is balanced | elevated | suppressed | unknown; `trend` is rising |
+ * falling | steady | unknown.
+ */
+export type DashboardRecoveryHrv = {
+  status: string;
+  balanced_low: number | null;
+  balanced_high: number | null;
+  z_score: number | null;
+  trend: string;
+  short_avg: number | null;
+};
+
+/**
+ * The dashboard's recovery widget, sourced from Whoop. Present only for users
+ * with a connected Whoop account (omitted → null otherwise). `today` is the
+ * latest daily recovery snapshot (null when Whoop has no reading yet);
+ * `resting_hr_spark` is the recent resting-HR trend, oldest→newest (gap-omitting
+ * legacy semantics). `days` is the date-aligned window (oldest→newest, missing
+ * days present with null metrics); `baseline` and `hrv` are always-present
+ * derived blocks.
  */
 export type DashboardRecovery = {
-  today: {
-    date: string;
-    resting_heart_rate: number | null;
-    recovery_score: number | null;
-    hrv_rmssd_milli: number | null;
-  } | null;
+  today: DashboardRecoveryDay | null;
   resting_hr_spark: number[];
+  days: DashboardRecoveryDay[];
+  baseline: DashboardRecoveryBaseline;
+  hrv: DashboardRecoveryHrv;
 };
 
 /**
