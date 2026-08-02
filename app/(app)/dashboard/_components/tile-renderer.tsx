@@ -14,10 +14,12 @@
  * are otherwise unchanged. They are re-exported so `page.tsx` (pre-W6) can keep
  * importing them.
  *
- * Recovery is the one tile whose section can be "enabled but not present" (the
- * user added the tile but hasn't connected Whoop): when enabled-but-absent it
- * renders the `RecoveryCardEmpty` connect CTA. The other cards each own their
- * `!section.present` empty state internally.
+ * The recovery FAMILY — recovery, hrv_balance, morning_vitals, recovery_trend,
+ * recovery_log — are the tiles whose section can be "enabled but not present"
+ * (the user added the tile but hasn't connected Whoop). All five read the one
+ * shared `recovery` section; when enabled-but-absent each family id renders
+ * its own titled `RecoveryConnectCard` connect CTA. The other cards each own
+ * their `!section.present` empty state internally.
  */
 "use client";
 
@@ -42,7 +44,12 @@ import { MiniCard, MiniCardEmpty } from "./mini-card";
 import { WalkingCard } from "./walking-card";
 import { CyclingCard } from "./cycling-card";
 import { HikingCard } from "./hiking-card";
-import { RecoveryCard, RecoveryCardEmpty } from "./whoop-card";
+import { RecoveryConnectCard } from "./recovery/connect-card";
+import { ReadinessVerdictCard } from "./recovery/readiness-verdict";
+import { HrvBalanceCard } from "./recovery/balance-band";
+import { MorningVitalsCard } from "./recovery/three-dial-vitals";
+import { TrendRailCard } from "./recovery/trend-rail";
+import { MorningLedgerCard } from "./recovery/morning-ledger";
 
 export function RunningCard({
   section,
@@ -305,9 +312,33 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
       return <BloodPressureCard section={data.bloodPressure} href={href} />;
     case "recovery":
       return data.recovery.present ? (
-        <RecoveryCard section={data.recovery} href={href} />
+        <ReadinessVerdictCard section={data.recovery} href={href} />
       ) : (
-        <RecoveryCardEmpty href={href} />
+        <RecoveryConnectCard title="Recovery" href={href} />
+      );
+    case "hrv_balance":
+      return data.recovery.present ? (
+        <HrvBalanceCard section={data.recovery} href={href} />
+      ) : (
+        <RecoveryConnectCard title="HRV Balance" href={href} />
+      );
+    case "morning_vitals":
+      return data.recovery.present ? (
+        <MorningVitalsCard section={data.recovery} href={href} />
+      ) : (
+        <RecoveryConnectCard title="Morning Vitals" href={href} />
+      );
+    case "recovery_trend":
+      return data.recovery.present ? (
+        <TrendRailCard section={data.recovery} href={href} />
+      ) : (
+        <RecoveryConnectCard title="Recovery Trend" href={href} />
+      );
+    case "recovery_log":
+      return data.recovery.present ? (
+        <MorningLedgerCard section={data.recovery} href={href} />
+      ) : (
+        <RecoveryConnectCard title="Recovery Log" href={href} />
       );
     case "streak":
       return <StreakCard streak={data.streak} href={href} />;

@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
 
 describe("dashboard tile catalog", () => {
-  test("has exactly 11 tiles", () => {
-    expect(TILE_CATALOG.length).toBe(11);
+  test("has exactly 15 tiles", () => {
+    expect(TILE_CATALOG.length).toBe(15);
   });
 
   test("ids are in the Go catalog order", () => {
@@ -18,6 +18,10 @@ describe("dashboard tile catalog", () => {
       "bodyweight",
       "blood_pressure",
       "recovery",
+      "hrv_balance",
+      "morning_vitals",
+      "recovery_trend",
+      "recovery_log",
       "streak",
     ]);
   });
@@ -47,6 +51,10 @@ describe("dashboard tile catalog", () => {
     bodyweight: true,
     blood_pressure: true,
     recovery: true,
+    hrv_balance: true,
+    morning_vitals: true,
+    recovery_trend: true,
+    recovery_log: true,
     streak: true,
   };
 
@@ -56,5 +64,18 @@ describe("dashboard tile catalog", () => {
       expect(catalogIds.has(id)).toBe(true);
     }
     expect(TILE_CATALOG.length).toBe(Object.keys(ALL_TILE_IDS).length);
+  });
+
+  test("the five recovery-family tiles have distinct titles and descriptions", () => {
+    const family = ["recovery", "hrv_balance", "morning_vitals", "recovery_trend", "recovery_log"];
+    const titles = new Set(family.map((id) => tileEntry(id as TileId).title));
+    const descriptions = new Set(family.map((id) => tileEntry(id as TileId).description));
+    expect(titles.size).toBe(5);
+    expect(descriptions.size).toBe(5);
+    for (const id of family) {
+      expect(tileEntry(id as TileId).href).toBe("/recovery");
+    }
+    // The rewritten recovery entry no longer describes the retired card.
+    expect(tileEntry("recovery").description).not.toContain("resting HR");
   });
 });
