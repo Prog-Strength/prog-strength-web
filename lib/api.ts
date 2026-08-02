@@ -1283,6 +1283,99 @@ export async function updateBodyweightEntry(
   return updated;
 }
 
+// --- Blood Pressure -----------------------------------------------
+
+/** AHA blood-pressure category, assigned server-side per reading. */
+export type BloodPressureCategory = "normal" | "elevated" | "stage_1" | "stage_2" | "crisis";
+
+/**
+ * One blood-pressure reading. `category` is classified server-side from
+ * systolic/diastolic; `pulse` is optional (null when not recorded). See
+ * prog-strength-docs/sows/blood-pressure.md.
+ */
+export type BloodPressureEntry = {
+  id: string;
+  systolic: number;
+  diastolic: number;
+  pulse: number | null;
+  category: BloodPressureCategory;
+  measured_at: string; // RFC3339
+  created_at: string;
+};
+
+/** Payload for creating a blood-pressure entry. */
+export type CreateBloodPressurePayload = {
+  systolic: number;
+  diastolic: number;
+  pulse?: number | null;
+  measured_at?: string; // RFC3339; server defaults to now
+};
+
+export async function listBloodPressure(
+  token: string,
+  options: { since?: string; until?: string } = {},
+): Promise<BloodPressureEntry[]> {
+  const params = new URLSearchParams();
+  if (options.since) params.set("since", options.since);
+  if (options.until) params.set("until", options.until);
+  const qs = params.toString();
+  const resp = await fetch(`${config.apiUrl}/blood-pressure${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<BloodPressureEntry[]>(resp, []);
+}
+
+export async function createBloodPressureEntry(
+  token: string,
+  payload: CreateBloodPressurePayload,
+): Promise<BloodPressureEntry> {
+  const resp = await fetch(`${config.apiUrl}/blood-pressure`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const created = await unwrap<BloodPressureEntry | null>(resp, null);
+  if (!created) throw new Error("API did not return the created blood pressure entry");
+  return created;
+}
+
+export async function updateBloodPressureEntry(
+  token: string,
+  id: string,
+  payload: { systolic?: number; diastolic?: number; pulse?: number | null; measured_at?: string },
+): Promise<BloodPressureEntry> {
+  const resp = await fetch(`${config.apiUrl}/blood-pressure/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const updated = await unwrap<BloodPressureEntry | null>(resp, null);
+  if (!updated) throw new Error("API did not return the updated blood pressure entry");
+  return updated;
+}
+
+export async function deleteBloodPressureEntry(token: string, id: string): Promise<void> {
+  const resp = await fetch(`${config.apiUrl}/blood-pressure/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = (await resp.json())?.error ?? `HTTP ${resp.status}`;
+    } catch {
+      detail = `HTTP ${resp.status}`;
+    }
+    throw new Error(detail);
+  }
+}
+
 // --- Steps --------------------------------------------------------
 
 /**
@@ -4392,6 +4485,20 @@ export type DashboardBodyweight = {
 };
 
 /**
+ * The dashboard's blood-pressure widget. `latest` is the most recent
+ * reading with its server-assigned `category`; `avg_30d` is the trailing
+ * 30-day mean (null when no readings in-window). `systolic_spark` /
+ * `diastolic_spark` are the recent daily-average trends, oldest→newest.
+ */
+export type DashboardBloodPressure = {
+  latest: { systolic: number; diastolic: number; measured_at: string };
+  category: BloodPressureCategory;
+  avg_30d: { systolic: number; diastolic: number } | null;
+  systolic_spark: number[];
+  diastolic_spark: number[];
+};
+
+/**
  * The dashboard's recovery widget, sourced from Whoop. Present only for
  * users with a connected Whoop account (omitted → null otherwise).
  * `today` is the latest daily recovery snapshot (null when Whoop has no
@@ -4480,6 +4587,7 @@ export type DashboardSummary = {
   steps?: DashboardSteps | null;
   nutrition?: DashboardNutrition | null;
   bodyweight?: DashboardBodyweight | null;
+  blood_pressure?: DashboardBloodPressure | null;
   recovery?: DashboardRecovery | null;
   streak?: DashboardStreak;
 };

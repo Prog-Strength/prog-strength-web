@@ -28,7 +28,9 @@ import type {
   LiftingView,
   StepsView,
   BodyweightView,
+  BloodPressureView,
 } from "@/lib/dashboard";
+import { BP_CATEGORIES } from "@/lib/blood-pressure";
 import { compact } from "./compact";
 import { formatDuration } from "@/lib/format";
 import { Spark } from "./spark";
@@ -231,6 +233,51 @@ export function StreakCard({ streak, href }: { streak: DashboardData["streak"]; 
   );
 }
 
+/** Compact "time since" for the latest reading — a short local date. */
+function readingDate(measuredAt: string): string {
+  const d = new Date(measuredAt);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function BloodPressureCard({
+  section,
+  href,
+}: {
+  section: DashboardData["bloodPressure"];
+  href: string;
+}) {
+  if (!section.present) {
+    return (
+      <MiniCard title="Blood Pressure" href={href}>
+        <MiniCardEmpty cta="Log your first reading" />
+      </MiniCard>
+    );
+  }
+  const v: BloodPressureView = section;
+  return (
+    <MiniCard title="Blood Pressure" href={href}>
+      <BigNum value={`${v.latest.systolic}/${v.latest.diastolic}`} />
+      <Spark
+        points={v.systolicSpark}
+        points2={v.diastolicSpark}
+        className="h-7 w-full text-[var(--accent)]"
+        accent2="var(--muted)"
+      />
+      <MetaRow
+        items={[
+          { label: "category", value: BP_CATEGORIES[v.category].label },
+          {
+            label: "30d avg",
+            value: v.avg30 ? `${v.avg30.systolic}/${v.avg30.diastolic}` : null,
+          },
+          { label: "last", value: readingDate(v.latest.measured_at) },
+        ]}
+      />
+    </MiniCard>
+  );
+}
+
 /**
  * Render one tile by id. The exhaustive `switch` is the compile-time guard: a
  * new `TileId` with no case makes the `never` default fail to type-check.
@@ -254,6 +301,8 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
       return <NutritionCard section={data.nutrition} href={href} />;
     case "bodyweight":
       return <BodyweightCard section={data.bodyweight} href={href} />;
+    case "blood_pressure":
+      return <BloodPressureCard section={data.bloodPressure} href={href} />;
     case "recovery":
       return data.recovery.present ? (
         <RecoveryCard section={data.recovery} href={href} />

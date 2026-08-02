@@ -20,6 +20,8 @@
  */
 
 import type {
+  BloodPressureCategory,
+  DashboardBloodPressure,
   DashboardBodyweight,
   DashboardCycling,
   DashboardHiking,
@@ -145,6 +147,20 @@ export type BodyweightView = {
 };
 
 /**
+ * Display view-model for the blood-pressure widget. `latest` is the most
+ * recent reading with its server-assigned `category`; `avg30` is the
+ * trailing 30-day mean (null when none). `systolicSpark`/`diastolicSpark`
+ * are the recent daily-average trends, oldest→newest.
+ */
+export type BloodPressureView = {
+  latest: { systolic: number; diastolic: number; measured_at: string };
+  category: BloodPressureCategory;
+  avg30: { systolic: number; diastolic: number } | null;
+  systolicSpark: number[];
+  diastolicSpark: number[];
+};
+
+/**
  * Display view-model for the recovery widget (Whoop-sourced). Present only
  * for a connected user; the page renders NO card when absent. `restingToday`
  * / `recoveryScore` are null when Whoop has no reading yet today.
@@ -185,6 +201,7 @@ export type DashboardData = {
   steps: Section<StepsView>;
   nutrition: Section<NutritionView>;
   bodyweight: Section<BodyweightView>;
+  bloodPressure: Section<BloodPressureView>;
   recovery: Section<RecoveryView>;
   streak: StreakView; // always present
 };
@@ -302,6 +319,20 @@ function adaptBodyweight(bodyweight: DashboardBodyweight): BodyweightView {
   };
 }
 
+function adaptBloodPressure(bp: DashboardBloodPressure): BloodPressureView {
+  return {
+    latest: {
+      systolic: bp.latest.systolic,
+      diastolic: bp.latest.diastolic,
+      measured_at: bp.latest.measured_at,
+    },
+    category: bp.category,
+    avg30: bp.avg_30d,
+    systolicSpark: sanitizeSpark(bp.systolic_spark),
+    diastolicSpark: sanitizeSpark(bp.diastolic_spark),
+  };
+}
+
 function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
   return {
     restingToday: recovery.today?.resting_heart_rate ?? null,
@@ -346,6 +377,7 @@ export function adaptDashboard(
       steps: { present: false },
       nutrition: { present: false },
       bodyweight: { present: false },
+      bloodPressure: { present: false },
       recovery: { present: false },
       streak: { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
     };
@@ -374,6 +406,9 @@ export function adaptDashboard(
       : { present: false },
     bodyweight: summary.bodyweight
       ? { present: true, ...adaptBodyweight(summary.bodyweight) }
+      : { present: false },
+    bloodPressure: summary.blood_pressure
+      ? { present: true, ...adaptBloodPressure(summary.blood_pressure) }
       : { present: false },
     recovery: summary.recovery
       ? { present: true, ...adaptRecovery(summary.recovery) }

@@ -14,6 +14,7 @@ export type TileId =
   | "steps"
   | "nutrition"
   | "bodyweight"
+  | "blood_pressure"
   | "recovery"
   | "streak";
 
@@ -72,6 +73,12 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     title: "Bodyweight",
     href: "/bodyweight",
     description: "Bodyweight trend and goal.",
+  },
+  {
+    id: "blood_pressure",
+    title: "Blood Pressure",
+    href: "/blood-pressure",
+    description: "Latest reading and trend against the healthy range.",
   },
   {
     id: "recovery",

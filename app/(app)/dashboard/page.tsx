@@ -12,7 +12,7 @@ import {
 } from "@/lib/api";
 import { adaptDashboard, type DashboardData } from "@/lib/dashboard";
 import type { TileId } from "@/lib/dashboard-tiles";
-import { CommandBar } from "./_components/command-bar";
+import { CommandBar } from "@/components/command-bar";
 import { MiniCardSkeleton } from "./_components/mini-card";
 import { TileGrid } from "./_components/tile-grid";
 import { EditBar } from "./_components/edit-bar";
