@@ -206,6 +206,25 @@ describe("DashboardPage — full payload", () => {
           hrv_rmssd_milli: 88,
         },
         resting_hr_spark: [55, 54, 56, 54],
+        days: [],
+        baseline: {
+          window_days: 30,
+          resting_hr_avg: null,
+          resting_hr_days: 0,
+          hrv_avg: null,
+          hrv_std_dev: null,
+          hrv_days: 0,
+          recovery_score_avg: null,
+          recovery_score_days: 0,
+        },
+        hrv: {
+          status: "unknown",
+          balanced_low: null,
+          balanced_high: null,
+          z_score: null,
+          trend: "unknown",
+          short_avg: null,
+        },
       },
     };
     render(<DashboardPage />);
