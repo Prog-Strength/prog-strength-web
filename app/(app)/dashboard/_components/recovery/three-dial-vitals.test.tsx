@@ -1,7 +1,13 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen } from "@testing-library/react";
-import { balancedView, calibratingView, noReadingView, suppressedView } from "./fixtures";
+import {
+  balancedView,
+  calibratingView,
+  legacyView,
+  noReadingView,
+  suppressedView,
+} from "./fixtures";
 import { MorningVitalsCard } from "./three-dial-vitals";
 
 const HREF = "/recovery";
@@ -43,5 +49,10 @@ describe("MorningVitalsCard", () => {
     render(<MorningVitalsCard section={calibratingView()} href={HREF} />);
     expect(screen.getAllByText("calibrating")).toHaveLength(3);
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
+  it("legacy payload with no derived blocks reads as calibrating", () => {
+    render(<MorningVitalsCard section={legacyView()} href={HREF} />);
+    expect(screen.getByText("Vitals are calibrating.")).toBeInTheDocument();
   });
 });

@@ -15,7 +15,7 @@
 
 import type { RecoveryView } from "@/lib/dashboard";
 import { MiniCard } from "../mini-card";
-import { hrvStatusColor, signed } from "./shared";
+import { hrvStatusColor, signed, statusWord } from "./shared";
 
 const TITLE = "Morning Vitals";
 
@@ -62,6 +62,7 @@ export function MorningVitalsCard({ section, href }: { section: RecoveryView; hr
           baseline={baseline.hrvAvg}
           noReading={noReading}
           dot={hrvStatusColor(hrv.status)}
+          dotLabel={statusWord(hrv.status)}
         />
       </div>
     </MiniCard>
@@ -77,6 +78,7 @@ function Cell({
   digits = 0,
   noReading,
   dot,
+  dotLabel,
 }: {
   label: string;
   value: number | null;
@@ -85,6 +87,7 @@ function Cell({
   digits?: number;
   noReading: boolean;
   dot?: string;
+  dotLabel?: string;
 }) {
   const calibrating = baseline === null;
   // In the no-reading state the baseline is promoted to the primary figure so
@@ -112,11 +115,14 @@ function Cell({
       <div className="flex items-center gap-1">
         <span className="text-[10px] uppercase tracking-wide text-[var(--faint)]">{label}</span>
         {dot && (
-          <span
-            aria-hidden="true"
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: dot }}
-          />
+          <>
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: dot }}
+            />
+            <span className="sr-only">{dotLabel}</span>
+          </>
         )}
       </div>
       <span className="font-mono text-xl font-medium tracking-tight tabular-nums text-[var(--foreground)]">
