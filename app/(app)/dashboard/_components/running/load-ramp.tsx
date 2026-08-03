@@ -20,12 +20,12 @@
 import type { RunningView } from "@/lib/dashboard";
 import { formatDuration } from "@/lib/format";
 import { MiniCard } from "../mini-card";
-import { loadStatus, loadStatusColor, signedPct } from "./shared";
+import { loadStatus, loadStatusColor, signedPct, type LoadStatus } from "./shared";
 
 const TITLE = "Training Load";
 
 export function LoadRampCard({ section, href }: { section: RunningView; href: string }) {
-  const { currentWeek, baseline, weeklyLoad, latestRun, unit } = section;
+  const { currentWeek, baseline, weeklyLoad } = section;
 
   // A zero-duration baseline cannot anchor a ramp — treated as no baseline.
   const baselineDuration =
@@ -40,7 +40,12 @@ export function LoadRampCard({ section, href }: { section: RunningView; href: st
   const heroColor = deltaPct === null ? "var(--foreground)" : loadStatusColor(status);
 
   // Scale to max(weeklyLoad ∪ baseline) so the ghost line is always on canvas.
-  const railMax = Math.max(...weeklyLoad.map((p) => p.durationSeconds), baselineDuration ?? 0, 1);
+  const railMax = Math.max(
+    ...weeklyLoad.map((p) => p.durationSeconds),
+    baselineDuration ?? 0,
+    currentWeek.durationSeconds,
+    1,
+  );
 
   return (
     <MiniCard title={TITLE} href={href}>
@@ -52,7 +57,9 @@ export function LoadRampCard({ section, href }: { section: RunningView; href: st
           {deltaPct === null ? formatDuration(currentWeek.durationSeconds) : signedPct(deltaPct)}
         </span>
       </div>
-      <p className="-mt-1 text-xs text-[var(--muted)]">{caption()}</p>
+      <p className="-mt-1 text-xs text-[var(--muted)]">
+        {caption(section, deltaPct, baselineDuration, status)}
+      </p>
 
       <div
         className="relative mt-1 flex h-8 items-end gap-[3px]"
@@ -85,19 +92,26 @@ export function LoadRampCard({ section, href }: { section: RunningView; href: st
       </div>
     </MiniCard>
   );
+}
 
-  function caption(): string {
-    if (currentWeek.runCount === 0) {
-      const last = latestRun
-        ? ` · last run ${latestRun.distance} ${unit}, ${runDay(latestRun.startTime)}`
-        : "";
-      return `resting${last}`;
-    }
-    if (deltaPct === null || baselineDuration === null) {
-      return "first week";
-    }
-    return `${status} · ${formatDuration(currentWeek.durationSeconds)} vs ${formatDuration(baselineDuration)} avg`;
+/** Plain-language read under the hero — one honest line per SOW state. */
+function caption(
+  section: RunningView,
+  deltaPct: number | null,
+  baselineDuration: number | null,
+  status: LoadStatus,
+): string {
+  const { currentWeek, latestRun, unit } = section;
+  if (currentWeek.runCount === 0) {
+    const last = latestRun
+      ? ` · last run ${latestRun.distance} ${unit}, ${runDay(latestRun.startTime)}`
+      : "";
+    return `resting${last}`;
   }
+  if (deltaPct === null || baselineDuration === null) {
+    return "first week";
+  }
+  return `${status} · ${formatDuration(currentWeek.durationSeconds)} vs ${formatDuration(baselineDuration)} avg`;
 }
 
 /** Short dated label for the latest run ("Aug 1") — pure function of props. */

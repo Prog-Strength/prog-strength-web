@@ -49,6 +49,16 @@ describe("LoadRampCard", () => {
 
   it("renders the 8-bucket rail with the baseline ghost line", () => {
     render(<LoadRampCard section={ordinaryWeek("mi")} href="/x" />);
-    expect(screen.getByRole("img", { name: /eight weeks/i })).toBeInTheDocument();
+    const rail = screen.getByRole("img", { name: /eight weeks/i });
+    // 8 weekly bars plus the dashed baseline ghost line.
+    expect(rail.querySelectorAll("span")).toHaveLength(9);
+    expect(rail.querySelector(".border-dashed")).not.toBeNull();
+  });
+
+  it("omits the ghost line when there is no baseline", () => {
+    render(<LoadRampCard section={firstRunEver("mi")} href="/x" />);
+    const rail = screen.getByRole("img", { name: /eight weeks/i });
+    expect(rail.querySelectorAll("span")).toHaveLength(8);
+    expect(rail.querySelector(".border-dashed")).toBeNull();
   });
 });
