@@ -3,6 +3,7 @@ import type {
   DashboardRecovery,
   DashboardRecoveryBaseline,
   DashboardRecoveryHrv,
+  DashboardRunning,
   DashboardSummary,
   ResolvedProfile,
 } from "@/lib/api";
@@ -29,18 +30,107 @@ function profile(overrides: Partial<ResolvedProfile> = {}): ResolvedProfile {
   };
 }
 
+function minimalRunning(overrides: Partial<DashboardRunning> = {}): DashboardRunning {
+  return {
+    current_week: {
+      distance_meters: 5000,
+      run_count: 1,
+      delta_pct_vs_prior_week: null,
+      duration_seconds: 1800,
+      avg_pace_sec_per_km: 360,
+      avg_heart_rate_bpm: null,
+      elevation_gain_meters: null,
+      heart_rate_runs: 0,
+      elevation_runs: 0,
+      longest_run_meters: 5000,
+      days_run: 1,
+    },
+    baseline: null,
+    recent_avg_pace_sec_per_km: null,
+    latest_run: null,
+    week_runs: [],
+    weekly_load: [],
+    ...overrides,
+  };
+}
+
 const fullSummary: DashboardSummary = {
   layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
   running: {
-    current_week: { distance_meters: 21214.5, run_count: 3, delta_pct_vs_prior_week: 9.0 },
+    current_week: {
+      distance_meters: 34278,
+      run_count: 4,
+      delta_pct_vs_prior_week: 10.9,
+      duration_seconds: 12977,
+      avg_pace_sec_per_km: 378.6,
+      avg_heart_rate_bpm: 153,
+      elevation_gain_meters: 274,
+      heart_rate_runs: 3,
+      elevation_runs: 3,
+      longest_run_meters: 20438,
+      days_run: 4,
+    },
+    baseline: {
+      window_weeks: 4,
+      weeks: 3,
+      distance_meters: 27358,
+      duration_seconds: 10440,
+      avg_pace_sec_per_km: 381.2,
+      avg_heart_rate_bpm: 150,
+      elevation_gain_meters: 198,
+      runs_per_week: 3.75,
+    },
     recent_avg_pace_sec_per_km: 376.5,
     latest_run: {
-      name: "Lunch Run",
-      distance_meters: 8449.0,
-      duration_seconds: 3184,
-      start_time: "2026-06-18T18:02:00Z",
+      name: "Saturday long run",
+      distance_meters: 20438,
+      duration_seconds: 7784,
+      start_time: "2026-08-01T11:02:00Z",
     },
-    weekly_distance_spark: [12000.0, 0.0, 18500.0, 21214.5],
+    week_runs: [
+      {
+        activity_id: "a1",
+        name: "Easy shakeout",
+        start_time: "2026-07-27T11:00:00Z",
+        local_date: "2026-07-27",
+        distance_meters: 5633,
+        duration_seconds: 2128,
+        avg_pace_sec_per_km: 377.8,
+        avg_heart_rate_bpm: 148,
+        heart_rate_zone: 2,
+        elevation_gain_meters: 38,
+        environment: "outdoor",
+      },
+      {
+        activity_id: "a2",
+        name: null,
+        start_time: "2026-07-28T10:30:00Z",
+        local_date: "2026-07-28",
+        distance_meters: 4184,
+        duration_seconds: 1490,
+        avg_pace_sec_per_km: 356.1,
+        avg_heart_rate_bpm: 152,
+        heart_rate_zone: null,
+        elevation_gain_meters: null,
+        environment: "indoor",
+      },
+    ],
+    weekly_load: [
+      {
+        week_start: "2026-07-20",
+        distance_meters: 30900,
+        duration_seconds: 11760,
+        run_count: 4,
+        elevation_gain_meters: 231,
+      },
+      {
+        week_start: "2026-07-27",
+        distance_meters: 34278,
+        duration_seconds: 12977,
+        run_count: 4,
+        elevation_gain_meters: null,
+      },
+    ],
   },
   lifting: {
     current_week: { duration_seconds: 9780, sessions: 3, sets: 21, prs: 4 },
@@ -79,35 +169,64 @@ describe("adaptDashboard — full payload", () => {
     expect(data.running.present).toBe(true);
     if (!data.running.present) throw new Error("running absent");
 
-    // 21214.5 m / 1609.344 = 13.2 mi
-    expect(data.running.currentWeek.distance).toBe("13.2");
-    expect(data.running.currentWeek.runCount).toBe(3);
-    expect(data.running.currentWeek.deltaPct).toBe(9.0);
-    // 376.5 sec/km * 1.609344 ≈ 605.9 s → 10:06 per mile
+    // 34278 m / 1609.344 = 21.3 mi
+    expect(data.running.currentWeek.distance).toBe("21.3");
+    expect(data.running.currentWeek.runCount).toBe(4);
+    expect(data.running.currentWeek.deltaPct).toBe(10.9);
+    // Week aggregate: 378.6 s/km → 10:09 per mile. 30-day: 376.5 → 10:06.
+    expect(data.running.currentWeek.pace).toBe("10:09");
     expect(data.running.pace).toBe("10:06");
+    // 274 m → 899 ft, with coverage counts passed through.
+    expect(data.running.currentWeek.elevation).toBe("899 ft");
+    expect(data.running.currentWeek.heartRateRuns).toBe(3);
+    expect(data.running.currentWeek.elevationRuns).toBe(3);
+    expect(data.running.currentWeek.longestRun).toBe("12.7");
+    expect(data.running.currentWeek.daysRun).toBe(4);
+    // Baseline converted once, raw sec/km retained for comparisons.
+    expect(data.running.baseline?.distance).toBe("17.0");
+    expect(data.running.baseline?.pace).toBe("10:13");
+    expect(data.running.baseline?.paceSecPerKm).toBe(381.2);
+    expect(data.running.baseline?.weeks).toBe(3);
+    expect(data.running.baseline?.avgHeartRate).toBe(150);
+    expect(data.running.baseline?.elevation).toBe("650 ft");
+    expect(data.running.baseline?.runsPerWeek).toBe(3.75);
+    expect(data.running.baseline?.durationSeconds).toBe(10440);
+    // Week runs oldest→newest; nulls preserved (never coerced to 0).
+    expect(data.running.weekRuns).toHaveLength(2);
+    expect(data.running.weekRuns[0].distance).toBe("3.5");
+    expect(data.running.weekRuns[0].heartRateZone).toBe(2);
+    expect(data.running.weekRuns[1].indoor).toBe(true);
+    expect(data.running.weekRuns[1].elevation).toBeNull();
+    expect(data.running.weekRuns[1].avgHeartRate).toBe(152);
+    // Weekly load in display units for charting.
+    expect(data.running.weeklyLoad).toHaveLength(2);
+    expect(data.running.weeklyLoad[0].distance).toBeCloseTo(19.2, 1);
+    expect(data.running.weeklyLoad[1].runCount).toBe(4);
     expect(data.running.unit).toBe("mi");
-    expect(data.running.latestRun).toEqual({
-      name: "Lunch Run",
-      distance: "5.2", // 8449 / 1609.344
-      durationSeconds: 3184,
-      startTime: "2026-06-18T18:02:00Z",
-    });
-    // spark in miles
-    expect(data.running.spark.unit).toBe("mi");
-    expect(data.running.spark.points[0]).toBeCloseTo(12000 / 1609.344, 5);
-    expect(data.running.spark.points[1]).toBe(0);
-    expect(data.running.spark.points).toHaveLength(4);
   });
 
-  it("converts running distances/pace to km for a km profile", () => {
+  it("no longer reads weekly_distance_spark from the running section", () => {
+    // The deployed API still emits the legacy field during expand/contract;
+    // the adapter must ignore it (and must not throw on its absence either).
+    const withLegacy = {
+      ...fullSummary,
+      running: {
+        ...fullSummary.running!,
+        weekly_distance_spark: [1, 2, 3],
+      },
+    };
+    const data = adaptDashboard(withLegacy, profile({ distance_unit: "mi" }));
+    if (!data.running.present) throw new Error("running absent");
+    expect("spark" in data.running).toBe(false);
+  });
+
+  it("converts running to km for a km profile", () => {
     const data = adaptDashboard(fullSummary, profile({ distance_unit: "km" }));
     if (!data.running.present) throw new Error("running absent");
-
-    expect(data.running.currentWeek.distance).toBe("21.2"); // 21214.5 / 1000
-    expect(data.running.pace).toBe("6:17"); // 376.5 s/km → 6:16.5 → 6:17
-    expect(data.running.unit).toBe("km");
-    expect(data.running.spark.unit).toBe("km");
-    expect(data.running.spark.points[2]).toBeCloseTo(18.5, 5);
+    expect(data.running.currentWeek.distance).toBe("34.3");
+    expect(data.running.currentWeek.pace).toBe("6:19");
+    expect(data.running.currentWeek.elevation).toBe("274 m");
+    expect(data.running.weekRuns[0].distance).toBe("5.6");
   });
 
   it("passes lifting weights through in lb without conversion", () => {
@@ -415,12 +534,7 @@ describe("adaptDashboard — null goals / deltas", () => {
   it("preserves null pace, null delta, and null latest run", () => {
     const sparse: DashboardSummary = {
       ...fullSummary,
-      running: {
-        current_week: { distance_meters: 5000, run_count: 1, delta_pct_vs_prior_week: null },
-        recent_avg_pace_sec_per_km: null,
-        latest_run: null,
-        weekly_distance_spark: [5000],
-      },
+      running: minimalRunning(),
     };
     const data = adaptDashboard(sparse, profile({ distance_unit: "km" }));
     if (!data.running.present) throw new Error("running absent");
@@ -428,6 +542,7 @@ describe("adaptDashboard — null goals / deltas", () => {
     expect(data.running.currentWeek.deltaPct).toBeNull();
     expect(data.running.pace).toBe("—");
     expect(data.running.latestRun).toBeNull();
+    expect(data.running.baseline).toBeNull();
   });
 
   it("preserves null steps goal, null nutrition goals, null bodyweight goal/rate, null headline 1rm", () => {
@@ -464,10 +579,14 @@ describe("adaptDashboard — null goals / deltas", () => {
 
 describe("adaptDashboard — sanitization", () => {
   it("never emits NaN/Infinity in spark series", () => {
+    // sanitizeSpark now only backs the endurance (walking/cycling/hiking)
+    // widgets — running no longer reads a spark, so this pins the walking
+    // spark instead.
     const dirty: DashboardSummary = {
       ...fullSummary,
-      running: {
-        ...fullSummary.running!,
+      walking: {
+        current_week: { distance_meters: 3218.688, session_count: 5, duration_seconds: 2400 },
+        latest_session: null,
         weekly_distance_spark: [Number.NaN, Number.POSITIVE_INFINITY, 1000],
       },
       lifting: { ...fullSummary.lifting!, weekly_volume_spark: [Number.NaN, 5] },
@@ -475,13 +594,13 @@ describe("adaptDashboard — sanitization", () => {
       bodyweight: { ...fullSummary.bodyweight!, trend_spark: [Number.POSITIVE_INFINITY, 80] },
     };
     const data = adaptDashboard(dirty, profile({ distance_unit: "km" }));
-    if (!data.running.present) throw new Error("running absent");
+    if (!data.walking.present) throw new Error("walking absent");
     if (!data.lifting.present) throw new Error("lifting absent");
     if (!data.steps.present) throw new Error("steps absent");
     if (!data.bodyweight.present) throw new Error("bodyweight absent");
 
     for (const series of [
-      data.running.spark.points,
+      data.walking.spark.points,
       data.lifting.spark,
       data.steps.spark,
       data.bodyweight.spark,
@@ -490,7 +609,7 @@ describe("adaptDashboard — sanitization", () => {
         expect(Number.isFinite(n)).toBe(true);
       }
     }
-    expect(data.running.spark.points[0]).toBe(0);
+    expect(data.walking.spark.points[0]).toBe(0);
     expect(data.lifting.spark[0]).toBe(0);
   });
 });

@@ -5,6 +5,7 @@ import type { DashboardData, BloodPressureView } from "@/lib/dashboard";
 import type { TileId } from "@/lib/dashboard-tiles";
 import { TileCard } from "./tile-renderer";
 import { suppressedView } from "./recovery/fixtures";
+import { ordinaryWeek } from "./running/fixtures";
 
 function fixture(overrides: Partial<DashboardData> = {}): DashboardData {
   return {
@@ -27,7 +28,7 @@ function fixture(overrides: Partial<DashboardData> = {}): DashboardData {
 describe("TileCard", () => {
   it("renders the running card for id 'running'", () => {
     render(<TileCard id="running" data={fixture()} />);
-    expect(screen.getByRole("heading", { name: "Running" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Training Load" })).toBeInTheDocument();
     // Empty section → its inviting CTA.
     expect(screen.getByText("Import a run to start tracking")).toBeInTheDocument();
   });
@@ -64,6 +65,30 @@ describe("TileCard", () => {
     expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
     expect(screen.getByText("Connect Whoop to see recovery")).toBeInTheDocument();
   });
+
+  const RUNNING_FAMILY: [TileId, string][] = [
+    ["running", "Training Load"],
+    ["running_log", "Runs This Week"],
+    ["running_effort", "Run Effort"],
+    ["running_vertical", "Vertical Gain"],
+  ];
+
+  it.each(RUNNING_FAMILY)("renders the %s card from the shared running section", (id, title) => {
+    render(
+      <TileCard id={id} data={fixture({ running: { present: true, ...ordinaryWeek("mi") } })} />,
+    );
+    expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
+    expect(screen.queryByText("Import a run to start tracking")).not.toBeInTheDocument();
+  });
+
+  it.each(RUNNING_FAMILY)(
+    "renders the titled empty CTA for %s when running is absent",
+    (id, title) => {
+      render(<TileCard id={id} data={fixture()} />);
+      expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
+      expect(screen.getByText("Import a run to start tracking")).toBeInTheDocument();
+    },
+  );
 
   it("renders the blood-pressure empty CTA when the section is absent", () => {
     render(<TileCard id="blood_pressure" data={fixture()} />);

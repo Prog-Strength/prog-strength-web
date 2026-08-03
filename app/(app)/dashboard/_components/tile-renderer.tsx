@@ -7,9 +7,9 @@
  * new `TileId` without a case here is a TYPE error, so a tile can never ship
  * without a card.
  *
- * The six original page-local cards (running/lifting/steps/nutrition/
- * bodyweight/streak) live here now — moved out of `page.tsx` and refactored to
- * take an explicit `href` prop (matching the walking/cycling/hiking/recovery
+ * The five original page-local cards (lifting/steps/nutrition/bodyweight/
+ * streak) live here now — moved out of `page.tsx` and refactored to take an
+ * explicit `href` prop (matching the walking/cycling/hiking/recovery
  * signatures) instead of reaching into the page's `DEEP_LINKS`. Their bodies
  * are otherwise unchanged. They are re-exported so `page.tsx` (pre-W6) can keep
  * importing them.
@@ -20,13 +20,19 @@
  * shared `recovery` section; when enabled-but-absent each family id renders
  * its own titled `RecoveryConnectCard` connect CTA. The other cards each own
  * their `!section.present` empty state internally.
+ *
+ * The running FAMILY — running, running_log, running_effort,
+ * running_vertical — is the same pattern applied to running: four tiles
+ * reading the one shared `running` section, each rendering its own titled
+ * `RunningEmptyCard` CTA when the section is absent. The retired page-local
+ * `RunningCard` (a single spark-less bridge card) now lives under `./running/`
+ * as `LoadRampCard`, `WeekLogCard`, `EffortHeartCard`, and `VerticalGainCard`.
  */
 "use client";
 
 import { type TileId, tileEntry } from "@/lib/dashboard-tiles";
 import type {
   DashboardData,
-  RunningView,
   LiftingView,
   StepsView,
   BodyweightView,
@@ -50,36 +56,11 @@ import { HrvBalanceCard } from "./recovery/balance-band";
 import { MorningVitalsCard } from "./recovery/three-dial-vitals";
 import { TrendRailCard } from "./recovery/trend-rail";
 import { MorningLedgerCard } from "./recovery/morning-ledger";
-
-export function RunningCard({
-  section,
-  href,
-}: {
-  section: DashboardData["running"];
-  href: string;
-}) {
-  if (!section.present) {
-    return (
-      <MiniCard title="Running" href={href}>
-        <MiniCardEmpty cta="Import a run to start tracking" />
-      </MiniCard>
-    );
-  }
-  const v: RunningView = section;
-  return (
-    <MiniCard title="Running" href={href}>
-      <BigNum value={v.currentWeek.distance} suffix={`${v.unit} this week`} />
-      <Spark points={v.spark.points} className="h-7 w-full text-[var(--discipline-run-dot)]" />
-      <MetaRow
-        items={[
-          { label: "runs", value: compact(v.currentWeek.runCount) },
-          { label: "pace", value: v.pace },
-          { label: "last", value: v.latestRun ? `${v.latestRun.distance} ${v.unit}` : null },
-        ]}
-      />
-    </MiniCard>
-  );
-}
+import { LoadRampCard } from "./running/load-ramp";
+import { WeekLogCard } from "./running/week-log";
+import { EffortHeartCard } from "./running/effort-heart";
+import { VerticalGainCard } from "./running/vertical-gain";
+import { RunningEmptyCard } from "./running/empty-card";
 
 export function LiftingCard({
   section,
@@ -293,7 +274,29 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
   const href = tileEntry(id).href;
   switch (id) {
     case "running":
-      return <RunningCard section={data.running} href={href} />;
+      return data.running.present ? (
+        <LoadRampCard section={data.running} href={href} />
+      ) : (
+        <RunningEmptyCard title="Training Load" href={href} />
+      );
+    case "running_log":
+      return data.running.present ? (
+        <WeekLogCard section={data.running} href={href} />
+      ) : (
+        <RunningEmptyCard title="Runs This Week" href={href} />
+      );
+    case "running_effort":
+      return data.running.present ? (
+        <EffortHeartCard section={data.running} href={href} />
+      ) : (
+        <RunningEmptyCard title="Run Effort" href={href} />
+      );
+    case "running_vertical":
+      return data.running.present ? (
+        <VerticalGainCard section={data.running} href={href} />
+      ) : (
+        <RunningEmptyCard title="Vertical Gain" href={href} />
+      );
     case "walking":
       return <WalkingCard section={data.walking} href={href} />;
     case "cycling":

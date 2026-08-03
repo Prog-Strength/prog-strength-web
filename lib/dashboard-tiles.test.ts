@@ -2,13 +2,16 @@ import { describe, expect, test } from "vitest";
 import { TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
 
 describe("dashboard tile catalog", () => {
-  test("has exactly 15 tiles", () => {
-    expect(TILE_CATALOG.length).toBe(15);
+  test("has exactly 18 tiles", () => {
+    expect(TILE_CATALOG.length).toBe(18);
   });
 
   test("ids are in the Go catalog order", () => {
     expect(TILE_CATALOG.map((t) => t.id)).toEqual([
       "running",
+      "running_log",
+      "running_effort",
+      "running_vertical",
       "walking",
       "cycling",
       "hiking",
@@ -42,6 +45,9 @@ describe("dashboard tile catalog", () => {
   // union without adding it here is a compile error — the guard the SOW requires.
   const ALL_TILE_IDS: Record<TileId, true> = {
     running: true,
+    running_log: true,
+    running_effort: true,
+    running_vertical: true,
     walking: true,
     cycling: true,
     hiking: true,
@@ -77,5 +83,17 @@ describe("dashboard tile catalog", () => {
     }
     // The rewritten recovery entry no longer describes the retired card.
     expect(tileEntry("recovery").description).not.toContain("resting HR");
+  });
+
+  test("the running entry was rewritten for the ramp card", () => {
+    expect(tileEntry("running").title).toBe("Training Load");
+    expect(tileEntry("running").href).toBe("/activities?view=running");
+    expect(tileEntry("running_log").title).toBe("Runs This Week");
+    expect(tileEntry("running_effort").title).toBe("Run Effort");
+    expect(tileEntry("running_vertical").title).toBe("Vertical Gain");
+    // The whole family deep-links into the running view.
+    for (const id of ["running_log", "running_effort", "running_vertical"] as const) {
+      expect(tileEntry(id).href).toBe("/activities?view=running");
+    }
   });
 });
