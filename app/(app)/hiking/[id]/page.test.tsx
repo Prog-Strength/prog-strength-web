@@ -251,6 +251,7 @@ describe("HikingDetailPage — photos", () => {
             height: 900,
             caption: "Summit",
             position: 0,
+            status: "ready" as const,
           },
         ],
       }),
