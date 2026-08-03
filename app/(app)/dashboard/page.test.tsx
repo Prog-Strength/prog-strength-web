@@ -180,7 +180,14 @@ describe("DashboardPage — full payload", () => {
   it("renders the tiles from the layout — and the old fixed KPI strip is gone", async () => {
     render(<DashboardPage />);
     // Card headlines: each tile is a link titled by its domain.
-    for (const title of ["Running", "Lifting", "Steps", "Nutrition", "Bodyweight", "Streak"]) {
+    for (const title of [
+      "Training Load",
+      "Lifting",
+      "Steps",
+      "Nutrition",
+      "Bodyweight",
+      "Streak",
+    ]) {
       expect(await screen.findByRole("link", { name: new RegExp(title, "i") })).toBeInTheDocument();
     }
     // The removed KPI strip used the labels Run / Lift / Fuel / Weight — none of
@@ -188,8 +195,11 @@ describe("DashboardPage — full payload", () => {
     for (const label of ["Run", "Lift", "Fuel", "Weight"]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
-    // Running headline: 16093.44 m → 10.0 mi.
-    expect(screen.getAllByText("10.0").length).toBeGreaterThan(0);
+    // Training Load headline: no baseline in FULL_SUMMARY → the ramp card
+    // falls back to this week's time on feet (5760s → "1:36:00") captioned
+    // "first week", not a raw distance figure.
+    expect(screen.getByText("1:36:00")).toBeInTheDocument();
+    expect(screen.getByText("first week")).toBeInTheDocument();
     // Bodyweight current.
     expect(screen.getAllByText("184").length).toBeGreaterThan(0);
     // Lifting headline 1RM appears in the meta row.
@@ -198,9 +208,11 @@ describe("DashboardPage — full payload", () => {
 
   it("links each card into its deep page", async () => {
     render(<DashboardPage />);
-    await waitFor(() => expect(screen.getByRole("link", { name: /Running/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /Training Load/i })).toBeInTheDocument(),
+    );
     const hrefFor = (name: RegExp) => screen.getByRole("link", { name }).getAttribute("href");
-    expect(hrefFor(/Running/i)).toBe("/activities?view=running");
+    expect(hrefFor(/Training Load/i)).toBe("/activities?view=running");
     expect(hrefFor(/Lifting/i)).toBe("/workouts");
     expect(hrefFor(/Steps/i)).toBe("/activities?view=steps");
     expect(hrefFor(/Nutrition/i)).toBe("/nutrition");
@@ -270,15 +282,15 @@ describe("DashboardPage — command bar", () => {
 describe("DashboardPage — edit mode", () => {
   it("enters edit mode via Customize, revealing Remove buttons and the add-tile tray", async () => {
     render(<DashboardPage />);
-    await screen.findByRole("link", { name: /Running/i });
+    await screen.findByRole("link", { name: /Training Load/i });
 
     // View mode: no remove controls, no tray.
-    expect(screen.queryByRole("button", { name: /Remove Running/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Remove Training Load/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Add a tile")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Customize" }));
 
-    expect(screen.getByRole("button", { name: /Remove Running/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Remove Training Load/i })).toBeInTheDocument();
     expect(screen.getByText("Add a tile")).toBeInTheDocument();
     // A tile not in the layout (walking) is offered in the tray.
     expect(screen.getByRole("button", { name: /Add Walking/i })).toBeInTheDocument();
@@ -286,7 +298,7 @@ describe("DashboardPage — edit mode", () => {
 
   it("Cancel exits edit mode without persisting", async () => {
     render(<DashboardPage />);
-    await screen.findByRole("link", { name: /Running/i });
+    await screen.findByRole("link", { name: /Training Load/i });
 
     fireEvent.click(screen.getByRole("button", { name: "Customize" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -299,12 +311,12 @@ describe("DashboardPage — edit mode", () => {
 
   it("Done persists the edited draft, refetches, and exits edit mode", async () => {
     render(<DashboardPage />);
-    await screen.findByRole("link", { name: /Running/i });
+    await screen.findByRole("link", { name: /Training Load/i });
     expect(getDashboardSummary).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize" }));
     // Remove the running tile, then add walking.
-    fireEvent.click(screen.getByRole("button", { name: /Remove Running/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Remove Training Load/i }));
     fireEvent.click(screen.getByRole("button", { name: /Add Walking/i }));
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
@@ -330,11 +342,11 @@ describe("DashboardPage — edit mode", () => {
       new Error("PUT /dashboard/layout failed: 500"),
     );
     render(<DashboardPage />);
-    await screen.findByRole("link", { name: /Running/i });
+    await screen.findByRole("link", { name: /Training Load/i });
     expect(getDashboardSummary).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize" }));
-    fireEvent.click(screen.getByRole("button", { name: /Remove Running/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Remove Training Load/i }));
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
@@ -357,7 +369,7 @@ describe("DashboardPage — empty layout", () => {
     // Entering edit mode from the CTA reveals the add-tile tray.
     fireEvent.click(screen.getByRole("button", { name: "Add tiles" }));
     expect(screen.getByText("Add a tile")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Add Running/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add Training Load/i })).toBeInTheDocument();
   });
 });
 
@@ -368,7 +380,7 @@ describe("DashboardPage — empty / brand-new user", () => {
 
   it("renders empty CTAs and 'start your streak', with no NaN or lone 0%", async () => {
     const { container } = render(<DashboardPage />);
-    await waitFor(() => expect(screen.getByText("Running")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Training Load")).toBeInTheDocument());
     // Brand-new streak copy.
     expect(screen.getByText("start your streak")).toBeInTheDocument();
     // At least one inviting empty CTA.

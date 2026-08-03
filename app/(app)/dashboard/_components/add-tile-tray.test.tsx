@@ -8,8 +8,12 @@ describe("AddTileTray", () => {
   it("lists only the not-enabled tiles for the draft", () => {
     render(<AddTileTray draft={["running"]} onAdd={() => {}} />);
 
-    // The other catalog titles are offered...
+    // The other catalog titles are offered — including the rest of the
+    // running family, since the draft only enables the "running" id itself.
     for (const title of [
+      "Runs This Week",
+      "Run Effort",
+      "Vertical Gain",
       "Walking",
       "Cycling",
       "Hiking",
@@ -26,8 +30,8 @@ describe("AddTileTray", () => {
     ]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
-    // ...but the enabled "Running" tile is not offered (no Add Running button).
-    expect(screen.queryByRole("button", { name: "Add Running" })).toBeNull();
+    // ...but the enabled "Training Load" (running) tile is not offered.
+    expect(screen.queryByRole("button", { name: "Add Training Load" })).toBeNull();
   });
 
   it("fires onAdd with the clicked tile's id", () => {

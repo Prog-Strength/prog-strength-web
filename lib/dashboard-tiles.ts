@@ -7,6 +7,9 @@
 
 export type TileId =
   | "running"
+  | "running_log"
+  | "running_effort"
+  | "running_vertical"
   | "walking"
   | "cycling"
   | "hiking"
@@ -32,9 +35,27 @@ export type TileCatalogEntry = {
 export const TILE_CATALOG: readonly TileCatalogEntry[] = [
   {
     id: "running",
-    title: "Running",
+    title: "Training Load",
     href: "/activities?view=running",
-    description: "Weekly running distance and pace.",
+    description: "Whether you're building or backing off, against your 4-week normal.",
+  },
+  {
+    id: "running_log",
+    title: "Runs This Week",
+    href: "/activities?view=running",
+    description: "Every run this week as a dated row.",
+  },
+  {
+    id: "running_effort",
+    title: "Run Effort",
+    href: "/activities?view=running",
+    description: "How hard your runs were, by average heart rate.",
+  },
+  {
+    id: "running_vertical",
+    title: "Vertical Gain",
+    href: "/activities?view=running",
+    description: "How much climbing was in this week's runs.",
   },
   {
     id: "walking",

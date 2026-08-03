@@ -44,7 +44,7 @@ describe("TileGrid", () => {
     );
 
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Lifting", "Running", "Streak"]);
+    expect(headings).toEqual(["Lifting", "Training Load", "Streak"]);
   });
 
   it("edit mode renders a labelled Remove button per tile and fires onRemove", () => {
@@ -60,10 +60,10 @@ describe("TileGrid", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Remove Running" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Training Load" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove Steps" })).toBeInTheDocument();
     // Each tile also exposes a labelled drag handle.
-    expect(screen.getByRole("button", { name: "Reorder Running" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reorder Training Load" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Steps" }));
     expect(onRemove).toHaveBeenCalledWith("steps");
