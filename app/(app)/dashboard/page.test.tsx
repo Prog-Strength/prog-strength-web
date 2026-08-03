@@ -52,7 +52,20 @@ const PROFILE: ResolvedProfile = {
 const FULL_SUMMARY: DashboardSummary = {
   layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
   running: {
-    current_week: { distance_meters: 16093.44, run_count: 3, delta_pct_vs_prior_week: 12 },
+    current_week: {
+      distance_meters: 16093.44,
+      run_count: 3,
+      delta_pct_vs_prior_week: 12,
+      duration_seconds: 5760,
+      avg_pace_sec_per_km: 305,
+      avg_heart_rate_bpm: 150,
+      elevation_gain_meters: null,
+      heart_rate_runs: 2,
+      elevation_runs: 0,
+      longest_run_meters: 8046.72,
+      days_run: 3,
+    },
+    baseline: null,
     recent_avg_pace_sec_per_km: 300,
     latest_run: {
       name: "Morning run",
@@ -60,7 +73,8 @@ const FULL_SUMMARY: DashboardSummary = {
       duration_seconds: 2400,
       start_time: "2026-06-18T13:00:00Z",
     },
-    weekly_distance_spark: [8000, 12000, 9000, 16093.44],
+    week_runs: [],
+    weekly_load: [],
   },
   lifting: {
     current_week: { duration_seconds: 5400, sessions: 4, sets: 48, prs: 2 },

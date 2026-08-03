@@ -30,6 +30,8 @@ import type {
   DashboardNutrition,
   DashboardRecovery,
   DashboardRunning,
+  DashboardRunningBaseline,
+  DashboardRunningWeekRun,
   DashboardSteps,
   DashboardStreak,
   DashboardSummary,
@@ -39,6 +41,7 @@ import type {
 import type { TileId } from "@/lib/dashboard-tiles";
 import {
   formatDistanceValue,
+  formatElevationValue,
   formatPaceValue,
   type DistanceUnit,
 } from "@/lib/distance-unit-context";
@@ -60,21 +63,72 @@ export type SparkSeries = {
   unit: string;
 };
 
-/** Display view-model for the running widget. */
+/** One of this week's runs, display-shaped. Raw sec/km and metres are kept
+ * alongside the display strings ONLY for unit-free comparisons and chart
+ * proportions (ratios of two server figures) — never for re-conversion. */
+export type RunningWeekRunView = {
+  activityId: string;
+  name: string | null;
+  localDate: string; // YYYY-MM-DD
+  startTime: string;
+  distance: string; // display-unit numeric string, no suffix
+  durationSeconds: number;
+  pace: string; // "m:ss" in display unit, or "—"
+  paceSecPerKm: number | null;
+  avgHeartRate: number | null;
+  heartRateZone: number | null; // 1..5, null unless Run Effort enabled
+  elevation: string | null; // display string with suffix; null = source carried none
+  elevationGainMeters: number | null;
+  indoor: boolean;
+};
+
+export type RunningWeekPointView = {
+  weekStart: string; // YYYY-MM-DD, local Monday
+  distance: number; // display-unit numeric, for charting
+  durationSeconds: number;
+  runCount: number;
+};
+
+/** Trailing 4-week averages excluding the current week; null until a prior
+ * week holds a run. `weeks` is the denominator actually used (weeks with a
+ * run), so tiles can caption "4-wk avg · 3 weeks" honestly. */
+export type RunningBaselineView = {
+  windowWeeks: number;
+  weeks: number;
+  distance: string | null;
+  durationSeconds: number | null;
+  pace: string | null;
+  paceSecPerKm: number | null;
+  avgHeartRate: number | null;
+  elevation: string | null;
+  runsPerWeek: number | null;
+};
+
+/** Display view-model for the running-family tiles. */
 export type RunningView = {
   currentWeek: {
-    distance: string; // display-unit numeric string, no suffix
+    distance: string;
     runCount: number;
-    deltaPct: number | null; // signed % vs prior week; null when no prior week
+    deltaPct: number | null;
+    durationSeconds: number;
+    pace: string; // THIS WEEK's aggregate — label distinctly from `pace` below
+    avgHeartRate: number | null; // duration-weighted
+    elevation: string | null; // null = no run carried altitude (≠ "0 ft")
+    heartRateRuns: number;
+    elevationRuns: number;
+    longestRun: string;
+    daysRun: number;
   };
-  pace: string; // "m:ss" in display unit, or "—"
+  pace: string; // 30-DAY aggregate — labelled "30d", never "this week"
+  baseline: RunningBaselineView | null;
   latestRun: {
     name: string | null;
     distance: string;
     durationSeconds: number;
     startTime: string;
   } | null;
-  spark: SparkSeries; // weekly distances in display unit
+  weekRuns: RunningWeekRunView[]; // oldest→newest
+  weeklyLoad: RunningWeekPointView[]; // 8 buckets, oldest→newest
   unit: DistanceUnit;
 };
 
@@ -250,14 +304,63 @@ function sanitizeSpark(points: number[]): number[] {
   return points.map((n) => (Number.isFinite(n) ? n : 0));
 }
 
+/** Elevation display, preserving null (missing ≠ zero — the tiles branch on it). */
+function elevationOrNull(meters: number | null, unit: DistanceUnit): string | null {
+  return meters === null ? null : formatElevationValue(meters, unit);
+}
+
+function adaptRunningWeekRun(r: DashboardRunningWeekRun, unit: DistanceUnit): RunningWeekRunView {
+  return {
+    activityId: r.activity_id,
+    name: r.name,
+    localDate: r.local_date,
+    startTime: r.start_time,
+    distance: formatDistanceValue(r.distance_meters, unit),
+    durationSeconds: r.duration_seconds,
+    pace: formatPaceValue(r.avg_pace_sec_per_km, unit),
+    paceSecPerKm: r.avg_pace_sec_per_km,
+    avgHeartRate: r.avg_heart_rate_bpm,
+    heartRateZone: r.heart_rate_zone,
+    elevation: elevationOrNull(r.elevation_gain_meters, unit),
+    elevationGainMeters: r.elevation_gain_meters,
+    indoor: r.environment === "indoor",
+  };
+}
+
+function adaptRunningBaseline(
+  b: DashboardRunningBaseline,
+  unit: DistanceUnit,
+): RunningBaselineView {
+  return {
+    windowWeeks: b.window_weeks,
+    weeks: b.weeks,
+    distance: b.distance_meters === null ? null : formatDistanceValue(b.distance_meters, unit),
+    durationSeconds: b.duration_seconds,
+    pace: b.avg_pace_sec_per_km === null ? null : formatPaceValue(b.avg_pace_sec_per_km, unit),
+    paceSecPerKm: b.avg_pace_sec_per_km,
+    avgHeartRate: b.avg_heart_rate_bpm,
+    elevation: elevationOrNull(b.elevation_gain_meters, unit),
+    runsPerWeek: b.runs_per_week,
+  };
+}
+
 function adaptRunning(running: DashboardRunning, unit: DistanceUnit): RunningView {
   return {
     currentWeek: {
       distance: formatDistanceValue(running.current_week.distance_meters, unit),
       runCount: running.current_week.run_count,
       deltaPct: running.current_week.delta_pct_vs_prior_week,
+      durationSeconds: running.current_week.duration_seconds,
+      pace: formatPaceValue(running.current_week.avg_pace_sec_per_km, unit),
+      avgHeartRate: running.current_week.avg_heart_rate_bpm,
+      elevation: elevationOrNull(running.current_week.elevation_gain_meters, unit),
+      heartRateRuns: running.current_week.heart_rate_runs,
+      elevationRuns: running.current_week.elevation_runs,
+      longestRun: formatDistanceValue(running.current_week.longest_run_meters, unit),
+      daysRun: running.current_week.days_run,
     },
     pace: formatPaceValue(running.recent_avg_pace_sec_per_km, unit),
+    baseline: running.baseline ? adaptRunningBaseline(running.baseline, unit) : null,
     latestRun: running.latest_run
       ? {
           name: running.latest_run.name,
@@ -266,10 +369,13 @@ function adaptRunning(running: DashboardRunning, unit: DistanceUnit): RunningVie
           startTime: running.latest_run.start_time,
         }
       : null,
-    spark: {
-      points: running.weekly_distance_spark.map((m) => distanceToDisplay(m, unit)),
-      unit,
-    },
+    weekRuns: running.week_runs.map((r) => adaptRunningWeekRun(r, unit)),
+    weeklyLoad: running.weekly_load.map((p) => ({
+      weekStart: p.week_start,
+      distance: distanceToDisplay(p.distance_meters, unit),
+      durationSeconds: p.duration_seconds,
+      runCount: p.run_count,
+    })),
     unit,
   };
 }

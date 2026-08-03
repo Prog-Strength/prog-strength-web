@@ -4516,19 +4516,70 @@ export async function checkUsernameAvailable(token: string, username: string): P
 // --- Dashboard summary -------------------------------------------
 
 /**
- * The dashboard's running widget. `current_week` carries this week's
- * distance/run-count plus the week-over-week delta (null when there's no
- * prior week to compare against). `recent_avg_pace_sec_per_km` and
- * `latest_run` are nullable when the data is too sparse to compute.
- * `weekly_distance_spark` is ~8 weekly distances (meters), oldest→newest.
- * All distances are metric meters; convert at the display edge.
+ * The dashboard's running section — the ONE shared payload every
+ * running-family tile reads (running / running_log / running_effort /
+ * running_vertical). `current_week` carries this week's aggregates
+ * (`avg_pace_sec_per_km` is the WEEK aggregate; `avg_heart_rate_bpm` is
+ * duration-weighted over `heart_rate_runs` HR-bearing runs;
+ * `elevation_gain_meters` is null — not zero — when no run carried
+ * altitude). `baseline` is the trailing 4-week average excluding the
+ * current week, null until a prior week holds a run. `week_runs` is this
+ * local week oldest→newest; `heart_rate_zone` (1..5) is null unless the
+ * Run Effort tile is enabled. `weekly_load` is 8 week-anchored buckets
+ * oldest→newest — a zero bucket is a real zero week.
+ * `recent_avg_pace_sec_per_km` is a 30-DAY aggregate, a different figure
+ * from `current_week.avg_pace_sec_per_km`. The server still emits the
+ * legacy `weekly_distance_spark`; this client no longer reads it (it dies
+ * with the retired card in a follow-up API contract PR).
  */
+export type DashboardRunningWeekRun = {
+  activity_id: string;
+  name: string | null;
+  start_time: string;
+  local_date: string; // YYYY-MM-DD in the user's tz
+  distance_meters: number;
+  duration_seconds: number;
+  avg_pace_sec_per_km: number | null;
+  avg_heart_rate_bpm: number | null;
+  heart_rate_zone: number | null; // 1..5
+  elevation_gain_meters: number | null;
+  environment: "outdoor" | "indoor";
+};
+
+export type DashboardRunningWeekPoint = {
+  week_start: string; // YYYY-MM-DD, local Monday
+  distance_meters: number;
+  duration_seconds: number;
+  run_count: number;
+  elevation_gain_meters: number | null;
+};
+
+export type DashboardRunningBaseline = {
+  window_weeks: number;
+  weeks: number;
+  distance_meters: number | null;
+  duration_seconds: number | null;
+  avg_pace_sec_per_km: number | null;
+  avg_heart_rate_bpm: number | null;
+  elevation_gain_meters: number | null;
+  runs_per_week: number | null;
+};
+
 export type DashboardRunning = {
   current_week: {
     distance_meters: number;
     run_count: number;
     delta_pct_vs_prior_week: number | null;
+    duration_seconds: number;
+    avg_pace_sec_per_km: number | null;
+    avg_heart_rate_bpm: number | null;
+    elevation_gain_meters: number | null;
+    heart_rate_runs: number;
+    elevation_runs: number;
+    longest_run_meters: number;
+    days_run: number;
   };
+  baseline: DashboardRunningBaseline | null;
   recent_avg_pace_sec_per_km: number | null;
   latest_run: {
     name: string | null;
@@ -4536,7 +4587,8 @@ export type DashboardRunning = {
     duration_seconds: number;
     start_time: string;
   } | null;
-  weekly_distance_spark: number[];
+  week_runs: DashboardRunningWeekRun[];
+  weekly_load: DashboardRunningWeekPoint[];
 };
 
 /**

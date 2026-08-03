@@ -69,7 +69,6 @@ export function RunningCard({
   return (
     <MiniCard title="Running" href={href}>
       <BigNum value={v.currentWeek.distance} suffix={`${v.unit} this week`} />
-      <Spark points={v.spark.points} className="h-7 w-full text-[var(--discipline-run-dot)]" />
       <MetaRow
         items={[
           { label: "runs", value: compact(v.currentWeek.runCount) },
