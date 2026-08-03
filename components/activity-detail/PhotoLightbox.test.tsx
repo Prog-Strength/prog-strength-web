@@ -13,6 +13,7 @@ function photo(id: string, caption: string | null = null): ActivityPhoto {
     height: 600,
     caption,
     position: 0,
+    status: "ready" as const,
   };
 }
 

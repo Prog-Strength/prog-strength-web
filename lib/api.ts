@@ -2072,12 +2072,29 @@ export type ActivityVideo = {
 
 export type ActivityPhoto = {
   id: string;
-  url: string;
-  thumb_url: string;
+  /**
+   * Null while the photo is still being processed — the objects do not exist
+   * yet, so there is nothing to presign. Render a placeholder at `position`
+   * rather than an <img> that would 404.
+   */
+  url: string | null;
+  thumb_url: string | null;
   width: number;
   height: number;
   caption: string | null;
   position: number;
+  /**
+   * `ready` or `processing`. The API never returns a reserved-but-unuploaded
+   * photo or one whose render failed, so those states cannot appear here.
+   */
+  status: "ready" | "processing";
+};
+
+/** POST /activities/{id}/photos/reserve — step 1 of the two-phase upload. */
+export type ReservedPhotoUpload = {
+  photo_id: string;
+  upload_url: string;
+  expires_at: string;
 };
 
 /**
@@ -2219,6 +2236,112 @@ export async function getActivity(
  * 415 unsupported_media_type, 409 photo_limit_reached, 503
  * photo_storage_unavailable).
  */
+export async function reserveActivityPhoto(
+  token: string,
+  activityId: string,
+  file: File,
+  caption?: string,
+): Promise<ReservedPhotoUpload> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/photos/reserve`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content_type: file.type,
+        byte_size: file.size,
+        caption: caption ?? null,
+      }),
+    },
+  );
+  const reserved = await unwrap<ReservedPhotoUpload | null>(resp, null);
+  if (!reserved) throw new Error("API did not return an upload reservation");
+  return reserved;
+}
+
+/**
+ * Step 2: PUT the original straight to S3. This request does NOT go through
+ * the API — that is the whole point of the two-phase upload, and why it is not
+ * bounded by the server's request deadline.
+ *
+ * Uses XMLHttpRequest rather than fetch purely for `upload.onprogress`: fetch
+ * still has no upload-progress event, and a multi-megabyte upload with no
+ * progress bar reads as a hang.
+ *
+ * Sends Content-Type and NOTHING else. The presigned URL signs exactly that
+ * one header; any extra header makes S3 answer 403 SignatureDoesNotMatch,
+ * which presents as an upload that appeared to transfer and then failed.
+ */
+export function putPhotoToStorage(
+  uploadUrl: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl, true);
+    xhr.setRequestHeader("Content-Type", file.type);
+
+    xhr.upload.onprogress = (e) => {
+      if (onProgress && e.lengthComputable && e.total > 0) {
+        onProgress(e.loaded / e.total);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      reject(new Error(`Upload failed with status ${xhr.status}`));
+    };
+    // A transport failure here gives no status — the same class of silent
+    // failure the old synchronous endpoint produced. Say so explicitly.
+    xhr.onerror = () => reject(new Error("Upload failed before the server responded"));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
+
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(file);
+  });
+}
+
+/**
+ * POST /activities/{id}/photos/{photo_id}/commit — step 3. Confirms the object
+ * landed and hands the row to the server's processing worker. Returns 202 with
+ * the photo in `processing`; its URLs fill in once the worker finishes.
+ */
+export async function commitActivityPhoto(
+  token: string,
+  activityId: string,
+  photoId: string,
+): Promise<ActivityPhoto> {
+  const resp = await fetch(
+    `${config.apiUrl}/activities/${encodeURIComponent(activityId)}/photos/${encodeURIComponent(
+      photoId,
+    )}/commit`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+  );
+  const committed = await unwrap<ActivityPhoto | null>(resp, null);
+  if (!committed) throw new Error("API did not return the committed photo");
+  return committed;
+}
+
+/**
+ * The whole three-phase upload as one call, which is what every caller
+ * actually wants. Kept beside the pieces so a caller needing finer control
+ * (retry a failed commit without re-uploading, say) still has them.
+ */
+export async function uploadActivityPhotoDirect(
+  token: string,
+  activityId: string,
+  file: File,
+  opts?: { caption?: string; onProgress?: (fraction: number) => void; signal?: AbortSignal },
+): Promise<ActivityPhoto> {
+  const reserved = await reserveActivityPhoto(token, activityId, file, opts?.caption);
+  await putPhotoToStorage(reserved.upload_url, file, opts?.onProgress, opts?.signal);
+  return commitActivityPhoto(token, activityId, reserved.photo_id);
+}
+
 export async function uploadActivityPhoto(
   token: string,
   activityId: string,

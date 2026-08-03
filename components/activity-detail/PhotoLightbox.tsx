@@ -132,12 +132,18 @@ export function PhotoLightbox({
         {/* Presigned S3 URLs are arbitrary remote hosts; next/image would need
             per-host remotePatterns, so a plain <img> is the right call (matches
             the Avatar / sidebar pattern). */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={photo.url}
-          alt={alt}
-          className="max-h-[80vh] max-w-[90vw] rounded-[14px] object-contain"
-        />
+        {photo.url ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={photo.url}
+            alt={alt}
+            className="max-h-[80vh] max-w-[90vw] rounded-[14px] object-contain"
+          />
+        ) : (
+          <div className="flex h-[40vh] w-[60vw] items-center justify-center rounded-[14px] bg-white/5 text-sm text-white/70">
+            Still processing&hellip;
+          </div>
+        )}
         {photo.caption?.trim() && (
           <figcaption className="max-w-[90vw] text-center text-sm text-white/80">
             {photo.caption}

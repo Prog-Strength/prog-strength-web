@@ -42,6 +42,7 @@ function photo(id: string, position: number, caption: string | null = null): Act
     height: 600,
     caption,
     position,
+    status: "ready",
   };
 }
 

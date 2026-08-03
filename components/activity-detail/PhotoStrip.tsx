@@ -1,12 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getToken } from "@/lib/auth";
 import {
   deleteActivityPhoto,
   reorderActivityPhotos,
   updateActivityPhotoCaption,
-  uploadActivityPhoto,
+  uploadActivityPhotoDirect,
   type ActivityPhoto,
 } from "@/lib/api";
 import { useToast } from "@/components/toast";
@@ -50,6 +50,24 @@ export function PhotoStrip({
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  // 0..1 while the S3 PUT is in flight, null otherwise. A multi-megabyte
+  // upload with no progress reads as a hang, which is half of why the old
+  // failure mode was so confusing.
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  // A photo committed but not yet rendered sits in `processing`. The server
+  // finishes it on a background worker, so nothing pushes the result here —
+  // poll until none are left.
+  //
+  // Polling beats anything push-based for this: it is a handful of requests
+  // over a few seconds, on a page the user is already looking at, and it needs
+  // no connection to keep alive.
+  const hasProcessing = photos.some((p) => p.status === "processing");
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const id = setInterval(onPhotosChanged, 2000);
+    return () => clearInterval(id);
+  }, [hasProcessing, onPhotosChanged]);
   const [editing, setEditing] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -70,13 +88,22 @@ export function PhotoStrip({
     const token = getToken();
     if (!token) return;
     setUploading(true);
+    setUploadProgress(0);
     try {
-      await uploadActivityPhoto(token, activityId, file);
+      // Three phases: reserve, PUT straight to S3, commit. The middle one is
+      // not an API request at all, which is what removed the ten-second
+      // ceiling that made large photos fail with no status code.
+      await uploadActivityPhotoDirect(token, activityId, file, {
+        onProgress: setUploadProgress,
+      });
+      // The commit returns the photo in `processing`, so refreshing now shows
+      // a placeholder in its final position rather than nothing.
       onPhotosChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to upload photo");
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -148,7 +175,11 @@ export function PhotoStrip({
               disabled={uploading}
               className="text-xs text-[var(--accent)] hover:underline disabled:opacity-40"
             >
-              {uploading ? "Uploading…" : "+ Add photo"}
+              {uploading
+                ? uploadProgress !== null
+                  ? `Uploading ${Math.round(uploadProgress * 100)}%`
+                  : "Uploading…"
+                : "+ Add photo"}
             </button>
             <input
               ref={fileInputRef}
@@ -231,8 +262,18 @@ function Thumbnail({
       {/* Presigned S3 URLs are arbitrary remote hosts; next/image would need
           per-host remotePatterns, so a plain <img> is the right call here
           (matches the Avatar / sidebar pattern). */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={photo.thumb_url} alt={alt} className="h-full w-full object-cover" />
+      {photo.thumb_url ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img src={photo.thumb_url} alt={alt} className="h-full w-full object-cover" />
+      ) : (
+        /* Still processing: the objects do not exist yet, so there is nothing
+           to show. A shimmer in the photo's final position reads as "not
+           finished", where a broken <img> would read as "lost". */
+        <span
+          aria-label="Photo processing"
+          className="block h-full w-full animate-pulse bg-white/10"
+        />
+      )}
     </button>
   );
 }
