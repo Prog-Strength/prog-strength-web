@@ -60,6 +60,13 @@ export function paceDelta(secPerKm: number, baselineSecPerKm: number, unit: Dist
   return `${signed((secPerKm - baselineSecPerKm) * factor)}s`;
 }
 
+/** Short local date for a run's own timestamp ("Aug 1") — pure, prop-driven. */
+export function shortDate(startTime: string): string {
+  const d = new Date(startTime);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 /** "2026-08-01" → "Sat" — parsed as local date parts, no timezone drift. */
 export function weekdayLabel(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);

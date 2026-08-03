@@ -20,7 +20,7 @@
 import type { RunningView } from "@/lib/dashboard";
 import { formatDuration } from "@/lib/format";
 import { MiniCard } from "../mini-card";
-import { loadStatus, loadStatusColor, signedPct, type LoadStatus } from "./shared";
+import { loadStatus, loadStatusColor, shortDate, signedPct, type LoadStatus } from "./shared";
 
 const TITLE = "Training Load";
 
@@ -104,7 +104,7 @@ function caption(
   const { currentWeek, latestRun, unit } = section;
   if (currentWeek.runCount === 0) {
     const last = latestRun
-      ? ` · last run ${latestRun.distance} ${unit}, ${runDay(latestRun.startTime)}`
+      ? ` · last run ${latestRun.distance} ${unit}, ${shortDate(latestRun.startTime)}`
       : "";
     return `resting${last}`;
   }
@@ -112,11 +112,4 @@ function caption(
     return "first week";
   }
   return `${status} · ${formatDuration(currentWeek.durationSeconds)} vs ${formatDuration(baselineDuration)} avg`;
-}
-
-/** Short dated label for the latest run ("Aug 1") — pure function of props. */
-function runDay(startTime: string): string {
-  const d = new Date(startTime);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

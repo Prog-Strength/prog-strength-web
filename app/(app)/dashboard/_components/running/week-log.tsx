@@ -17,7 +17,7 @@
 import type { RunningView, RunningWeekRunView } from "@/lib/dashboard";
 import { formatDuration } from "@/lib/format";
 import { MiniCard } from "../mini-card";
-import { weekdayLabel } from "./shared";
+import { shortDate, weekdayLabel } from "./shared";
 
 const TITLE = "Runs This Week";
 // Row ceiling keeping a heavy week inside the ~180px budget (SOW OQ 7).
@@ -106,11 +106,4 @@ function paceColor(run: RunningWeekRunView, baselinePace: number | null): string
     return "var(--discipline-run-fg)";
   }
   return "var(--discipline-run-dot)";
-}
-
-/** Short local date ("Aug 1") for the zero-week last-run row. */
-function shortDate(startTime: string): string {
-  const d = new Date(startTime);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

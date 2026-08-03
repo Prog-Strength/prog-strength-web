@@ -5,6 +5,7 @@ import {
   signedPct,
   signed,
   paceDelta,
+  shortDate,
   weekdayLabel,
   coverageCaption,
   zoneToken,
@@ -52,6 +53,13 @@ describe("paceDelta", () => {
     expect(paceDelta(378.6, 381.2, "km")).toBe("−3s");
     expect(paceDelta(381.2, 381.2, "mi")).toBe("±0s");
     expect(paceDelta(390, 381.2, "km")).toBe("+9s");
+  });
+});
+
+describe("shortDate", () => {
+  it("renders a short month-day label and degrades bad input to an em-dash", () => {
+    expect(shortDate("2026-08-01T11:02:00Z")).toBe("Aug 1");
+    expect(shortDate("garbage")).toBe("—");
   });
 });
 
