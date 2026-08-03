@@ -24,6 +24,8 @@ describe("EffortHeartCard", () => {
     render(<EffortHeartCard section={ordinaryWeek("mi")} href="/x" />);
     const dots = screen.getAllByTestId("effort-dot");
     expect(dots).toHaveLength(3);
+    // Dots render in weekRuns order (a1, a2, a4 — a3 carries no HR), so
+    // indices 0/1 map to a1's zone 2 and a2's zone 3.
     expect(dots[0]).toHaveStyle({ backgroundColor: "var(--zone-2)" });
     expect(dots[1]).toHaveStyle({ backgroundColor: "var(--zone-3)" });
   });
@@ -32,6 +34,22 @@ describe("EffortHeartCard", () => {
     const { container } = render(<EffortHeartCard section={ordinaryWeek("mi")} href="/x" />);
     expect(screen.getByText(/mostly zone 3 runs/)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/min(ute)?s? in zone/i);
+  });
+
+  it("resolves a modal-zone tie upward", () => {
+    // Remap the ordinary week so all four runs carry HR and the classified
+    // zones are [2, 3, 2, 3] — a 2-vs-2 tie, which must resolve to the
+    // HIGHER zone per the documented mode() tie-break policy.
+    const section: RunningView = ordinaryWeek("mi");
+    const tieZones: Record<string, number> = { a1: 2, a2: 3, a3: 2, a4: 3 };
+    section.weekRuns = section.weekRuns.map((r) => ({
+      ...r,
+      avgHeartRate: r.avgHeartRate ?? 150,
+      heartRateZone: tieZones[r.activityId],
+    }));
+    section.currentWeek = { ...section.currentWeek, heartRateRuns: 4 };
+    render(<EffortHeartCard section={section} href="/x" />);
+    expect(screen.getByText(/mostly zone 3 runs/)).toBeInTheDocument();
   });
 
   it("renders neutral dots when zones are nil (engine unwired)", () => {

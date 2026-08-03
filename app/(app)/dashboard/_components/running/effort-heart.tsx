@@ -116,7 +116,8 @@ export function EffortHeartCard({ section, href }: { section: RunningView; href:
   );
 }
 
-/** Most frequent value; ties resolve to the highest zone seen among the tied. */
+/** Most frequent value; ties resolve to the highest zone seen among the tied.
+ * Caller contract: `xs` must be non-empty (only called when zones.length > 1). */
 function mode(xs: number[]): number {
   const counts = new Map<number, number>();
   for (const x of xs) counts.set(x, (counts.get(x) ?? 0) + 1);
