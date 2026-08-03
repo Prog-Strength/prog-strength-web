@@ -5,7 +5,7 @@ import type { ActivityPhoto } from "@/lib/api";
 
 // --- module mocks ----------------------------------------------------------
 
-const uploadActivityPhotoMock = vi.hoisted(() => vi.fn());
+const uploadActivityPhotoDirectMock = vi.hoisted(() => vi.fn());
 const updateActivityPhotoCaptionMock = vi.hoisted(() => vi.fn());
 const reorderActivityPhotosMock = vi.hoisted(() => vi.fn());
 const deleteActivityPhotoMock = vi.hoisted(() => vi.fn());
@@ -17,7 +17,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  uploadActivityPhoto: uploadActivityPhotoMock,
+  uploadActivityPhotoDirect: uploadActivityPhotoDirectMock,
   updateActivityPhotoCaption: updateActivityPhotoCaptionMock,
   reorderActivityPhotos: reorderActivityPhotosMock,
   deleteActivityPhoto: deleteActivityPhotoMock,
@@ -44,6 +44,17 @@ function photo(id: string, position: number, caption: string | null = null): Act
     position,
     status: "ready",
   };
+}
+
+/** A File with a controllable type and size — jsdom Files are always tiny, so size is defined explicitly. */
+function makeFile(name: string, type = "image/jpeg", size = 1024): File {
+  const file = new File(["x"], name, { type });
+  Object.defineProperty(file, "size", { value: size });
+  return file;
+}
+
+function selectFiles(files: File[]) {
+  fireEvent.change(screen.getByLabelText("Add photos"), { target: { files } });
 }
 
 const PHOTOS = [photo("p1", 0), photo("p2", 1), photo("p3", 2)];
@@ -155,5 +166,128 @@ describe("PhotoStrip", () => {
         "Big lift",
       ),
     );
+  });
+});
+
+describe("PhotoStrip batch upload", () => {
+  it("uploads a batch of three in selection order, refreshing after each commit", async () => {
+    uploadActivityPhotoDirectMock.mockResolvedValue(photo("new", 0));
+    const onPhotosChanged = vi.fn();
+    renderStrip({ photos: [], onPhotosChanged });
+
+    selectFiles([makeFile("a.jpg"), makeFile("b.jpg"), makeFile("c.jpg")]);
+
+    await waitFor(() => expect(uploadActivityPhotoDirectMock).toHaveBeenCalledTimes(3));
+    const uploadedNames = uploadActivityPhotoDirectMock.mock.calls.map(
+      (call) => (call[2] as File).name,
+    );
+    expect(uploadedNames).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+    // One refresh per successful commit — photos appear as they land.
+    expect(onPhotosChanged).toHaveBeenCalledTimes(3);
+    expect(errorToastMock).not.toHaveBeenCalled();
+  });
+
+  it("a mid-batch failure keeps earlier successes and still attempts later files", async () => {
+    uploadActivityPhotoDirectMock
+      .mockResolvedValueOnce(photo("n1", 0))
+      .mockRejectedValueOnce(new Error("Upload failed before the server responded"))
+      .mockResolvedValueOnce(photo("n2", 1));
+    const onPhotosChanged = vi.fn();
+    renderStrip({ photos: [], onPhotosChanged });
+
+    selectFiles([makeFile("a.jpg"), makeFile("b.jpg"), makeFile("c.jpg")]);
+
+    // The failure does not abort the loop: all three are attempted.
+    await waitFor(() => expect(uploadActivityPhotoDirectMock).toHaveBeenCalledTimes(3));
+    expect(onPhotosChanged).toHaveBeenCalledTimes(2);
+    await waitFor(() =>
+      expect(errorToastMock).toHaveBeenCalledWith("1 photo failed — 1 upload error."),
+    );
+  });
+
+  it("an over-cap selection uploads nothing and names the remaining slots", async () => {
+    // Strip already holds 3 photos; cap is 10 → 7 slots remain.
+    renderStrip();
+
+    selectFiles(Array.from({ length: 8 }, (_, i) => makeFile(`f${i}.jpg`)));
+
+    await waitFor(() =>
+      expect(errorToastMock).toHaveBeenCalledWith("You can add 7 more photos — you selected 8."),
+    );
+    expect(uploadActivityPhotoDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("a full strip refuses any selection with the at-cap message", async () => {
+    // Already at the cap of 10 — the toast names the cap instead of offering
+    // "0 more" slots.
+    renderStrip({ photos: Array.from({ length: 10 }, (_, i) => photo(`p${i}`, i)) });
+
+    selectFiles([makeFile("a.jpg")]);
+
+    await waitFor(() =>
+      expect(errorToastMock).toHaveBeenCalledWith(
+        "This activity already has the maximum of 10 photos.",
+      ),
+    );
+    expect(uploadActivityPhotoDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("reports the correct index/total as the batch advances", async () => {
+    let resolveUpload!: (value: unknown) => void;
+    uploadActivityPhotoDirectMock.mockImplementation(
+      (_token, _activityId, _file, opts: { onProgress: (fraction: number) => void }) =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+          opts.onProgress(0.62);
+        }),
+    );
+    renderStrip({ photos: [] });
+
+    selectFiles([makeFile("a.jpg"), makeFile("b.jpg")]);
+
+    // Mid-batch the Add button doubles as the progress readout and is
+    // disabled — a second selection during a batch would scramble the count.
+    const uploading = await screen.findByRole("button", { name: "Uploading 1 of 2 — 62%" });
+    expect(uploading).toBeDisabled();
+    resolveUpload(photo("n1", 0));
+    await screen.findByRole("button", { name: "Uploading 2 of 2 — 62%" });
+    resolveUpload(photo("n2", 1));
+    // Batch done: the button reverts to its label and is clickable again.
+    expect(await screen.findByRole("button", { name: "+ Add photos" })).toBeEnabled();
+  });
+
+  it("skips a file rejected on type without aborting the batch", async () => {
+    uploadActivityPhotoDirectMock.mockResolvedValue(photo("new", 0));
+    renderStrip({ photos: [] });
+
+    selectFiles([makeFile("bad.heic", "image/heic"), makeFile("good.jpg")]);
+
+    await waitFor(() => expect(uploadActivityPhotoDirectMock).toHaveBeenCalledTimes(1));
+    expect((uploadActivityPhotoDirectMock.mock.calls[0][2] as File).name).toBe("good.jpg");
+    await waitFor(() =>
+      expect(errorToastMock).toHaveBeenCalledWith("1 photo failed — 1 unsupported format."),
+    );
+  });
+
+  it("groups mixed failures into one toast", async () => {
+    uploadActivityPhotoDirectMock
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockRejectedValueOnce(new Error("server sad"));
+    renderStrip({ photos: [] });
+
+    selectFiles([
+      makeFile("bad.heic", "image/heic"),
+      makeFile("huge.jpg", "image/jpeg", 13 * 1024 * 1024),
+      makeFile("a.jpg"),
+      makeFile("b.jpg"),
+    ]);
+
+    await waitFor(() => expect(uploadActivityPhotoDirectMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(errorToastMock).toHaveBeenCalledWith(
+        "4 photos failed — 1 unsupported format, 1 file over 12 MB, 2 upload errors.",
+      ),
+    );
+    expect(errorToastMock).toHaveBeenCalledTimes(1);
   });
 });

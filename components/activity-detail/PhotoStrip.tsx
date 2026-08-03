@@ -12,10 +12,35 @@ import {
 import { useToast } from "@/components/toast";
 import { PhotoLightbox } from "./PhotoLightbox";
 
-// Client-side upload guards — UX only; the API is authoritative on size and
-// content type. Catching here gives a snappier rejection than a round-trip.
+// Client-side upload guards — UX only; the API is authoritative on size,
+// content type, and the per-activity cap. Catching here gives a snappier
+// rejection than a round-trip. The cap mirrors the server's
+// `photos.max_per_activity`.
 const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
 const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_PHOTOS_PER_ACTIVITY = 10;
+
+// Why a file did not attach, grouped for the batch's single failure toast.
+// "unsupported format" and "file over 12 MB" are rejections — the user's move
+// is to pick a different file. "upload error" is a network/server failure —
+// retrying the same file is reasonable. The label pair is (singular, plural)
+// because the toast counts each class.
+const FAILURE_LABELS = {
+  unsupportedType: ["unsupported format", "unsupported formats"],
+  tooLarge: ["file over 12 MB", "files over 12 MB"],
+  uploadError: ["upload error", "upload errors"],
+} as const;
+type FailureReason = keyof typeof FAILURE_LABELS;
+type UploadFailure = { name: string; reason: FailureReason };
+
+/** One grouped message: "3 photos failed — 1 unsupported format, 2 upload errors." */
+function describeFailures(failures: UploadFailure[]): string {
+  const parts = (Object.keys(FAILURE_LABELS) as FailureReason[])
+    .map((reason) => ({ reason, count: failures.filter((f) => f.reason === reason).length }))
+    .filter(({ count }) => count > 0)
+    .map(({ reason, count }) => `${count} ${FAILURE_LABELS[reason][count === 1 ? 0 : 1]}`);
+  return `${failures.length} photo${failures.length === 1 ? "" : "s"} failed — ${parts.join(", ")}.`;
+}
 
 /**
  * The activity-detail photo strip: a horizontal row of thumbnails, each in an
@@ -25,14 +50,21 @@ const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
  * renders them in the order given.
  *
  * When `isOwner`, the strip grows owner affordances:
- *   - an Add button that opens a hidden file input, pre-checks type/size, then
- *     uploads via `uploadActivityPhoto` and refreshes via `onPhotosChanged`;
+ *   - an Add button that opens a hidden multi-select file input. An over-cap
+ *     selection is refused up front; otherwise each file is validated on
+ *     type/size (a bad file is skipped, never aborting the batch) and the
+ *     valid ones upload sequentially via `uploadActivityPhotoDirect` (reserve
+ *     → S3 PUT → commit), with per-photo "N of M — %" progress, a refresh via
+ *     `onPhotosChanged` after each commit, and one grouped failure toast;
  *   - an Edit toggle exposing per-photo delete, inline caption edit, and
  *     move-left / move-right reordering — the latter reorders locally and
  *     issues ONE `reorderActivityPhotos` call with the complete id list.
  *
- * API errors (413 file_too_large, 415, 409 photo_limit_reached, 503, …) surface
- * as an error toast, mirroring the Settings avatar upload.
+ * Upload API errors (413 file_too_large, 409 photo_limit_reached, 503, …) are
+ * counted into the batch's grouped failure toast as upload errors — the
+ * specific message goes to the console, not the user. Errors from the edit
+ * affordances (delete, caption, reorder) still surface their own message as an
+ * error toast, mirroring the Settings avatar upload.
  */
 export function PhotoStrip({
   photos,
@@ -49,11 +81,14 @@ export function PhotoStrip({
 }) {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  // 0..1 while the S3 PUT is in flight, null otherwise. A multi-megabyte
-  // upload with no progress reads as a hang, which is half of why the old
-  // failure mode was so confusing.
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  // Non-null while a batch is in flight: which photo is uploading (1-based),
+  // how many the batch holds, and the current file's S3 PUT fraction (0..1).
+  // "Uploading 3 of 8 — 62%" is literally true because uploads are sequential.
+  const [batchProgress, setBatchProgress] = useState<{
+    index: number;
+    total: number;
+    fraction: number;
+  } | null>(null);
 
   // A photo committed but not yet rendered sits in `processing`. The server
   // finishes it on a background worker, so nothing pushes the result here —
@@ -74,36 +109,67 @@ export function PhotoStrip({
   // Nothing to show and nothing to add: render nothing at all.
   if (photos.length === 0 && !isOwner) return null;
 
-  const handleFiles = async (files: FileList | null) => {
-    const file = files?.[0];
-    if (!file) return;
-    if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
-      toast.error("Use JPG, PNG, or WebP.");
+  const handleFiles = async (fileList: FileList | null) => {
+    const files = fileList ? Array.from(fileList) : [];
+    if (files.length === 0) return;
+
+    // Cap check runs before anything uploads. Refusing the whole selection up
+    // front beats filling the remaining slots in selection order, which would
+    // silently pick winners.
+    const remaining = MAX_PHOTOS_PER_ACTIVITY - photos.length;
+    if (files.length > remaining) {
+      // A full strip gets its own wording — "You can add 0 more photos" reads
+      // like a riddle when the real answer is "the activity is full".
+      toast.error(
+        remaining <= 0
+          ? `This activity already has the maximum of ${MAX_PHOTOS_PER_ACTIVITY} photos.`
+          : `You can add ${remaining} more photo${remaining === 1 ? "" : "s"} — you selected ${files.length}.`,
+      );
       return;
     }
-    if (file.size > MAX_PHOTO_BYTES) {
-      toast.error("Image must be under 12 MB.");
-      return;
-    }
+
     const token = getToken();
     if (!token) return;
-    setUploading(true);
-    setUploadProgress(0);
-    try {
-      // Three phases: reserve, PUT straight to S3, commit. The middle one is
-      // not an API request at all, which is what removed the ten-second
-      // ceiling that made large photos fail with no status code.
-      await uploadActivityPhotoDirect(token, activityId, file, {
-        onProgress: setUploadProgress,
-      });
-      // The commit returns the photo in `processing`, so refreshing now shows
-      // a placeholder in its final position rather than nothing.
-      onPhotosChanged();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to upload photo");
-    } finally {
-      setUploading(false);
-      setUploadProgress(null);
+
+    // Per-file validation: a bad file is recorded and skipped — one HEIC in a
+    // selection of eight must not cost the other seven.
+    const failures: UploadFailure[] = [];
+    const valid: File[] = [];
+    for (const file of files) {
+      if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
+        failures.push({ name: file.name, reason: "unsupportedType" });
+      } else if (file.size > MAX_PHOTO_BYTES) {
+        failures.push({ name: file.name, reason: "tooLarge" });
+      } else {
+        valid.push(file);
+      }
+    }
+
+    // Sequential on purpose: parallel uploads contend for the same upstream,
+    // let position assignment interleave, and turn "photo 3 of 8" into a
+    // fiction. Each iteration owns its try/catch so one failure cannot abort
+    // the rest — three phases per file: reserve, PUT straight to S3, commit.
+    for (const [i, file] of valid.entries()) {
+      setBatchProgress({ index: i + 1, total: valid.length, fraction: 0 });
+      try {
+        await uploadActivityPhotoDirect(token, activityId, file, {
+          onProgress: (fraction) =>
+            setBatchProgress({ index: i + 1, total: valid.length, fraction }),
+        });
+        // Refresh after every commit, not once at the end — each photo appears
+        // in the strip (as a processing placeholder) the moment it lands.
+        onPhotosChanged();
+      } catch (err) {
+        // The grouped toast stays terse on purpose, so the specific error
+        // (status code, server message) lands in the console for debugging.
+        console.error("photo upload failed", file.name, err);
+        failures.push({ name: file.name, reason: "uploadError" });
+      }
+    }
+    setBatchProgress(null);
+
+    if (failures.length > 0) {
+      toast.error(describeFailures(failures));
     }
   };
 
@@ -172,20 +238,19 @@ export function PhotoStrip({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
+              disabled={batchProgress !== null}
               className="text-xs text-[var(--accent)] hover:underline disabled:opacity-40"
             >
-              {uploading
-                ? uploadProgress !== null
-                  ? `Uploading ${Math.round(uploadProgress * 100)}%`
-                  : "Uploading…"
-                : "+ Add photo"}
+              {batchProgress
+                ? `Uploading ${batchProgress.index} of ${batchProgress.total} — ${Math.round(batchProgress.fraction * 100)}%`
+                : "+ Add photos"}
             </button>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              aria-label="Add photo"
+              multiple
+              aria-label="Add photos"
               className="hidden"
               onChange={(e) => {
                 void handleFiles(e.target.files);
