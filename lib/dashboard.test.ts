@@ -187,6 +187,10 @@ describe("adaptDashboard — full payload", () => {
     expect(data.running.baseline?.pace).toBe("10:13");
     expect(data.running.baseline?.paceSecPerKm).toBe(381.2);
     expect(data.running.baseline?.weeks).toBe(3);
+    expect(data.running.baseline?.avgHeartRate).toBe(150);
+    expect(data.running.baseline?.elevation).toBe("650 ft");
+    expect(data.running.baseline?.runsPerWeek).toBe(3.75);
+    expect(data.running.baseline?.durationSeconds).toBe(10440);
     // Week runs oldest→newest; nulls preserved (never coerced to 0).
     expect(data.running.weekRuns).toHaveLength(2);
     expect(data.running.weekRuns[0].distance).toBe("3.5");
@@ -209,7 +213,7 @@ describe("adaptDashboard — full payload", () => {
       running: {
         ...fullSummary.running!,
         weekly_distance_spark: [1, 2, 3],
-      } as unknown as NonNullable<typeof fullSummary.running>,
+      },
     };
     const data = adaptDashboard(withLegacy, profile({ distance_unit: "mi" }));
     if (!data.running.present) throw new Error("running absent");
