@@ -4796,6 +4796,20 @@ export type DashboardStreak = {
  * the display adapter in lib/dashboard.ts converts toward the user's
  * preferred units.
  */
+/**
+ * A single quote for the quote tile. `source` is present only for a
+ * verified attribution. `offset` is the reroll position this quote was
+ * served at — 0 is the day's quote, and the client sends `offset + 1` to
+ * advance to the next one.
+ */
+export type DashboardQuote = {
+  id: string;
+  text: string;
+  author: string;
+  source?: string;
+  offset: number;
+};
+
 export type DashboardSummary = {
   layout: TileId[];
   running?: DashboardRunning | null;
@@ -4809,6 +4823,9 @@ export type DashboardSummary = {
   blood_pressure?: DashboardBloodPressure | null;
   recovery?: DashboardRecovery | null;
   streak?: DashboardStreak;
+  // Never null when present: the quote comes from a corpus compiled into
+  // the API, so an enabled tile always has content.
+  quote?: DashboardQuote;
 };
 
 /**
@@ -4830,6 +4847,30 @@ export async function getDashboardSummary(
     },
   );
   return unwrap<DashboardSummary | null>(resp, null);
+}
+
+/**
+ * GET /dashboard/quote?timezone=<IANA>&offset=<n>. Backs the quote
+ * tile's reroll button.
+ *
+ * The summary already carries the day's quote at offset 0, so this is
+ * only for advancing past it: pass the current offset + 1. Offsets walk
+ * the corpus in order and wrap, so a reroll never repeats the quote it
+ * just replaced. Rerolling is not persisted — a reload returns to the
+ * day's quote.
+ */
+export async function getDashboardQuote(
+  token: string,
+  timezone: string,
+  offset: number,
+): Promise<DashboardQuote | null> {
+  const resp = await fetch(
+    `${config.apiUrl}/dashboard/quote?timezone=${encodeURIComponent(timezone)}&offset=${offset}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return unwrap<DashboardQuote | null>(resp, null);
 }
 
 /**

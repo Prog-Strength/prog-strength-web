@@ -37,21 +37,37 @@ export function MiniCard({
   children,
 }: {
   title: string;
-  href: string;
+  /**
+   * Deep page for this card. Omitted by tiles with no page behind them
+   * (the quote tile), which render the same panel as a plain container —
+   * no link, and no hover lift, since nothing happens on click.
+   */
+  href?: string;
   icon?: ReactNode;
   children: ReactNode;
 }) {
+  const header = (
+    <div className="flex items-center gap-1.5">
+      {icon && <span className="text-[var(--muted)]">{icon}</span>}
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{title}</h3>
+    </div>
+  );
+
+  if (!href) {
+    return (
+      <div className={`${PANEL} flex flex-col gap-3`}>
+        {header}
+        {children}
+      </div>
+    );
+  }
+
   return (
     <Link
       href={href}
       className={`${PANEL} group flex flex-col gap-3 transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]`}
     >
-      <div className="flex items-center gap-1.5">
-        {icon && <span className="text-[var(--muted)]">{icon}</span>}
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          {title}
-        </h3>
-      </div>
+      {header}
       {children}
     </Link>
   );

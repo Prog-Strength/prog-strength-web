@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
 
 describe("dashboard tile catalog", () => {
-  test("has exactly 18 tiles", () => {
-    expect(TILE_CATALOG.length).toBe(18);
+  test("has exactly 19 tiles", () => {
+    expect(TILE_CATALOG.length).toBe(19);
   });
 
   test("ids are in the Go catalog order", () => {
@@ -26,14 +26,29 @@ describe("dashboard tile catalog", () => {
       "recovery_trend",
       "recovery_log",
       "streak",
+      "quote",
     ]);
   });
 
-  test("every entry has non-empty title, href, and description", () => {
+  test("every entry has a non-empty title and description", () => {
     for (const entry of TILE_CATALOG) {
       expect(entry.title.length).toBeGreaterThan(0);
-      expect(entry.href.length).toBeGreaterThan(0);
       expect(entry.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  // `href` is optional only for tiles with no page behind them. TileCard casts
+  // away the undefined for every other id, so this pins exactly which ids are
+  // allowed to omit it — without this the cast could silently start lying.
+  const PAGELESS_TILE_IDS: readonly TileId[] = ["quote"];
+
+  test("every tile has a non-empty href except the pageless ones", () => {
+    for (const entry of TILE_CATALOG) {
+      if (PAGELESS_TILE_IDS.includes(entry.id)) {
+        expect(entry.href).toBeUndefined();
+        continue;
+      }
+      expect(entry.href && entry.href.length).toBeGreaterThan(0);
     }
   });
 
@@ -62,6 +77,7 @@ describe("dashboard tile catalog", () => {
     recovery_trend: true,
     recovery_log: true,
     streak: true,
+    quote: true,
   };
 
   test("every TileId is in the catalog", () => {

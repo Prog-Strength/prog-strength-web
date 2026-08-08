@@ -23,12 +23,18 @@ export type TileId =
   | "morning_vitals"
   | "recovery_trend"
   | "recovery_log"
-  | "streak";
+  | "streak"
+  | "quote";
 
 export type TileCatalogEntry = {
   id: TileId;
   title: string;
-  href: string; // deep link into the tile's full page
+  /**
+   * Deep link into the tile's full page. Optional: a tile with no page
+   * behind it (the quote tile) omits it and renders as a non-navigable
+   * card. Every data-backed tile sets it.
+   */
+  href?: string;
   description: string; // one-line tray description
 };
 
@@ -140,6 +146,11 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     title: "Streak",
     href: "/activities",
     description: "Your weekly training streak.",
+  },
+  {
+    id: "quote",
+    title: "Daily Quote",
+    description: "A line to sit with for the day. Tap to draw another.",
   },
 ] as const;
 

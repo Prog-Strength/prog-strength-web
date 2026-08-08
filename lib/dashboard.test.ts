@@ -716,11 +716,59 @@ describe("adaptDashboard — layout-aware sections", () => {
     expect(data.nutrition).toEqual({ present: false });
     expect(data.bodyweight).toEqual({ present: false });
     expect(data.recovery).toEqual({ present: false });
+    expect(data.quote).toEqual({ present: false });
     expect(data.streak.isNew).toBe(true);
   });
 
   it("falls back to a brand-new streak when the streak tile is absent", () => {
     const data = adaptDashboard({ layout: ["running"] }, profile());
     expect(data.streak).toEqual({ weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true });
+  });
+
+  it("marks the quote absent when the tile is not in the layout", () => {
+    const data = adaptDashboard({ layout: ["running"] }, profile());
+    expect(data.quote).toEqual({ present: false });
+  });
+
+  it("passes the quote through, keeping the offset for the reroll button", () => {
+    const data = adaptDashboard(
+      {
+        layout: ["quote"],
+        quote: {
+          id: "camus-invincible-summer",
+          text: "In the depth of winter, I finally learned that within me there lay an invincible summer.",
+          author: "Albert Camus",
+          source: "Return to Tipasa",
+          offset: 0,
+        },
+      },
+      profile(),
+    );
+    expect(data.quote).toEqual({
+      present: true,
+      id: "camus-invincible-summer",
+      text: "In the depth of winter, I finally learned that within me there lay an invincible summer.",
+      author: "Albert Camus",
+      source: "Return to Tipasa",
+      offset: 0,
+    });
+  });
+
+  it("leaves source undefined for an unverified attribution", () => {
+    const data = adaptDashboard(
+      {
+        layout: ["quote"],
+        quote: {
+          id: "sinatra-best-revenge",
+          text: "The best revenge is massive success.",
+          author: "Frank Sinatra",
+          offset: 3,
+        },
+      },
+      profile(),
+    );
+    if (!data.quote.present) throw new Error("quote absent");
+    expect(data.quote.source).toBeUndefined();
+    expect(data.quote.offset).toBe(3);
   });
 });

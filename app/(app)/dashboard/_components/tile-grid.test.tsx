@@ -18,6 +18,7 @@ function fixture(layout: TileId[]): DashboardData {
     nutrition: { present: false },
     bodyweight: { present: false },
     bloodPressure: { present: false },
+    quote: { present: false },
     recovery: { present: false },
     streak: {
       weeks: 3,
