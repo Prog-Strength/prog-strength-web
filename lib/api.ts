@@ -4814,8 +4814,27 @@ export type DashboardQuote = {
   offset: number;
 };
 
+/**
+ * One section of the dashboard layout — a named group that owns its tiles.
+ *
+ * `id` is client-generated and opaque to the server; it only has to be unique
+ * and stable within the one layout holding it (it keys the React list and the
+ * drag targets). `title` may be empty: an untitled section renders as a bare
+ * grid with no header and no rule, which is the shape every layout predating
+ * sections was migrated into.
+ *
+ * A tile id appears at most once across the WHOLE layout, not merely within a
+ * section — the API rejects a write that repeats one.
+ */
+export type DashboardSection = {
+  id: string;
+  title: string;
+  collapsed: boolean;
+  tile_ids: TileId[];
+};
+
 export type DashboardSummary = {
-  layout: TileId[];
+  sections: DashboardSection[];
   running?: DashboardRunning | null;
   walking?: DashboardWalking | null;
   cycling?: DashboardCycling | null;
@@ -4881,15 +4900,19 @@ export async function rerollDashboardQuote(
 }
 
 /**
- * PUT /dashboard/layout. Persists the user's ordered enabled tile ids
- * (the add/remove/reorder result). The server responds 204 No Content on
- * success — there's no body to parse, so this checks `resp.ok` directly.
+ * PUT /dashboard/layout. Persists the user's ordered sections and, within
+ * each, the ordered tiles (the add/remove/reorder/regroup result). The body is
+ * a full replace, not a patch. The server responds 204 No Content on success —
+ * there's no body to parse, so this checks `resp.ok` directly.
  */
-export async function putDashboardLayout(token: string, tileIds: TileId[]): Promise<void> {
+export async function putDashboardLayout(
+  token: string,
+  sections: DashboardSection[],
+): Promise<void> {
   const resp = await fetch(`${config.apiUrl}/dashboard/layout`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ tile_ids: tileIds }),
+    body: JSON.stringify({ sections }),
   });
   if (!resp.ok) {
     throw new Error(`PUT /dashboard/layout failed: ${resp.status}`);

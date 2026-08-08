@@ -9,7 +9,7 @@ import { ordinaryWeek } from "./running/fixtures";
 
 function fixture(overrides: Partial<DashboardData> = {}): DashboardData {
   return {
-    layout: [],
+    sections: [],
     running: { present: false },
     walking: { present: false },
     cycling: { present: false },

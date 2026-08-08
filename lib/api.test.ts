@@ -40,6 +40,7 @@ import {
   updateWorkout,
   uploadActivityPhoto,
 } from "@/lib/api";
+import type { DashboardSection } from "@/lib/api";
 
 // Unit tests for the running best-efforts + 1RM history client methods.
 // There's no msw in this repo, so we stub the global `fetch` directly with
@@ -629,15 +630,19 @@ describe("getDashboardSummary", () => {
 });
 
 describe("putDashboardLayout", () => {
-  it("PUTs the tile ids with the bearer header and resolves on a 204", async () => {
+  const SECTIONS: DashboardSection[] = [
+    { id: "s1", title: "", collapsed: false, tile_ids: ["running", "hiking"] },
+  ];
+
+  it("PUTs the sections with the bearer header and resolves on a 204", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(putDashboardLayout(TOKEN, ["running", "hiking"])).resolves.toBeUndefined();
+    await expect(putDashboardLayout(TOKEN, SECTIONS)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledWith(`${BASE}/dashboard/layout`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify({ tile_ids: ["running", "hiking"] }),
+      body: JSON.stringify({ sections: SECTIONS }),
     });
   });
 
@@ -645,7 +650,7 @@ describe("putDashboardLayout", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 422 });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(putDashboardLayout(TOKEN, ["running"])).rejects.toThrow(
+    await expect(putDashboardLayout(TOKEN, SECTIONS)).rejects.toThrow(
       "PUT /dashboard/layout failed: 422",
     );
   });
