@@ -754,6 +754,47 @@ describe("adaptDashboard — layout-aware sections", () => {
     });
   });
 
+  it("maps the wikipedia links across the snake_case boundary", () => {
+    const data = adaptDashboard(
+      {
+        layout: ["quote"],
+        quote: {
+          id: "coelho-dream-come-true",
+          text: "It's the possibility of having a dream come true that makes life interesting.",
+          author: "Paulo Coelho",
+          author_url: "https://en.wikipedia.org/wiki/Paulo_Coelho",
+          source: "The Alchemist",
+          source_url: "https://en.wikipedia.org/wiki/The_Alchemist_(novel)",
+          offset: 0,
+        },
+      },
+      profile(),
+    );
+    if (!data.quote.present) throw new Error("quote absent");
+    expect(data.quote.authorUrl).toBe("https://en.wikipedia.org/wiki/Paulo_Coelho");
+    expect(data.quote.sourceUrl).toBe("https://en.wikipedia.org/wiki/The_Alchemist_(novel)");
+  });
+
+  it("leaves the links undefined when the corpus has no article", () => {
+    const data = adaptDashboard(
+      {
+        layout: ["quote"],
+        quote: {
+          id: "camus-invincible-summer",
+          text: "In the depth of winter, I finally learned that within me there lay an invincible summer.",
+          author: "Albert Camus",
+          author_url: "https://en.wikipedia.org/wiki/Albert_Camus",
+          source: "Return to Tipasa",
+          offset: 0,
+        },
+      },
+      profile(),
+    );
+    if (!data.quote.present) throw new Error("quote absent");
+    expect(data.quote.authorUrl).toBe("https://en.wikipedia.org/wiki/Albert_Camus");
+    expect(data.quote.sourceUrl).toBeUndefined();
+  });
+
   it("leaves source undefined for an unverified attribution", () => {
     const data = adaptDashboard(
       {

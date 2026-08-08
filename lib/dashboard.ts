@@ -288,7 +288,11 @@ export type QuoteView = {
   id: string;
   text: string;
   author: string;
+  /** Wikipedia article for the author; the attribution renders as plain text without it. */
+  authorUrl?: string;
   source?: string;
+  /** Wikipedia article for the work; the source renders as plain text without it. */
+  sourceUrl?: string;
   offset: number;
 };
 
@@ -569,7 +573,9 @@ function adaptQuote(quote: DashboardQuote): QuoteView {
     id: quote.id,
     text: quote.text,
     author: quote.author,
+    authorUrl: quote.author_url,
     source: quote.source,
+    sourceUrl: quote.source_url,
     offset: quote.offset,
   };
 }
