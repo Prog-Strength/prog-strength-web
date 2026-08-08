@@ -28,6 +28,7 @@ import type {
   DashboardLifting,
   DashboardMacros,
   DashboardNutrition,
+  DashboardQuote,
   DashboardRecovery,
   DashboardRunning,
   DashboardRunningBaseline,
@@ -278,6 +279,20 @@ export type StreakView = {
 };
 
 /**
+ * Display view-model for the quote tile. A near-passthrough of the API
+ * payload: unlike every other section there are no units to convert and
+ * no statistics to reshape. `offset` is carried so the tile can ask for
+ * the next quote when the reroll button is tapped.
+ */
+export type QuoteView = {
+  id: string;
+  text: string;
+  author: string;
+  source?: string;
+  offset: number;
+};
+
+/**
  * A section that may be absent. `present: false` is the empty-state
  * marker the page branches on; `present: true` carries the view-model.
  */
@@ -298,6 +313,8 @@ export type DashboardData = {
   bloodPressure: Section<BloodPressureView>;
   recovery: Section<RecoveryView>;
   streak: StreakView; // always present
+  /** Absent unless the quote tile is in the layout; never empty when present. */
+  quote: Section<QuoteView>;
 };
 
 function sanitizeSpark(points: number[]): number[] {
@@ -542,6 +559,21 @@ function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
   };
 }
 
+/**
+ * The quote passthrough. It exists for symmetry with the other adapters
+ * and to keep the snake_case boundary in one place, not because there is
+ * any conversion to do.
+ */
+function adaptQuote(quote: DashboardQuote): QuoteView {
+  return {
+    id: quote.id,
+    text: quote.text,
+    author: quote.author,
+    source: quote.source,
+    offset: quote.offset,
+  };
+}
+
 function adaptStreak(streak: DashboardStreak): StreakView {
   const isNew =
     streak.weeks === 0 &&
@@ -581,6 +613,7 @@ export function adaptDashboard(
       bloodPressure: { present: false },
       recovery: { present: false },
       streak: { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
+      quote: { present: false },
     };
   }
 
@@ -617,5 +650,6 @@ export function adaptDashboard(
     streak: summary.streak
       ? adaptStreak(summary.streak)
       : { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
+    quote: summary.quote ? { present: true, ...adaptQuote(summary.quote) } : { present: false },
   };
 }

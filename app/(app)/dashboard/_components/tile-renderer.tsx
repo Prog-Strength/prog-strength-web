@@ -61,6 +61,7 @@ import { WeekLogCard } from "./running/week-log";
 import { EffortHeartCard } from "./running/effort-heart";
 import { VerticalGainCard } from "./running/vertical-gain";
 import { RunningEmptyCard } from "./running/empty-card";
+import { QuoteCard } from "./quote-tile";
 
 export function LiftingCard({
   section,
@@ -271,7 +272,14 @@ export function BloodPressureCard({
  * new `TileId` with no case makes the `never` default fail to type-check.
  */
 export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
-  const href = tileEntry(id).href;
+  // The quote tile is the one catalog entry with no `href` — there is no
+  // quote page to deep-link into — so it is resolved before `href`, which
+  // every other card requires. `dashboard-tiles.test.ts` pins that split, so
+  // the assertion below cannot drift into an undefined href.
+  if (id === "quote") {
+    return data.quote.present ? <QuoteCard quote={data.quote} /> : null;
+  }
+  const href = tileEntry(id).href as string;
   switch (id) {
     case "running":
       return data.running.present ? (
