@@ -33,13 +33,13 @@ import type {
   DashboardRunning,
   DashboardRunningBaseline,
   DashboardRunningWeekRun,
+  DashboardSection,
   DashboardSteps,
   DashboardStreak,
   DashboardSummary,
   DashboardWalking,
   ResolvedProfile,
 } from "@/lib/api";
-import type { TileId } from "@/lib/dashboard-tiles";
 import {
   formatDistanceValue,
   formatElevationValue,
@@ -304,8 +304,12 @@ export type Section<T> = { present: false } | ({ present: true } & T);
 
 /** The full dashboard display view-model — one entry per widget. */
 export type DashboardData = {
-  /** The ordered enabled tile ids from the server; `[]` when no layout. */
-  layout: TileId[];
+  /**
+   * The ordered sections from the server, each owning its tiles. Always at
+   * least one section (the API normalizes an empty layout to a single untitled
+   * one); `[]` only when there was no payload at all.
+   */
+  sections: DashboardSection[];
   running: Section<RunningView>;
   walking: Section<WalkingView>;
   cycling: Section<CyclingView>;
@@ -607,7 +611,7 @@ export function adaptDashboard(
 
   if (!summary) {
     return {
-      layout: [],
+      sections: [],
       running: { present: false },
       walking: { present: false },
       cycling: { present: false },
@@ -624,7 +628,7 @@ export function adaptDashboard(
   }
 
   return {
-    layout: summary.layout ?? [],
+    sections: summary.sections ?? [],
     running: summary.running
       ? { present: true, ...adaptRunning(summary.running, distanceUnit) }
       : { present: false },

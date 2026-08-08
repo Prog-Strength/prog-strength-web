@@ -1,114 +1,133 @@
 /**
- * TileGrid — the dashboard's tile surface in view and edit modes.
+ * TileGrid — ONE section's tiles in the responsive grid.
  *
- * View mode renders the enabled tiles in `layout` order inside the same
- * responsive grid the page has always used. Edit mode wraps that grid in
- * dnd-kit's sortable context: each tile gains a labelled drag handle and a
- * remove button, and a completed drag delegates the reorder math to the pure,
- * separately-tested `reorderTiles` (this file never reimplements it).
+ * View mode renders the section's tiles in order. Edit mode wraps them in a
+ * sortable context scoped to this section and registers the grid itself as a
+ * droppable, so a tile can be dragged into a section that is currently EMPTY
+ * (there would be no tile to drop onto otherwise). Each tile gains a labelled
+ * drag handle and a remove button.
  *
- * The 8px pointer activation constraint lets a touch drag still scroll the page
- * before it turns into a reorder. Keyboard sorting is wired via the sortable
- * coordinate getter so the grid is operable without a pointer.
+ * The DndContext and all layout math live one level up in SectionList — this
+ * component owns no drag state and never reimplements a move.
  */
 "use client";
 
 import type { ReactNode } from "react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  rectSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from "@dnd-kit/sortable";
+import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { type TileId, tileEntry } from "@/lib/dashboard-tiles";
 import type { DashboardData } from "@/lib/dashboard";
-import { reorderTiles } from "./layout-ops";
 import { TileCard } from "./tile-renderer";
 
 const GRID = "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3";
 
 export function TileGrid({
-  layout,
+  sectionId,
+  tileIds,
   data,
   mode,
-  onReorder,
   onRemove,
 }: {
-  layout: TileId[];
+  sectionId: string;
+  tileIds: TileId[];
   data: DashboardData;
   mode: "view" | "edit";
-  onReorder: (next: TileId[]) => void;
   onRemove: (id: TileId) => void;
 }) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
   if (mode === "view") {
     return (
       <div className={GRID}>
-        {layout.map((id) => (
+        {tileIds.map((id) => (
           <TileCard key={id} id={id} data={data} />
         ))}
       </div>
     );
   }
 
-  function handleDragEnd({ active, over }: DragEndEvent) {
-    if (over && active.id !== over.id) {
-      onReorder(reorderTiles(layout, active.id as TileId, over.id as TileId));
-    }
+  return (
+    <SortableContext items={tileIds} strategy={rectSortingStrategy}>
+      <SectionDropZone sectionId={sectionId} empty={tileIds.length === 0}>
+        {tileIds.map((id) => (
+          <SortableTile
+            key={id}
+            id={id}
+            sectionId={sectionId}
+            title={tileEntry(id).title}
+            onRemove={() => onRemove(id)}
+          >
+            <TileCard id={id} data={data} />
+          </SortableTile>
+        ))}
+      </SectionDropZone>
+    </SortableContext>
+  );
+}
+
+/**
+ * SectionDropZone — the section's grid, registered as a drop target so an
+ * empty section is droppable. When empty it renders a dashed placeholder
+ * rather than collapsing to nothing, which is both the visual affordance and
+ * the hit area for the drop.
+ */
+function SectionDropZone({
+  sectionId,
+  empty,
+  children,
+}: {
+  sectionId: string;
+  empty: boolean;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `drop:${sectionId}`,
+    data: { type: "section-drop", sectionId },
+  });
+
+  if (empty) {
+    return (
+      <div
+        ref={setNodeRef}
+        className={`flex items-center justify-center rounded-[var(--radius-card)] border border-dashed px-4 py-8 text-xs transition ${
+          isOver
+            ? "border-[var(--accent)] text-[var(--accent)]"
+            : "border-[var(--border)] text-[var(--faint)]"
+        }`}
+      >
+        Drag a tile here
+      </div>
+    );
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={layout} strategy={rectSortingStrategy}>
-        <div className={GRID}>
-          {layout.map((id) => (
-            <SortableTile
-              key={id}
-              id={id}
-              title={tileEntry(id).title}
-              onRemove={() => onRemove(id)}
-            >
-              <TileCard id={id} data={data} />
-            </SortableTile>
-          ))}
-        </div>
-      </SortableContext>
-    </DndContext>
+    <div ref={setNodeRef} className={GRID}>
+      {children}
+    </div>
   );
 }
 
 /**
  * SortableTile — the edit-mode wrapper around one tile. Renders a drag handle
  * and a remove button as calm chrome over the card, both with accessible names
- * derived from the tile title.
+ * derived from the tile title. `sectionId` rides along in the drag data so the
+ * drag handlers can tell which section a dragged tile came from.
  */
 function SortableTile({
   id,
+  sectionId,
   title,
   onRemove,
   children,
 }: {
   id: TileId;
+  sectionId: string;
   title: string;
   onRemove: () => void;
   children: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
+    data: { type: "tile", sectionId },
   });
 
   const style = {

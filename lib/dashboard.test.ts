@@ -55,7 +55,14 @@ function minimalRunning(overrides: Partial<DashboardRunning> = {}): DashboardRun
 }
 
 const fullSummary: DashboardSummary = {
-  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
+  sections: [
+    {
+      id: "s1",
+      title: "",
+      collapsed: false,
+      tile_ids: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
+    },
+  ],
   running: {
     current_week: {
       distance_meters: 34278,
@@ -307,7 +314,22 @@ describe("adaptDashboard — full payload", () => {
 describe("adaptDashboard — null sections", () => {
   it("marks each null section as not present", () => {
     const empty: DashboardSummary = {
-      layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "recovery", "streak"],
+      sections: [
+        {
+          id: "s1",
+          title: "",
+          collapsed: false,
+          tile_ids: [
+            "running",
+            "lifting",
+            "steps",
+            "nutrition",
+            "bodyweight",
+            "recovery",
+            "streak",
+          ],
+        },
+      ],
       running: null,
       lifting: null,
       steps: null,
@@ -627,9 +649,16 @@ describe("adaptDashboard — layout-aware sections", () => {
     elevation_gain_meters: 610.0,
   };
 
-  it("carries layout, adapts present tiles, and marks absent/null tiles not present", () => {
+  it("carries sections, adapts present tiles, and marks absent/null tiles not present", () => {
     const summary: DashboardSummary = {
-      layout: ["running", "hiking", "steps", "streak"],
+      sections: [
+        {
+          id: "s1",
+          title: "",
+          collapsed: false,
+          tile_ids: ["running", "hiking", "steps", "streak"],
+        },
+      ],
       hiking: hikingBlock,
       steps: null,
       streak: {
@@ -640,7 +669,9 @@ describe("adaptDashboard — layout-aware sections", () => {
     };
     const data = adaptDashboard(summary, profile({ distance_unit: "mi" }));
 
-    expect(data.layout).toEqual(["running", "hiking", "steps", "streak"]);
+    expect(data.sections).toEqual([
+      { id: "s1", title: "", collapsed: false, tile_ids: ["running", "hiking", "steps", "streak"] },
+    ]);
 
     // hiking present, distance converted to miles (16093.44 / 1609.344 = 10.0)
     expect(data.hiking.present).toBe(true);
@@ -657,7 +688,7 @@ describe("adaptDashboard — layout-aware sections", () => {
 
   it("converts hiking distances per unit and passes elevation gain through", () => {
     const summary: DashboardSummary = {
-      layout: ["hiking"],
+      sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["hiking"] }],
       hiking: hikingBlock,
     };
 
@@ -681,7 +712,7 @@ describe("adaptDashboard — layout-aware sections", () => {
 
   it("adapts walking and cycling endurance tiles", () => {
     const summary: DashboardSummary = {
-      layout: ["walking", "cycling"],
+      sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["walking", "cycling"] }],
       walking: {
         current_week: { distance_meters: 3218.688, session_count: 5, duration_seconds: 2400 },
         latest_session: null,
@@ -704,9 +735,9 @@ describe("adaptDashboard — layout-aware sections", () => {
     expect(data.cycling.durationSeconds).toBe(3600);
   });
 
-  it("collapses a null summary to an empty layout and a brand-new streak", () => {
+  it("collapses a null summary to no sections and a brand-new streak", () => {
     const data = adaptDashboard(null, profile());
-    expect(data.layout).toEqual([]);
+    expect(data.sections).toEqual([]);
     expect(data.running).toEqual({ present: false });
     expect(data.walking).toEqual({ present: false });
     expect(data.cycling).toEqual({ present: false });
@@ -721,19 +752,25 @@ describe("adaptDashboard — layout-aware sections", () => {
   });
 
   it("falls back to a brand-new streak when the streak tile is absent", () => {
-    const data = adaptDashboard({ layout: ["running"] }, profile());
+    const data = adaptDashboard(
+      { sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["running"] }] },
+      profile(),
+    );
     expect(data.streak).toEqual({ weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true });
   });
 
   it("marks the quote absent when the tile is not in the layout", () => {
-    const data = adaptDashboard({ layout: ["running"] }, profile());
+    const data = adaptDashboard(
+      { sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["running"] }] },
+      profile(),
+    );
     expect(data.quote).toEqual({ present: false });
   });
 
   it("passes the quote through, keeping the offset for the reroll button", () => {
     const data = adaptDashboard(
       {
-        layout: ["quote"],
+        sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["quote"] }],
         quote: {
           id: "camus-invincible-summer",
           text: "In the depth of winter, I finally learned that within me there lay an invincible summer.",
@@ -757,7 +794,7 @@ describe("adaptDashboard — layout-aware sections", () => {
   it("maps the wikipedia links across the snake_case boundary", () => {
     const data = adaptDashboard(
       {
-        layout: ["quote"],
+        sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["quote"] }],
         quote: {
           id: "coelho-dream-come-true",
           text: "It's the possibility of having a dream come true that makes life interesting.",
@@ -778,7 +815,7 @@ describe("adaptDashboard — layout-aware sections", () => {
   it("leaves the links undefined when the corpus has no article", () => {
     const data = adaptDashboard(
       {
-        layout: ["quote"],
+        sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["quote"] }],
         quote: {
           id: "camus-invincible-summer",
           text: "In the depth of winter, I finally learned that within me there lay an invincible summer.",
@@ -798,7 +835,7 @@ describe("adaptDashboard — layout-aware sections", () => {
   it("leaves source undefined for an unverified attribution", () => {
     const data = adaptDashboard(
       {
-        layout: ["quote"],
+        sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["quote"] }],
         quote: {
           id: "sinatra-best-revenge",
           text: "The best revenge is massive success.",

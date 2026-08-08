@@ -1,135 +1,256 @@
-/// <reference types="vitest/globals" />
+import { describe, expect, it } from "vitest";
+import type { DashboardSection } from "@/lib/api";
+import { TILE_CATALOG } from "@/lib/dashboard-tiles";
+import {
+  MAX_SECTIONS,
+  MAX_SECTION_TITLE_LEN,
+  addTile,
+  allTileIds,
+  availableTiles,
+  createSection,
+  deleteSection,
+  moveSection,
+  moveTile,
+  newSectionId,
+  removeTile,
+  renameSection,
+  sectionOf,
+  toggleCollapsed,
+} from "./layout-ops";
 
-import { TILE_CATALOG, type TileId } from "@/lib/dashboard-tiles";
-import { addTile, availableTiles, removeTile, reorderTiles } from "./layout-ops";
+/** Terse section builder — the ops only ever read id/title/collapsed/tile_ids. */
+function sec(
+  id: string,
+  tiles: DashboardSection["tile_ids"],
+  extra: Partial<DashboardSection> = {},
+): DashboardSection {
+  return { id, title: "", collapsed: false, tile_ids: tiles, ...extra };
+}
 
-describe("reorderTiles", () => {
-  it("moves the first tile to the last position", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    expect(reorderTiles(ids, "running", "steps")).toEqual(["lifting", "steps", "running"]);
+/** Two sections: a=[running, steps], b=[lifting]. */
+function base(): DashboardSection[] {
+  return [sec("a", ["running", "steps"]), sec("b", ["lifting"])];
+}
+
+/** Flatten to a comparable shape so assertions read as data, not object graphs. */
+function shape(sections: DashboardSection[]) {
+  return sections.map((s) => [s.id, s.tile_ids] as const);
+}
+
+describe("newSectionId", () => {
+  it("avoids ids already in the layout", () => {
+    const taken = [sec("s1", []), sec("s2", []), sec("s3", [])];
+    expect(taken.map((s) => s.id)).not.toContain(newSectionId(taken));
+  });
+});
+
+describe("createSection", () => {
+  it("appends an empty section with a unique id", () => {
+    const next = createSection(base());
+    expect(next).toHaveLength(3);
+    expect(next[2].tile_ids).toEqual([]);
+    expect(next[2].title).toBe("");
+    expect(new Set(next.map((s) => s.id)).size).toBe(3);
   });
 
-  it("moves the last tile to the first position", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    expect(reorderTiles(ids, "steps", "running")).toEqual(["steps", "running", "lifting"]);
+  it("caps the title", () => {
+    const next = createSection([], "x".repeat(MAX_SECTION_TITLE_LEN + 10));
+    expect(next[0].title).toHaveLength(MAX_SECTION_TITLE_LEN);
   });
 
-  it("moves a middle tile to another middle position", () => {
-    const ids: TileId[] = ["running", "lifting", "steps", "nutrition"];
-    expect(reorderTiles(ids, "lifting", "nutrition")).toEqual([
-      "running",
-      "steps",
-      "nutrition",
-      "lifting",
+  it("is a no-op at the section cap", () => {
+    const full = Array.from({ length: MAX_SECTIONS }, (_, i) => sec(`s${i}`, []));
+    expect(createSection(full)).toHaveLength(MAX_SECTIONS);
+  });
+
+  it("does not mutate its input", () => {
+    const input = base();
+    createSection(input);
+    expect(input).toHaveLength(2);
+  });
+});
+
+describe("renameSection", () => {
+  it("retitles only the named section", () => {
+    const next = renameSection(base(), "b", "Strength");
+    expect(next[0].title).toBe("");
+    expect(next[1].title).toBe("Strength");
+  });
+
+  it("caps rather than rejects an overlong title", () => {
+    const next = renameSection(base(), "a", "y".repeat(MAX_SECTION_TITLE_LEN + 5));
+    expect(next[0].title).toHaveLength(MAX_SECTION_TITLE_LEN);
+  });
+
+  it("is a no-op for an unknown id", () => {
+    expect(shape(renameSection(base(), "nope", "X"))).toEqual(shape(base()));
+  });
+});
+
+describe("deleteSection", () => {
+  it("removes the section AND its tiles", () => {
+    const next = deleteSection(base(), "a");
+    expect(shape(next)).toEqual([["b", ["lifting"]]]);
+    expect(allTileIds(next)).not.toContain("running");
+  });
+
+  it("clears the last section back to an untitled empty one rather than emptying the layout", () => {
+    const next = deleteSection([sec("a", ["running"], { title: "Only" })], "a");
+    expect(next).toHaveLength(1);
+    expect(next[0].title).toBe("");
+    expect(next[0].tile_ids).toEqual([]);
+  });
+
+  it("is a no-op for an unknown id", () => {
+    expect(shape(deleteSection(base(), "nope"))).toEqual(shape(base()));
+  });
+});
+
+describe("moveSection", () => {
+  it("moves a section to the target's position", () => {
+    expect(shape(moveSection(base(), "b", "a"))).toEqual([
+      ["b", ["lifting"]],
+      ["a", ["running", "steps"]],
     ]);
   });
 
-  it("is a no-op (returns an equal copy) when moving to the same position", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    const result = reorderTiles(ids, "lifting", "lifting");
-    expect(result).toEqual(ids);
-    expect(result).not.toBe(ids);
+  it("is a no-op when the ids are equal or either is absent", () => {
+    expect(shape(moveSection(base(), "a", "a"))).toEqual(shape(base()));
+    expect(shape(moveSection(base(), "a", "nope"))).toEqual(shape(base()));
+    expect(shape(moveSection(base(), "nope", "a"))).toEqual(shape(base()));
+  });
+});
+
+describe("toggleCollapsed", () => {
+  it("flips only the named section", () => {
+    const next = toggleCollapsed(base(), "b");
+    expect(next[0].collapsed).toBe(false);
+    expect(next[1].collapsed).toBe(true);
+    expect(toggleCollapsed(next, "b")[1].collapsed).toBe(false);
+  });
+});
+
+describe("moveTile", () => {
+  it("moves a tile into another section at an index", () => {
+    expect(shape(moveTile(base(), "running", "b", 0))).toEqual([
+      ["a", ["steps"]],
+      ["b", ["running", "lifting"]],
+    ]);
   });
 
-  it("is a no-op when fromId is absent from the list", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    const result = reorderTiles(ids, "nutrition", "running");
-    expect(result).toEqual(ids);
+  it("moves a tile into an empty section", () => {
+    const withEmpty = [...base(), sec("c", [])];
+    expect(shape(moveTile(withEmpty, "steps", "c", 0))).toEqual([
+      ["a", ["running"]],
+      ["b", ["lifting"]],
+      ["c", ["steps"]],
+    ]);
   });
 
-  it("is a no-op when toId is absent from the list", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    const result = reorderTiles(ids, "running", "nutrition");
-    expect(result).toEqual(ids);
+  it("reorders within a section", () => {
+    expect(shape(moveTile(base(), "steps", "a", 0))).toEqual([
+      ["a", ["steps", "running"]],
+      ["b", ["lifting"]],
+    ]);
   });
 
-  it("returns a new array and does not mutate the input", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    const original = ids.slice();
-    const result = reorderTiles(ids, "running", "steps");
-    expect(ids).toEqual(original);
-    expect(result).not.toBe(ids);
+  it("interprets the index after the tile is pulled out of its old home", () => {
+    // a=[running, steps, nutrition]; dragging running to index 2 must land it
+    // LAST, not second — the index is against the section post-removal.
+    const three = [sec("a", ["running", "steps", "nutrition"])];
+    expect(shape(moveTile(three, "running", "a", 2))).toEqual([
+      ["a", ["steps", "nutrition", "running"]],
+    ]);
+  });
+
+  it("clamps an out-of-range index instead of leaving a hole", () => {
+    expect(shape(moveTile(base(), "lifting", "a", 99))).toEqual([
+      ["a", ["running", "steps", "lifting"]],
+      ["b", []],
+    ]);
+    expect(shape(moveTile(base(), "lifting", "a", -5))).toEqual([
+      ["a", ["lifting", "running", "steps"]],
+      ["b", []],
+    ]);
+  });
+
+  it("never leaves the tile in two sections", () => {
+    const next = moveTile(base(), "running", "b", 0);
+    expect(allTileIds(next).filter((t) => t === "running")).toHaveLength(1);
+  });
+
+  it("is a no-op when the tile or the target section is absent", () => {
+    expect(shape(moveTile(base(), "hiking", "a", 0))).toEqual(shape(base()));
+    expect(shape(moveTile(base(), "running", "nope", 0))).toEqual(shape(base()));
+  });
+
+  it("does not mutate its input", () => {
+    const input = base();
+    moveTile(input, "running", "b", 0);
+    expect(shape(input)).toEqual(shape(base()));
   });
 });
 
 describe("addTile", () => {
-  it("appends the tile when absent", () => {
-    const ids: TileId[] = ["running", "lifting"];
-    expect(addTile(ids, "steps")).toEqual(["running", "lifting", "steps"]);
+  it("appends to the named section", () => {
+    expect(shape(addTile(base(), "hiking", "b"))).toEqual([
+      ["a", ["running", "steps"]],
+      ["b", ["lifting", "hiking"]],
+    ]);
   });
 
-  it("is a no-op when the tile is already present", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    expect(addTile(ids, "lifting")).toEqual(ids);
+  it("is a no-op when the tile is already elsewhere in the layout", () => {
+    expect(shape(addTile(base(), "running", "b"))).toEqual(shape(base()));
   });
 
-  it("does not mutate the input", () => {
-    const ids: TileId[] = ["running", "lifting"];
-    const original = ids.slice();
-    addTile(ids, "steps");
-    expect(ids).toEqual(original);
-  });
-
-  it("returns a new array reference", () => {
-    const ids: TileId[] = ["running", "lifting"];
-    expect(addTile(ids, "steps")).not.toBe(ids);
-    expect(addTile(ids, "running")).not.toBe(ids);
+  it("is a no-op for an unknown section", () => {
+    expect(shape(addTile(base(), "hiking", "nope"))).toEqual(shape(base()));
   });
 });
 
 describe("removeTile", () => {
-  it("drops the tile when present", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    expect(removeTile(ids, "lifting")).toEqual(["running", "steps"]);
+  it("removes the tile from whichever section holds it", () => {
+    expect(shape(removeTile(base(), "steps"))).toEqual([
+      ["a", ["running"]],
+      ["b", ["lifting"]],
+    ]);
   });
 
-  it("is a no-op when the tile is absent", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    expect(removeTile(ids, "nutrition")).toEqual(ids);
+  it("is a no-op for a tile that isn't in the layout", () => {
+    expect(shape(removeTile(base(), "hiking"))).toEqual(shape(base()));
+  });
+});
+
+describe("allTileIds / sectionOf", () => {
+  it("flattens in display order across sections", () => {
+    expect(allTileIds(base())).toEqual(["running", "steps", "lifting"]);
   });
 
-  it("does not mutate the input", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    const original = ids.slice();
-    removeTile(ids, "lifting");
-    expect(ids).toEqual(original);
-  });
-
-  it("returns a new array reference", () => {
-    const ids: TileId[] = ["running", "lifting", "steps"];
-    expect(removeTile(ids, "lifting")).not.toBe(ids);
-    expect(removeTile(ids, "nutrition")).not.toBe(ids);
+  it("finds the holding section, or undefined", () => {
+    expect(sectionOf(base(), "lifting")?.id).toBe("b");
+    expect(sectionOf(base(), "hiking")).toBeUndefined();
   });
 });
 
 describe("availableTiles", () => {
-  it("returns catalog entries not in the list, in catalog order", () => {
-    const ids: TileId[] = ["steps", "running"];
-    const result = availableTiles(ids);
-    const expectedIds = TILE_CATALOG.filter((t) => t.id !== "steps" && t.id !== "running").map(
-      (t) => t.id,
-    );
-    expect(result.map((t) => t.id)).toEqual(expectedIds);
+  it("offers every catalog tile not already somewhere in the layout", () => {
+    const offered = availableTiles(base()).map((t) => t.id);
+    expect(offered).not.toContain("running");
+    expect(offered).not.toContain("lifting");
+    expect(offered).toContain("hiking");
+    expect(offered).toHaveLength(TILE_CATALOG.length - 3);
   });
 
-  it("returns all catalog entries for an empty list", () => {
-    const result = availableTiles([]);
-    expect(result.map((t) => t.id)).toEqual(TILE_CATALOG.map((t) => t.id));
-    expect(result).toHaveLength(19);
+  it("preserves catalog order", () => {
+    const offered = availableTiles([]).map((t) => t.id);
+    expect(offered).toEqual(TILE_CATALOG.map((t) => t.id));
   });
 
-  it("returns an empty array when every tile is enabled", () => {
-    const allIds = TILE_CATALOG.map((t) => t.id);
-    expect(availableTiles(allIds)).toEqual([]);
-  });
-
-  it("returns entries with title and description", () => {
-    const result = availableTiles(["running"]);
-    for (const entry of result) {
-      expect(typeof entry.title).toBe("string");
-      expect(entry.title.length).toBeGreaterThan(0);
-      expect(typeof entry.description).toBe("string");
-      expect(entry.description.length).toBeGreaterThan(0);
-    }
+  it("dedupes across sections, not just within one", () => {
+    // The same tile split across sections cannot happen via the ops, but a
+    // hand-edited/legacy payload must still not double-offer.
+    const offered = availableTiles([sec("a", ["running"]), sec("b", ["steps"])]).map((t) => t.id);
+    expect(offered).not.toContain("running");
+    expect(offered).not.toContain("steps");
   });
 });

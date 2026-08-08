@@ -1,14 +1,15 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen, fireEvent } from "@testing-library/react";
+import { DndContext } from "@dnd-kit/core";
 import type { DashboardData } from "@/lib/dashboard";
 import type { TileId } from "@/lib/dashboard-tiles";
 import { TileGrid } from "./tile-grid";
 
-/** All sections empty except a present streak; layout supplied per-test. */
-function fixture(layout: TileId[]): DashboardData {
+/** All sections empty except a present streak. */
+function fixture(): DashboardData {
   return {
-    layout,
+    sections: [],
     running: { present: false },
     walking: { present: false },
     cycling: { present: false },
@@ -32,16 +33,10 @@ function fixture(layout: TileId[]): DashboardData {
 const noop = () => {};
 
 describe("TileGrid", () => {
-  it("view mode renders the tiles in layout order", () => {
-    const layout: TileId[] = ["lifting", "running", "streak"];
+  it("view mode renders the section's tiles in order", () => {
+    const tileIds: TileId[] = ["lifting", "running", "streak"];
     render(
-      <TileGrid
-        layout={layout}
-        data={fixture(layout)}
-        mode="view"
-        onReorder={noop}
-        onRemove={noop}
-      />,
+      <TileGrid sectionId="s1" tileIds={tileIds} data={fixture()} mode="view" onRemove={noop} />,
     );
 
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
@@ -49,16 +44,18 @@ describe("TileGrid", () => {
   });
 
   it("edit mode renders a labelled Remove button per tile and fires onRemove", () => {
-    const layout: TileId[] = ["running", "steps"];
     const onRemove = vi.fn();
     render(
-      <TileGrid
-        layout={layout}
-        data={fixture(layout)}
-        mode="edit"
-        onReorder={noop}
-        onRemove={onRemove}
-      />,
+      // Edit mode registers sortables and a droppable, so it needs a DndContext.
+      <DndContext>
+        <TileGrid
+          sectionId="s1"
+          tileIds={["running", "steps"]}
+          data={fixture()}
+          mode="edit"
+          onRemove={onRemove}
+        />
+      </DndContext>,
     );
 
     expect(screen.getByRole("button", { name: "Remove Training Load" })).toBeInTheDocument();
@@ -68,5 +65,26 @@ describe("TileGrid", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Steps" }));
     expect(onRemove).toHaveBeenCalledWith("steps");
+  });
+
+  // An empty section must stay droppable in edit mode — with no tile to drop
+  // onto, the placeholder IS the drop target.
+  it("edit mode renders a drop placeholder for an empty section", () => {
+    render(
+      <DndContext>
+        <TileGrid sectionId="s1" tileIds={[]} data={fixture()} mode="edit" onRemove={noop} />
+      </DndContext>,
+    );
+
+    expect(screen.getByText("Drag a tile here")).toBeInTheDocument();
+  });
+
+  it("view mode renders nothing for an empty section", () => {
+    const { container } = render(
+      <TileGrid sectionId="s1" tileIds={[]} data={fixture()} mode="view" onRemove={noop} />,
+    );
+
+    expect(container.querySelectorAll("h3")).toHaveLength(0);
+    expect(screen.queryByText("Drag a tile here")).toBeNull();
   });
 });

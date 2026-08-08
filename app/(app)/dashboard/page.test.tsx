@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { DashboardSummary, ResolvedProfile } from "@/lib/api";
+import type { DashboardSection, DashboardSummary, ResolvedProfile } from "@/lib/api";
 
 // --- module mocks ----------------------------------------------------------
 
@@ -49,8 +49,13 @@ const PROFILE: ResolvedProfile = {
   bio: null,
 };
 
+/** One untitled section — the shape every pre-sections layout migrated into. */
+function oneSection(tileIds: DashboardSection["tile_ids"]): DashboardSection[] {
+  return [{ id: "s1", title: "", collapsed: false, tile_ids: tileIds }];
+}
+
 const FULL_SUMMARY: DashboardSummary = {
-  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "streak"],
+  sections: oneSection(["running", "lifting", "steps", "nutrition", "bodyweight", "streak"]),
   running: {
     current_week: {
       distance_meters: 16093.44,
@@ -103,7 +108,15 @@ const FULL_SUMMARY: DashboardSummary = {
 };
 
 const EMPTY_SUMMARY: DashboardSummary = {
-  layout: ["running", "lifting", "steps", "nutrition", "bodyweight", "recovery", "streak"],
+  sections: oneSection([
+    "running",
+    "lifting",
+    "steps",
+    "nutrition",
+    "bodyweight",
+    "recovery",
+    "streak",
+  ]),
   running: null,
   lifting: null,
   steps: null,
@@ -117,8 +130,10 @@ const EMPTY_SUMMARY: DashboardSummary = {
   },
 };
 
-// A summary whose persisted layout is empty — the view-mode empty-state CTA.
-const NO_TILES_SUMMARY: DashboardSummary = { ...EMPTY_SUMMARY, layout: [] };
+// A summary whose persisted layout has one empty section — the view-mode
+// empty-state CTA, which keys off the flattened tile count, not the section
+// count (there is always at least one section).
+const NO_TILES_SUMMARY: DashboardSummary = { ...EMPTY_SUMMARY, sections: oneSection([]) };
 
 let summaryToReturn: DashboardSummary | null = FULL_SUMMARY;
 
@@ -223,7 +238,7 @@ describe("DashboardPage — full payload", () => {
   it("deep-links the recovery card to /recovery", async () => {
     summaryToReturn = {
       ...FULL_SUMMARY,
-      layout: [...FULL_SUMMARY.layout, "recovery"],
+      sections: oneSection([...FULL_SUMMARY.sections[0].tile_ids, "recovery"]),
       recovery: {
         today: {
           date: "2026-07-02",
@@ -321,14 +336,10 @@ describe("DashboardPage — edit mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
-    expect(putDashboardLayout).toHaveBeenCalledWith("test-token", [
-      "lifting",
-      "steps",
-      "nutrition",
-      "bodyweight",
-      "streak",
-      "walking",
-    ]);
+    expect(putDashboardLayout).toHaveBeenCalledWith(
+      "test-token",
+      oneSection(["lifting", "steps", "nutrition", "bodyweight", "streak", "walking"]),
+    );
     // Refetches after persisting so new tiles get their data.
     await waitFor(() => expect(getDashboardSummary).toHaveBeenCalledTimes(2));
     // Exits to view mode.
@@ -398,5 +409,204 @@ describe("DashboardPage — 401 handling", () => {
     render(<DashboardPage />);
     await waitFor(() => expect(clearTokenMock).toHaveBeenCalled());
     expect(replaceMock).toHaveBeenCalledWith("/login");
+  });
+});
+
+describe("DashboardPage — sections", () => {
+  // An untitled single section is what every pre-sections layout migrated
+  // into, so the feature must be invisible on a dashboard that has one.
+  it("renders no section header for a single untitled section", async () => {
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Training Load/i });
+
+    expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+  });
+
+  it("renders a header and a collapse control for a titled section", async () => {
+    summaryToReturn = {
+      ...FULL_SUMMARY,
+      sections: [
+        { id: "s1", title: "", collapsed: false, tile_ids: ["running", "lifting"] },
+        { id: "s2", title: "Daily", collapsed: false, tile_ids: ["steps", "nutrition"] },
+      ],
+    };
+    render(<DashboardPage />);
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Daily" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse Daily" })).toBeInTheDocument();
+  });
+
+  it("hides a collapsed section's tiles while keeping its header", async () => {
+    summaryToReturn = {
+      ...FULL_SUMMARY,
+      sections: [
+        { id: "s1", title: "", collapsed: false, tile_ids: ["running"] },
+        { id: "s2", title: "Daily", collapsed: true, tile_ids: ["steps"] },
+      ],
+    };
+    render(<DashboardPage />);
+
+    await screen.findByRole("heading", { level: 2, name: "Daily" });
+    expect(screen.queryByRole("link", { name: /Steps/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Training Load/i })).toBeInTheDocument();
+  });
+
+  // An empty section in view mode is a header over nothing.
+  it("hides an empty section entirely in view mode", async () => {
+    summaryToReturn = {
+      ...FULL_SUMMARY,
+      sections: [
+        { id: "s1", title: "", collapsed: false, tile_ids: ["running"] },
+        { id: "s2", title: "Later", collapsed: false, tile_ids: [] },
+      ],
+    };
+    render(<DashboardPage />);
+
+    await screen.findByRole("link", { name: /Training Load/i });
+    expect(screen.queryByRole("heading", { level: 2, name: "Later" })).not.toBeInTheDocument();
+  });
+
+  it("creates a section in edit mode and persists it on Done", async () => {
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Training Load/i });
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add section" }));
+
+    // The new section is titled through its inline input.
+    const titles = screen.getAllByRole("textbox");
+    fireEvent.change(titles[titles.length - 1], { target: { value: "Recovery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    const [, sections] = (putDashboardLayout as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sections).toHaveLength(2);
+    expect(sections[1]).toMatchObject({ title: "Recovery", collapsed: false, tile_ids: [] });
+  });
+
+  it("adds a tile into the chosen section", async () => {
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Training Load/i });
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add section" }));
+    // Creating a section points the tray at it, so the add lands there.
+    fireEvent.click(screen.getByRole("button", { name: /Add Walking/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    const [, sections] = (putDashboardLayout as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sections[0].tile_ids).not.toContain("walking");
+    expect(sections[1].tile_ids).toEqual(["walking"]);
+  });
+
+  it("deletes a section and its tiles once the confirm is accepted", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    summaryToReturn = {
+      ...FULL_SUMMARY,
+      sections: [
+        { id: "s1", title: "Keep", collapsed: false, tile_ids: ["running"] },
+        { id: "s2", title: "Drop", collapsed: false, tile_ids: ["steps", "nutrition"] },
+      ],
+    };
+    render(<DashboardPage />);
+    await screen.findByRole("heading", { level: 2, name: "Drop" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Drop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    const [, sections] = (putDashboardLayout as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sections).toHaveLength(1);
+    expect(sections[0].title).toBe("Keep");
+    // The deleted section's tiles are NOT rehomed — they leave the dashboard.
+    expect(sections[0].tile_ids).toEqual(["running"]);
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps the section when the delete confirm is declined", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    summaryToReturn = {
+      ...FULL_SUMMARY,
+      sections: [
+        { id: "s1", title: "Keep", collapsed: false, tile_ids: ["running"] },
+        { id: "s2", title: "Drop", collapsed: false, tile_ids: ["steps"] },
+      ],
+    };
+    render(<DashboardPage />);
+    await screen.findByRole("heading", { level: 2, name: "Drop" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Drop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    const [, sections] = (putDashboardLayout as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sections).toHaveLength(2);
+    confirmSpy.mockRestore();
+  });
+
+  // An empty section has nothing to lose, so it skips the confirm entirely.
+  it("deletes an empty section without confirming", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<DashboardPage />);
+    await screen.findByRole("link", { name: /Training Load/i });
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add section" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Untitled section 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    const [, sections] = (putDashboardLayout as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sections).toHaveLength(1);
+    confirmSpy.mockRestore();
+  });
+});
+
+describe("DashboardPage — view-mode collapse", () => {
+  const TWO_SECTIONS = () => ({
+    ...FULL_SUMMARY,
+    sections: [
+      { id: "s1", title: "", collapsed: false, tile_ids: ["running"] as const },
+      { id: "s2", title: "Daily", collapsed: false, tile_ids: ["steps"] as const },
+    ],
+  });
+
+  // Collapse is the ONE mutation outside the draft/commit machine: it writes
+  // immediately rather than waiting for a Done that view mode never offers.
+  it("writes immediately and hides the tiles, without entering edit mode", async () => {
+    summaryToReturn = TWO_SECTIONS() as unknown as DashboardSummary;
+    render(<DashboardPage />);
+    await screen.findByRole("heading", { level: 2, name: "Daily" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Daily" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    const [, sections] = (putDashboardLayout as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sections[1].collapsed).toBe(true);
+    expect(screen.queryByRole("link", { name: /Steps/i })).not.toBeInTheDocument();
+    // Still in view mode.
+    expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
+    // The optimistic update did NOT trigger a refetch.
+    expect(getDashboardSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("reverts the optimistic collapse and surfaces the error when the write fails", async () => {
+    (putDashboardLayout as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("PUT /dashboard/layout failed: 500"),
+    );
+    summaryToReturn = TWO_SECTIONS() as unknown as DashboardSummary;
+    render(<DashboardPage />);
+    await screen.findByRole("heading", { level: 2, name: "Daily" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Daily" }));
+
+    await waitFor(() => expect(putDashboardLayout).toHaveBeenCalledTimes(1));
+    // Reverted: the section is expanded again and its tile is back.
+    expect(await screen.findByRole("button", { name: "Collapse Daily" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Steps/i })).toBeInTheDocument();
   });
 });
