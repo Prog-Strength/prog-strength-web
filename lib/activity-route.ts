@@ -1,4 +1,4 @@
-import type { RunningSession } from "@/lib/api";
+import type { ActivityType, RunningSession } from "@/lib/api";
 
 /**
  * The detail route for one logged endurance session.
@@ -16,4 +16,20 @@ import type { RunningSession } from "@/lib/api";
  */
 export function activityDetailHref(session: Pick<RunningSession, "id" | "activity_type">): string {
   return session.activity_type === "hiking" ? `/hiking/${session.id}` : `/running/${session.id}`;
+}
+
+/**
+ * The detail route for an activity of ANY type, including strength.
+ *
+ * `activityDetailHref` above deliberately covers only the endurance shapes —
+ * its callers (the calendar, the run/hike lists) never hold a lift. The
+ * canonical `/activities/{id}` permalink does: it resolves whatever type the
+ * id turns out to be, so it needs the whole table, strength included.
+ *
+ * Endurance routing delegates to `activityDetailHref` rather than restating
+ * it, so the two can never disagree about where a walk opens.
+ */
+export function activityDetailPath(type: ActivityType, id: string): string {
+  if (type === "strength_training") return `/workouts/${id}`;
+  return activityDetailHref({ id, activity_type: type });
 }
