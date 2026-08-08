@@ -4806,7 +4806,11 @@ export type DashboardQuote = {
   id: string;
   text: string;
   author: string;
+  /** Wikipedia article for the author. Absent when there is none to link. */
+  author_url?: string;
   source?: string;
+  /** Wikipedia article for the work. Never sent without `source`. */
+  source_url?: string;
   offset: number;
 };
 
@@ -4850,23 +4854,26 @@ export async function getDashboardSummary(
 }
 
 /**
- * GET /dashboard/quote?timezone=<IANA>&offset=<n>. Backs the quote
- * tile's reroll button.
+ * POST /dashboard/quote/reroll?timezone=<IANA>. Backs the quote tile's
+ * reroll button.
  *
- * The summary already carries the day's quote at offset 0, so this is
- * only for advancing past it: pass the current offset + 1. Offsets walk
- * the corpus in order and wrap, so a reroll never repeats the quote it
- * just replaced. Rerolling is not persisted — a reload returns to the
- * day's quote.
+ * No offset goes over the wire: the server holds the user's position and
+ * advances it, walking the corpus in order and wrapping, so a reroll
+ * never repeats the quote it just replaced. It also persists that
+ * position for the local day, so the rerolled quote is what the next
+ * summary — and therefore the next page load — serves.
+ *
+ * `timezone` decides which local day the reroll is stored against, and
+ * so when it lapses back to the day's quote.
  */
-export async function getDashboardQuote(
+export async function rerollDashboardQuote(
   token: string,
   timezone: string,
-  offset: number,
 ): Promise<DashboardQuote | null> {
   const resp = await fetch(
-    `${config.apiUrl}/dashboard/quote?timezone=${encodeURIComponent(timezone)}&offset=${offset}`,
+    `${config.apiUrl}/dashboard/quote/reroll?timezone=${encodeURIComponent(timezone)}`,
     {
+      method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     },
   );

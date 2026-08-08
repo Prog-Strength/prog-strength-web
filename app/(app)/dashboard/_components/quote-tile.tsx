@@ -6,41 +6,72 @@
  * skeleton beyond the grid's, and no failure that blanks the card.
  *
  * The quote holds still for the whole local day. The reroll button is the
- * one way to change it: each tap asks the API for the next offset, which
- * walks the corpus in order and wraps, so a tap never returns the quote it
- * just replaced. Rerolling is intentionally not persisted — a reload
- * returns to the day's quote.
+ * one way to change it: each tap asks the API to advance, which walks the
+ * corpus in order and wraps, so a tap never returns the quote it just
+ * replaced. The server persists the position for the local day, so a
+ * rerolled quote survives a reload and lapses back to the day's quote at
+ * local midnight.
  *
  * Unlike its siblings this card is not a link (there is no quote page), so
- * it renders MiniCard's non-navigable variant and owns the only
- * interactive element on the grid.
+ * it renders MiniCard's non-navigable variant. The attribution beneath the
+ * quote links out to Wikipedia when the corpus has an article for the
+ * author or the work — see Attribution below.
  */
 "use client";
 
 import { useCallback, useState } from "react";
 
-import { getDashboardQuote } from "@/lib/api";
+import { rerollDashboardQuote } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { QuoteView } from "@/lib/dashboard";
 import { MiniCard } from "./mini-card";
 
+/**
+ * One half of the attribution — the author or the work — linked to its
+ * Wikipedia article when the corpus has one and rendered as plain text
+ * when it doesn't. Both halves decide independently: a quote can easily
+ * have an author with an article and a source without one.
+ *
+ * The link opens in a new tab. The dashboard is what the user came for,
+ * and navigating the whole app away to read about Camus is the worse
+ * outcome; `rel` keeps the new tab from reaching back through
+ * `window.opener`. A plain <a> rather than next/link because the
+ * destination is off-site — there is nothing for the router to prefetch.
+ */
+function Attribution({ label, href }: { label: string; href?: string }) {
+  if (!href) return <>{label}</>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="underline decoration-dotted underline-offset-2 transition hover:text-[var(--accent)]"
+    >
+      {label}
+    </a>
+  );
+}
+
 export function QuoteCard({ quote }: { quote: QuoteView }) {
   // Seeded from the prop and deliberately not resynced to it. The page
-  // refetches the summary after a layout edit, and re-seeding there would
-  // throw away a quote the user had rerolled to. The prop only ever carries
-  // the day's quote, so there is nothing newer to miss.
+  // refetches the summary after a layout edit; re-seeding there would be
+  // harmless now that the server persists the reroll (the prop carries the
+  // same quote this state holds), but it would still briefly re-render the
+  // tile for a change that has nothing to do with it.
   const [current, setCurrent] = useState<QuoteView>(quote);
   const [loading, setLoading] = useState(false);
 
+  // No offset is tracked or sent. The server holds the position and
+  // advances it, so two open tabs cannot each advance from their own stale
+  // idea of where the user is.
   const reroll = useCallback(async () => {
     const token = getToken();
     if (!token || loading) return;
     setLoading(true);
     try {
-      const next = await getDashboardQuote(
+      const next = await rerollDashboardQuote(
         token,
         Intl.DateTimeFormat().resolvedOptions().timeZone,
-        current.offset + 1,
       );
       if (next) setCurrent(next);
     } catch {
@@ -50,7 +81,7 @@ export function QuoteCard({ quote }: { quote: QuoteView }) {
     } finally {
       setLoading(false);
     }
-  }, [current.offset, loading]);
+  }, [loading]);
 
   return (
     <MiniCard title="Daily Quote">
@@ -62,9 +93,11 @@ export function QuoteCard({ quote }: { quote: QuoteView }) {
         </blockquote>
         <div className="flex items-end justify-between gap-3">
           <cite className="not-italic text-xs text-[var(--muted)]">
-            {current.author}
+            <Attribution label={current.author} href={current.authorUrl} />
             {current.source && (
-              <span className="block text-[var(--muted)] opacity-70">{current.source}</span>
+              <span className="block text-[var(--muted)] opacity-70">
+                <Attribution label={current.source} href={current.sourceUrl} />
+              </span>
             )}
           </cite>
           <button
