@@ -44,3 +44,41 @@ export function clearToken(): void {
 export function isAuthenticated(): boolean {
   return getToken() !== null;
 }
+
+const POST_LOGIN_PATH_KEY = "ps_post_login_path";
+
+/**
+ * Remember where to land after sign-in.
+ *
+ * The OAuth round trip goes through Google and the API and comes back on a
+ * fixed `return_to` (/auth/callback) that the API validates against an
+ * allowlist — so the destination cannot ride along in the URL without
+ * widening that contract. sessionStorage carries it across the redirect
+ * instead: same tab, cleared when the tab closes, never sent to a server.
+ *
+ * This exists for deep links that originate OUTSIDE the app — the "Open in
+ * Prog Strength" footer on a synced Google Calendar event, most of all. Those
+ * are very often clicked by a logged-out user, and landing them on the
+ * dashboard instead of the session they asked for defeats the link.
+ *
+ * Only same-origin absolute paths are stored. A caller-supplied "//evil.com"
+ * or "https://evil.com" would otherwise turn sign-in into an open redirect.
+ */
+export function setPostLoginPath(path: string): void {
+  if (typeof window === "undefined") return;
+  if (!path.startsWith("/") || path.startsWith("//")) return;
+  sessionStorage.setItem(POST_LOGIN_PATH_KEY, path);
+}
+
+/**
+ * Consume the remembered post-login destination, falling back to the
+ * dashboard. Reading clears it, so a later manual sign-in does not replay a
+ * stale destination.
+ */
+export function takePostLoginPath(fallback = "/dashboard"): string {
+  if (typeof window === "undefined") return fallback;
+  const path = sessionStorage.getItem(POST_LOGIN_PATH_KEY);
+  sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return fallback;
+  return path;
+}

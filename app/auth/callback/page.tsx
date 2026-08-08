@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { setToken } from "@/lib/auth";
+import { setToken, takePostLoginPath } from "@/lib/auth";
 
 /**
  * OAuth landing page. The API's callback redirects here with the token
@@ -12,7 +12,8 @@ import { setToken } from "@/lib/auth";
  *
  * The hash isn't sent to the server, so the token doesn't leak via the
  * referrer or appear in server access logs. We parse it client-side,
- * stash in localStorage, clear the hash from the URL, and push to /dashboard.
+ * stash in localStorage, clear the hash from the URL, and push to the
+ * remembered deep link (or /dashboard).
  *
  * On error (no token, malformed hash) we surface a message rather than
  * silently bouncing back to /login — easier to debug.
@@ -57,7 +58,10 @@ export default function AuthCallback() {
     // Strip the hash from the URL so the token isn't preserved in the
     // browser history. `replaceState` does this without a navigation.
     window.history.replaceState({}, "", "/auth/callback");
-    router.replace("/dashboard");
+    // Land on the deep link that sent the user here, if there was one — a
+    // calendar event's "Open in Prog Strength" is usually clicked logged out.
+    // Defaults to /dashboard, the behavior before deep links existed.
+    router.replace(takePostLoginPath());
   }, [router]);
 
   return (
