@@ -4919,6 +4919,163 @@ export async function putDashboardLayout(
   }
 }
 
+// --- Weather ------------------------------------------------------
+
+/**
+ * Serving state of a weather read. Non-"ok" values are how the API
+ * degrades instead of failing: "stale" serves an expired cache entry,
+ * "disabled"/"budget_exhausted" mean the feature or its upstream call
+ * budget is off, and "unavailable" is an upstream miss with no cache.
+ */
+export type WeatherStatus = "ok" | "stale" | "disabled" | "budget_exhausted" | "unavailable";
+
+/** One saved weather place. `state` is absent outside subdivided countries. */
+export type WeatherLocation = {
+  id: string;
+  label: string;
+  state?: string;
+  country: string;
+  lat: number;
+  lon: number;
+};
+
+/** Server-side weather settings echoed alongside the locations list. */
+export type WeatherSettings = {
+  enabled: boolean;
+  max_locations: number;
+  eager_load_all_locations: boolean;
+};
+
+/**
+ * One weather reading for a location. Everything past `status` is
+ * optional: a degraded status ("disabled", "budget_exhausted",
+ * "unavailable") carries no conditions for the tile to render.
+ */
+export type WeatherReading = {
+  status: WeatherStatus;
+  location?: { id: string; label: string; state?: string; country: string };
+  fetched_at?: string;
+  units?: { temp: "F" | "C"; wind: "mph" | "km/h" };
+  current?: {
+    temp: number;
+    feels_like: number;
+    humidity: number;
+    wind_speed: number;
+    condition: string;
+    icon: string;
+  };
+  today?: { high: number; low: number; sunrise: string; sunset: string };
+  hourly?: { at: string; temp: number; icon: string }[];
+};
+
+/** One geocoding hit from the search/reverse endpoints. */
+export type WeatherGeoResult = {
+  name: string;
+  state?: string;
+  country: string;
+  lat: number;
+  lon: number;
+};
+
+/**
+ * A location as sent to PUT /weather/locations: `id` is optional so the
+ * caller can add a new place (server assigns the id) alongside kept ones.
+ */
+export type WeatherLocationInput = Omit<WeatherLocation, "id"> & { id?: string };
+
+/**
+ * GET /weather?timezone=<IANA>[&location_id=...]. Returns the reading for
+ * the given saved location, or the user's first location when
+ * `locationId` is omitted. `timezone` anchors the "today" window; call
+ * sites pass `Intl.DateTimeFormat().resolvedOptions().timeZone`. Returns
+ * null when the envelope carries no payload.
+ */
+export async function getWeather(
+  token: string,
+  timezone: string,
+  locationId?: string,
+): Promise<WeatherReading | null> {
+  const params = new URLSearchParams();
+  params.set("timezone", timezone);
+  if (locationId) params.set("location_id", locationId);
+  const resp = await fetch(`${config.apiUrl}/weather?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<WeatherReading | null>(resp, null);
+}
+
+/**
+ * GET /weather/locations. Returns the user's saved places in display
+ * order plus the server's weather settings (feature gate + limits).
+ * Returns null when the envelope carries no payload.
+ */
+export async function getWeatherLocations(
+  token: string,
+): Promise<{ locations: WeatherLocation[]; settings: WeatherSettings } | null> {
+  const resp = await fetch(`${config.apiUrl}/weather/locations`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<{ locations: WeatherLocation[]; settings: WeatherSettings } | null>(resp, null);
+}
+
+/**
+ * PUT /weather/locations. Full replace of the user's saved places, in
+ * order — not a patch. Entries without an `id` are created server-side;
+ * saved entries omitted from the body are removed. Throws on non-2xx
+ * (the server rejects e.g. exceeding max_locations).
+ */
+export async function putWeatherLocations(
+  token: string,
+  locations: WeatherLocationInput[],
+): Promise<{ locations: WeatherLocation[] } | null> {
+  const resp = await fetch(`${config.apiUrl}/weather/locations`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ locations }),
+  });
+  if (!resp.ok) {
+    throw new Error(`PUT /weather/locations failed: ${resp.status}`);
+  }
+  return unwrap<{ locations: WeatherLocation[] } | null>(resp, null);
+}
+
+/**
+ * GET /weather/search?q=<query>. Forward-geocodes a free-text place name
+ * into candidate locations for the add-location picker. The envelope's
+ * `data` is `{results, status}`; only the results matter here — empty
+ * array when the query matched nothing (or `data` was omitted).
+ */
+export async function searchWeatherLocations(
+  token: string,
+  q: string,
+): Promise<WeatherGeoResult[]> {
+  const resp = await fetch(`${config.apiUrl}/weather/search?q=${encodeURIComponent(q)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await unwrap<{ results?: WeatherGeoResult[] } | null>(resp, null);
+  return data?.results ?? [];
+}
+
+/**
+ * GET /weather/reverse?lat=<lat>&lon=<lon>. Reverse-geocodes coordinates
+ * (the "use my location" path) into named places. Same `{results, status}`
+ * data shape as the search endpoint; empty array default.
+ */
+export async function reverseWeatherLocation(
+  token: string,
+  lat: number,
+  lon: number,
+): Promise<WeatherGeoResult[]> {
+  const resp = await fetch(
+    `${config.apiUrl}/weather/reverse?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  const data = await unwrap<{ results?: WeatherGeoResult[] } | null>(resp, null);
+  return data?.results ?? [];
+}
+
 /**
  * Common envelope unwrapper. The API wraps every success response in
  * `{service, message, data}`; the caller only cares about `data`.
