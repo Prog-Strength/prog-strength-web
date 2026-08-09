@@ -24,7 +24,8 @@ export type TileId =
   | "recovery_trend"
   | "recovery_log"
   | "streak"
-  | "quote";
+  | "quote"
+  | "weather";
 
 export type TileCatalogEntry = {
   id: TileId;
@@ -151,6 +152,11 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     id: "quote",
     title: "Daily Quote",
     description: "A line to sit with for the day. Tap to draw another.",
+  },
+  {
+    id: "weather",
+    title: "Weather",
+    description: "Forecast for your saved places — conditions, high/low, and the next few hours.",
   },
 ] as const;
 
