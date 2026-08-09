@@ -1,9 +1,13 @@
 /**
- * Weather glyphs for the dashboard tile — hand-rolled currentColor stroke
- * SVGs in the chat icon idiom (components/chat/icons.tsx). Deliberately no
- * sky-blue sky or sun-yellow sun: the palette reserves saturated color for
- * the activity disciplines, so the tile tints these neutrals via text
- * color (`--foreground` / `--muted`).
+ * Shared weather glyphs — hand-rolled currentColor stroke SVGs in the chat
+ * icon idiom (components/chat/icons.tsx). Deliberately no sky-blue sky or
+ * sun-yellow sun: the palette reserves saturated color for the activity
+ * disciplines, so callers tint these neutrals via text color
+ * (`--foreground` / `--muted`).
+ *
+ * Cross-route rather than route-private (`app/(app)/dashboard/_components/`,
+ * where it shipped): the activity-detail conditions beat is a second consumer
+ * and can't reach into another route's `_components`.
  *
  * `icon` is an OpenWeather icon code ("01d", "10n", …). Only the numeric
  * prefix picks the glyph — day/night variants share a drawing, because a
