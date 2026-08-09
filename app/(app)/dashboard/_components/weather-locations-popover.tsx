@@ -9,7 +9,10 @@
  * saved entries are therefore passed through verbatim.
  *
  * Positioning is the parent's job: this renders as an absolutely-positioned
- * card and the tile anchors it.
+ * card and the tile anchors it — the anchor element must be
+ * `position: relative` for the card's placement to track it. Dismissal is
+ * also the parent's job: `onClose` is wired only to the × button; Escape,
+ * outside-click, and focus return all live with the anchor.
  */
 "use client";
 
@@ -86,6 +89,24 @@ export function WeatherLocationsPopover({
   // (or repopulate results after an add cleared them).
   const searchSeq = useRef(0);
 
+  // The geolocation callback outlives the render it was created in: the
+  // GPS fix plus the reverse lookup can take seconds, during which the
+  // user may delete or add rows (a click-time `locations` closure would
+  // resurrect deletes / drop adds in the whole-list PUT) or the popover
+  // may unmount. These refs give the callback the CURRENT list and a
+  // liveness check instead.
+  const locationsRef = useRef(locations);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    locationsRef.current = locations;
+  }, [locations]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const atCap = locations.length >= settings.max_locations;
 
   useEffect(() => {
@@ -137,8 +158,8 @@ export function WeatherLocationsPopover({
   function useMyLocation() {
     if (locating) return;
     setGeoNote(null);
-    if (!("geolocation" in navigator)) {
-      setGeoNote("Location permission denied.");
+    if (!navigator.geolocation) {
+      setGeoNote("Location isn't available in this browser.");
       return;
     }
     setLocating(true);
@@ -153,17 +174,31 @@ export function WeatherLocationsPopover({
         } catch {
           // Fall through to the "couldn't resolve" note.
         }
+        if (!mountedRef.current) return;
         const first = found[0];
-        if (first) {
-          // Pin the GEOCODED coordinate, not the raw device fix, so the
-          // saved place matches what the reverse lookup named.
-          onChange([...locations, toInput(first)]);
-        } else {
+        if (!first) {
           setGeoNote("Couldn't resolve your location.");
+          setLocating(false);
+          return;
         }
+        const current = locationsRef.current;
+        if (current.length >= settings.max_locations) {
+          // The list filled to the cap while the fix was in flight. Drop
+          // the add without a note: the cap line is already on screen
+          // explaining why adding is off, and a second message would just
+          // contradict a state the user created on purpose.
+          setLocating(false);
+          return;
+        }
+        // Pin the GEOCODED coordinate, not the raw device fix, so the
+        // saved place matches what the reverse lookup named.
+        onChange([...current, toInput(first)]);
+        setQuery("");
+        setResults([]);
         setLocating(false);
       },
       () => {
+        if (!mountedRef.current) return;
         setGeoNote("Location permission denied.");
         setLocating(false);
       },
@@ -202,6 +237,7 @@ export function WeatherLocationsPopover({
             value={query}
             onChange={(e) => setQueryTo(e.target.value)}
             placeholder="Search for a city…"
+            aria-label="Search for a city"
             className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--accent)]"
           />
           {results.length > 0 && (
@@ -250,7 +286,11 @@ export function WeatherLocationsPopover({
       >
         {locating ? "Locating…" : "Use my current location"}
       </button>
-      {geoNote && <p className="mt-1.5 text-xs text-[var(--muted)]">{geoNote}</p>}
+      {geoNote && (
+        <p aria-live="polite" className="mt-1.5 text-xs text-[var(--muted)]">
+          {geoNote}
+        </p>
+      )}
     </div>
   );
 }
