@@ -19,13 +19,18 @@
  * `eager_load_all_locations` says so) and paging back is instant.
  *
  * The locations popover is a controlled child: it hands the complete next
- * list to `onChange` and this tile owns the PUT. A failed PUT is
- * deliberately swallowed into a locations refetch — the popover snaps back
- * to the server's list and the rejected edit simply doesn't stick, which
- * keeps the tile free of error chrome (the server-side caps are also
- * enforced in the popover's own UI, so rejections here are rare races).
- * Dismissal (Escape, outside click) lives here too; the popover's × is the
- * only close path it wires itself.
+ * list to `onChange` and this tile owns the PUT. Each edit is applied
+ * optimistically (so a second quick edit derives from the first, not from
+ * the original list) and the PUT+refetch pipelines are serialized through
+ * a promise chain (so writes hit the server in order); only the newest
+ * edit's refetch is applied, so a superseded response can't resurrect a
+ * removed place. A failed PUT is deliberately swallowed into a locations
+ * refetch — the popover snaps back to the server's list and the rejected
+ * edit simply doesn't stick, which keeps the tile free of error chrome
+ * (the server-side caps are also enforced in the popover's own UI, so
+ * rejections here are rare races). Dismissal (Escape, outside click) and
+ * focus return to the gear live here too; the popover's × is the only
+ * close path it wires itself.
  */
 "use client";
 
@@ -49,6 +54,14 @@ const SWIPE_THRESHOLD_PX = 40;
 
 /** A location's slot in the reading cache; absent means "not asked yet". */
 type ReadingSlot = WeatherReading | "loading" | "failed";
+
+/**
+ * Id prefix for optimistically-added locations that the server hasn't
+ * named yet. Keeps popover rows keyed and removable during the PUT
+ * round-trip; the reading fetcher skips them (the server can't answer for
+ * an id it never issued) and the refetch swaps in the real ids.
+ */
+const PENDING_ID = "pending:";
 
 /**
  * Coarse age for the stale note — "45m", "3h", "2d". Weather staleness is
@@ -84,32 +97,48 @@ export function WeatherCard() {
 
   // The popover's positioning anchor and the outside-click boundary.
   const anchorRef = useRef<HTMLDivElement | null>(null);
+  // Focus home for the popover: every close path returns focus here.
+  const gearRef = useRef<HTMLButtonElement | null>(null);
   // Ids ever handed to getWeather. Synchronous, so a re-run of the fetch
   // effect (or StrictMode's double pass) can't fetch a location twice —
   // this is what makes "second visit uses the cache" hold.
   const requestedIds = useRef(new Set<string>());
+  // Per-id fetch tickets (the searchSeq idiom): invalidating a location
+  // bumps its ticket, so an in-flight getWeather for a pruned/moved place
+  // resolves into the void instead of repopulating the cache slot.
+  const readingSeq = useRef(new Map<string, number>());
+  // Serialization for popover edits: each PUT+refetch chains behind the
+  // previous one, and only the newest edit (by seq) applies its refetch.
+  const editChain = useRef<Promise<void>>(Promise.resolve());
+  const editSeq = useRef(0);
+  // Whether a locations list has ever landed — a refetch failure with
+  // last-good data keeps rendering it instead of bricking the tile.
+  const hasLoadedRef = useRef(false);
   const touchStartX = useRef<number | null>(null);
 
   const loadLocations = useCallback(async (): Promise<WeatherLocation[] | null> => {
-    const token = getToken();
-    if (!token) {
-      setLocationsFailed(true);
+    // Failure policy: only the FIRST load (nothing to fall back to) flips
+    // the tile to its unavailable line. A failed refetch after an edit
+    // keeps the last-good locations/settings rendered and closes nothing —
+    // flipping to "unavailable" mid-session would hide the gear and strand
+    // an open popover over a bricked tile.
+    const fail = () => {
+      if (!hasLoadedRef.current) setLocationsFailed(true);
       return null;
-    }
+    };
+    const token = getToken();
+    if (!token) return fail();
     try {
       const data = await getWeatherLocations(token);
-      if (!data) {
-        setLocationsFailed(true);
-        return null;
-      }
+      if (!data) return fail();
+      hasLoadedRef.current = true;
       setLocationsFailed(false);
       setSettings(data.settings);
       setLocations(data.locations);
       return data.locations;
     } catch {
       // Renders as the calm unavailable line — never an error banner.
-      setLocationsFailed(true);
-      return null;
+      return fail();
     }
   }, []);
 
@@ -118,20 +147,30 @@ export function WeatherCard() {
   }, [loadLocations]);
 
   const loadReading = useCallback(async (id: string) => {
+    // An optimistic add has no server id yet — its slot stays on skeleton
+    // lines until the refetch delivers the real id.
+    if (id.startsWith(PENDING_ID)) return;
     if (requestedIds.current.has(id)) return;
     requestedIds.current.add(id);
-    setReadings((prev) => ({ ...prev, [id]: "loading" }));
+    const seq = readingSeq.current.get(id) ?? 0;
+    // Applies a result only if the id wasn't invalidated while the fetch
+    // was in flight (pruned or re-added with new coordinates).
+    const apply = (slot: ReadingSlot) => {
+      if ((readingSeq.current.get(id) ?? 0) !== seq) return;
+      setReadings((prev) => ({ ...prev, [id]: slot }));
+    };
+    apply("loading");
     const token = getToken();
     if (!token) {
-      setReadings((prev) => ({ ...prev, [id]: "failed" }));
+      apply("failed");
       return;
     }
     try {
       const next = await getWeather(token, Intl.DateTimeFormat().resolvedOptions().timeZone, id);
-      setReadings((prev) => ({ ...prev, [id]: next ?? "failed" }));
+      apply(next ?? "failed");
     } catch {
       // A rejected read is the same calm line as an "unavailable" status.
-      setReadings((prev) => ({ ...prev, [id]: "failed" }));
+      apply("failed");
     }
   }, []);
 
@@ -152,16 +191,27 @@ export function WeatherCard() {
     if (visible) void loadReading(visible.id);
   }, [locations, settings, safePage, loadReading]);
 
+  // Every close path funnels through here so focus reliably returns to
+  // the gear — the popover's own header contract delegates that to us.
+  const closePopover = useCallback(() => {
+    setPopoverOpen(false);
+    gearRef.current?.focus();
+  }, []);
+
   // Dismissal for the popover: Escape and any pointer-down outside the
   // tile's anchor. The popover itself only wires its × button.
   useEffect(() => {
     if (!popoverOpen) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setPopoverOpen(false);
+      // dnd-kit's KeyboardSensor cancels an in-progress keyboard reorder
+      // with Escape and prevents default — that Escape is the drag's, not
+      // ours, and mustn't also close the popover.
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape") closePopover();
     }
     function onMouseDown(e: MouseEvent) {
       const anchor = anchorRef.current;
-      if (anchor && e.target instanceof Node && !anchor.contains(e.target)) setPopoverOpen(false);
+      if (anchor && e.target instanceof Node && !anchor.contains(e.target)) closePopover();
     }
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("mousedown", onMouseDown);
@@ -169,39 +219,61 @@ export function WeatherCard() {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("mousedown", onMouseDown);
     };
-  }, [popoverOpen]);
+  }, [popoverOpen, closePopover]);
 
   const handleLocationsChange = useCallback(
-    async (next: WeatherLocationInput[]) => {
-      const token = getToken();
-      if (!token) return;
-      try {
-        await putWeatherLocations(token, next);
-      } catch {
-        // Documented choice: a failed PUT is swallowed and we fall through
-        // to the refetch, which snaps the popover back to the server's
-        // list. The rejected edit doesn't stick, and the tile stays free
-        // of error chrome.
-      }
+    (next: WeatherLocationInput[]) => {
       const previous = locations ?? [];
-      const fresh = await loadLocations();
-      if (!fresh) return;
-      // Drop cached readings for locations that vanished or moved (a kept
-      // id with new coordinates would otherwise serve the old place's
-      // weather); untouched ids keep their cache so paging stays instant.
-      const keep = new Set(
-        fresh
-          .filter((l) => {
-            const before = previous.find((p) => p.id === l.id);
-            return before !== undefined && before.lat === l.lat && before.lon === l.lon;
-          })
-          .map((l) => l.id),
-      );
-      requestedIds.current = new Set([...requestedIds.current].filter((id) => keep.has(id)));
-      setReadings((prev) =>
-        Object.fromEntries(Object.entries(prev).filter(([id]) => keep.has(id))),
-      );
-      setPage((p) => Math.min(p, Math.max(0, fresh.length - 1)));
+      const seq = ++editSeq.current;
+      // Optimistic apply, immediately and synchronously: the popover is
+      // controlled off this state, so a second quick edit derives from
+      // THIS list. Without it, remove-A then remove-B would both derive
+      // from the original [A,B,C] and the second PUT would resurrect A.
+      // Brand-new adds have no server id yet — a pending placeholder keeps
+      // their rows stable until the refetch swaps in the real one.
+      setLocations(next.map((l, i) => ({ ...l, id: l.id ?? `${PENDING_ID}${i}` })));
+      // Serialized write-behind: chain this PUT+refetch after any edit
+      // already in flight so writes hit the server in order, and let only
+      // the newest edit apply a refetch — a superseded edit's refetch
+      // would briefly resurrect its own already-stale server list.
+      editChain.current = editChain.current.then(async () => {
+        const token = getToken();
+        if (!token) return;
+        try {
+          await putWeatherLocations(token, next);
+        } catch {
+          // Documented choice: a failed PUT is swallowed and we fall
+          // through to the refetch, which snaps the popover back to the
+          // server's list. The rejected edit doesn't stick, and the tile
+          // stays free of error chrome.
+        }
+        if (seq !== editSeq.current) return;
+        const fresh = await loadLocations();
+        // A failed refetch keeps the optimistic list on screen (see
+        // loadLocations); the next successful load reconciles.
+        if (!fresh) return;
+        // Drop cached readings for locations that vanished or moved (a
+        // kept id with new coordinates would otherwise serve the old
+        // place's weather); untouched ids keep their cache so paging
+        // stays instant. Bumping the pruned ids' tickets also voids any
+        // of their fetches still in flight.
+        const keep = new Set(
+          fresh
+            .filter((l) => {
+              const before = previous.find((p) => p.id === l.id);
+              return before !== undefined && before.lat === l.lat && before.lon === l.lon;
+            })
+            .map((l) => l.id),
+        );
+        for (const id of requestedIds.current) {
+          if (!keep.has(id)) readingSeq.current.set(id, (readingSeq.current.get(id) ?? 0) + 1);
+        }
+        requestedIds.current = new Set([...requestedIds.current].filter((id) => keep.has(id)));
+        setReadings((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([id]) => keep.has(id))),
+        );
+        setPage((p) => Math.min(p, Math.max(0, fresh.length - 1)));
+      });
     },
     [locations, loadLocations],
   );
@@ -321,6 +393,7 @@ export function WeatherCard() {
       <MiniCard title="Weather">{body}</MiniCard>
       {settings && !locationsFailed && (
         <button
+          ref={gearRef}
           type="button"
           aria-label="Manage locations"
           onClick={() => setPopoverOpen((open) => !open)}
@@ -334,7 +407,7 @@ export function WeatherCard() {
           locations={locations}
           settings={settings}
           onChange={handleLocationsChange}
-          onClose={() => setPopoverOpen(false)}
+          onClose={closePopover}
         />
       )}
     </div>

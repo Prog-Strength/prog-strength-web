@@ -38,6 +38,14 @@ const lisbon: WeatherLocation = {
   lon: -9.1393,
 };
 
+const osaka: WeatherLocation = {
+  id: "loc-osaka",
+  label: "Osaka",
+  country: "JP",
+  lat: 34.6937,
+  lon: 135.5023,
+};
+
 function settings(overrides: Partial<WeatherSettings> = {}): WeatherSettings {
   return { enabled: true, max_locations: 5, eager_load_all_locations: false, ...overrides };
 }
@@ -247,6 +255,106 @@ describe("WeatherCard", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Next location" })).not.toBeInTheDocument(),
     );
+  });
+
+  it("serializes rapid edits so each PUT derives from the previous one", async () => {
+    // The lost-update race: with [A,B,C], remove-A then remove-B fired
+    // before the refetch lands must PUT [B,C] then [C] — a second edit
+    // derived from the ORIGINAL list would send [A,C] and resurrect A.
+    getWeatherLocationsMock
+      .mockResolvedValueOnce({ locations: [kyoto, lisbon, osaka], settings: settings() })
+      .mockResolvedValue({ locations: [osaka], settings: settings() });
+    putWeatherLocationsMock.mockResolvedValue({ locations: [osaka] });
+    render(<WeatherCard />);
+    expect(await screen.findByText("72°")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage locations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Kyoto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Lisbon" }));
+
+    await waitFor(() => expect(putWeatherLocationsMock).toHaveBeenCalledTimes(2));
+    expect(putWeatherLocationsMock.mock.calls[0][1]).toEqual([lisbon, osaka]);
+    expect(putWeatherLocationsMock.mock.calls[1][1]).toEqual([osaka]);
+  });
+
+  it("snaps back to the server's list when the PUT fails, without error chrome", async () => {
+    // The documented swallow path: a rejected PUT falls through to a
+    // locations refetch, so the popover re-syncs and the edit just
+    // doesn't stick — no banner, no alert.
+    putWeatherLocationsMock.mockRejectedValue(new Error("cap exceeded"));
+    getWeatherLocationsMock.mockResolvedValue({
+      locations: [kyoto, lisbon],
+      settings: settings(),
+    });
+    render(<WeatherCard />);
+    expect(await screen.findByText("72°")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage locations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Lisbon" }));
+
+    await waitFor(() => expect(getWeatherLocationsMock).toHaveBeenCalledTimes(2));
+    // The optimistically-removed row returns with the refetched list.
+    expect(await screen.findByRole("button", { name: "Remove Lisbon" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the last-good tile when a post-edit refetch fails", async () => {
+    // A refetch failure with data already on screen must not brick the
+    // tile into its unavailable line (which would also hide the gear).
+    getWeatherLocationsMock
+      .mockResolvedValueOnce({ locations: [kyoto, lisbon], settings: settings() })
+      .mockRejectedValue(new Error("network"));
+    render(<WeatherCard />);
+    expect(await screen.findByText("72°")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage locations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Lisbon" }));
+
+    await waitFor(() => expect(getWeatherLocationsMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("72°")).toBeInTheDocument();
+    expect(screen.queryByText("Weather is unavailable.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage locations" })).toBeInTheDocument();
+  });
+
+  it("returns focus to the gear when Escape closes the popover", async () => {
+    render(<WeatherCard />);
+    expect(await screen.findByText("72°")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage locations" }));
+    expect(screen.getByLabelText("Search for a city")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Search for a city")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Manage locations" })).toHaveFocus();
+  });
+
+  it("returns focus to the gear when the popover's × closes it", async () => {
+    render(<WeatherCard />);
+    expect(await screen.findByText("72°")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage locations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close locations" }));
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Search for a city")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Manage locations" })).toHaveFocus();
+  });
+
+  it("ignores an Escape already claimed by a drag cancel", async () => {
+    // dnd-kit's KeyboardSensor cancels a keyboard reorder with Escape and
+    // calls preventDefault — that Escape must not also close the popover.
+    render(<WeatherCard />);
+    expect(await screen.findByText("72°")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage locations" }));
+    const event = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    event.preventDefault();
+    document.dispatchEvent(event);
+
+    expect(screen.getByLabelText("Search for a city")).toBeInTheDocument();
   });
 
   it("closes the popover on Escape", async () => {
