@@ -29,6 +29,7 @@ import { MapView } from "@/components/activity-detail/MapView";
 import { SectionKicker } from "@/components/activity-detail/SectionKicker";
 import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
+import { WeatherRecap } from "@/components/activity-detail/WeatherRecap";
 import { CalibrateDistanceModal } from "./_components/CalibrateDistanceModal";
 import { SplitsSpine } from "./_components/SplitsSpine";
 import { PaceRecap } from "./_components/PaceRecap";
@@ -478,7 +479,17 @@ export default function RunningDetailPage() {
           {/* 6 — Route map (self-hides when route is undefined). */}
           <MapView route={session.route} discipline="run" label="Run route map" />
 
-          {/* 7 — The Miles. */}
+          {/* 7 — Conditions. Shares the map's beat: both answer "where, and
+              what was it like" before the work begins. Rides the detail
+              response — no second round trip — and self-hides for an indoor
+              run or a run with no stored reading. */}
+          <WeatherRecap
+            weather={session.weather}
+            environment={session.environment}
+            discipline="run"
+          />
+
+          {/* 8 — The Miles. */}
           <section className="flex flex-col gap-3">
             <SectionKicker>The Miles</SectionKicker>
             <SplitsSpine
@@ -496,7 +507,7 @@ export default function RunningDetailPage() {
             />
           </section>
 
-          {/* 8 — Sibling recaps. */}
+          {/* 9 — Sibling recaps. */}
           <PaceRecap points={paceStrip} stripSummary={session.strip_summary ?? null} unit={unit} />
           {hasPlottableSeries(hrStrip) && (
             <HeartRateRecap
@@ -514,7 +525,7 @@ export default function RunningDetailPage() {
             />
           )}
 
-          {/* 9 — Time in heart-rate zones (gate the whole section). */}
+          {/* 10 — Time in heart-rate zones (gate the whole section). */}
           {session.heart_rate_zones && session.heart_rate_zones.zones.length > 0 && (
             <section className="flex flex-col gap-3">
               <SectionKicker>Time in heart-rate zones</SectionKicker>

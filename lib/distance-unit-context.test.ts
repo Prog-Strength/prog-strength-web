@@ -3,6 +3,8 @@ import {
   formatDistanceValue,
   formatElevationValue,
   formatPaceValue,
+  formatTemperature,
+  formatWindSpeed,
 } from "@/lib/distance-unit-context";
 
 // These cover the PURE formatters only — the conversion + rounding math
@@ -91,5 +93,56 @@ describe("formatElevationValue", () => {
   it("returns the em-dash for non-finite input", () => {
     expect(formatElevationValue(Number.NaN, "km")).toBe("—");
     expect(formatElevationValue(Number.POSITIVE_INFINITY, "mi")).toBe("—");
+  });
+});
+
+describe("formatTemperature", () => {
+  it("converts to Fahrenheit under the imperial unit and stays Celsius under metric", () => {
+    expect(formatTemperature(0, "mi")).toBe("32°F");
+    expect(formatTemperature(0, "km")).toBe("0°C");
+    // 31.1 * 1.8 + 32 = 87.98 → 88
+    expect(formatTemperature(31.1, "mi")).toBe("88°F");
+    expect(formatTemperature(31.1, "km")).toBe("31°C");
+  });
+
+  it("rounds negative temperatures correctly in both systems", () => {
+    // -7.6 °C → -8 °C; -7.6 * 1.8 + 32 = 18.32 → 18 °F
+    expect(formatTemperature(-7.6, "km")).toBe("-8°C");
+    expect(formatTemperature(-7.6, "mi")).toBe("18°F");
+    // -17.8 °C is very nearly 0 °F — the sign must survive the conversion.
+    expect(formatTemperature(-17.8, "mi")).toBe("0°F");
+  });
+
+  it("returns the em-dash for null and non-finite input", () => {
+    expect(formatTemperature(null, "mi")).toBe("—");
+    expect(formatTemperature(null, "km")).toBe("—");
+    expect(formatTemperature(Number.NaN, "km")).toBe("—");
+    expect(formatTemperature(Number.POSITIVE_INFINITY, "mi")).toBe("—");
+  });
+});
+
+describe("formatWindSpeed", () => {
+  it("converts km/h to mph under the imperial unit and stays km/h under metric", () => {
+    // 10 / 1.609344 = 6.21 → 6
+    expect(formatWindSpeed(10, "mi")).toBe("6 mph");
+    expect(formatWindSpeed(10, "km")).toBe("10 km/h");
+  });
+
+  it("rounds to a whole unit", () => {
+    // 14.5 / 1.609344 = 9.01 → 9
+    expect(formatWindSpeed(14.5, "mi")).toBe("9 mph");
+    expect(formatWindSpeed(14.5, "km")).toBe("15 km/h");
+  });
+
+  it("keeps a dead calm as zero rather than the em-dash", () => {
+    expect(formatWindSpeed(0, "mi")).toBe("0 mph");
+    expect(formatWindSpeed(0, "km")).toBe("0 km/h");
+  });
+
+  it("returns the em-dash for null and non-finite input", () => {
+    expect(formatWindSpeed(null, "mi")).toBe("—");
+    expect(formatWindSpeed(null, "km")).toBe("—");
+    expect(formatWindSpeed(Number.NaN, "km")).toBe("—");
+    expect(formatWindSpeed(Number.POSITIVE_INFINITY, "mi")).toBe("—");
   });
 });

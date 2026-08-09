@@ -24,9 +24,13 @@
  *     "—" for non-finite or non-positive input.
  *   - `formatElevation(meters)`: a whole, unit-suffixed, thousands-separated
  *     elevation — "1,235 ft" under "mi", "376 m" under "km"; "—" for null.
+ *   - `formatTemperature(celsius)`: a whole, degree-suffixed temperature —
+ *     "88°F" under "mi", "31°C" under "km"; "—" for null.
+ *   - `formatWindSpeed(kmh)`: a whole, unit-suffixed wind speed — "6 mph"
+ *     under "mi", "10 km/h" under "km"; "—" for null.
  *
  * The pure helpers `formatDistanceValue` / `formatPaceValue` /
- * `formatElevationValue` hold the
+ * `formatElevationValue` / `formatTemperature` / `formatWindSpeed` hold the
  * actual conversion + formatting so they can be unit-tested without
  * rendering; the context methods just close over the active unit.
  */
@@ -93,6 +97,34 @@ export function formatElevationValue(meters: number | null, unit: DistanceUnit):
   return `${Math.round(meters).toLocaleString("en-US")} m`;
 }
 
+/**
+ * Format a temperature in Celsius toward the active unit as a whole,
+ * degree-suffixed string. Under "mi" → Fahrenheit ("88°F"); under "km" →
+ * Celsius ("31°C"). Pure. `null`/non-finite yields "—", matching
+ * `formatElevationValue`.
+ *
+ * There is no separate temperature preference: the distance unit stands in
+ * for the whole unit system, exactly as the weather tile SOW decided. A
+ * standalone `temperature_unit` later stays purely additive.
+ */
+export function formatTemperature(celsius: number | null, unit: DistanceUnit): string {
+  if (celsius == null || !Number.isFinite(celsius)) return "—";
+  if (unit === "mi") return `${Math.round(celsius * 1.8 + 32)}°F`;
+  return `${Math.round(celsius)}°C`;
+}
+
+/**
+ * Format a wind speed in km/h toward the active unit as a whole,
+ * unit-suffixed string. Under "mi" → mph ("6 mph"); under "km" → km/h
+ * ("10 km/h"). Pure; `null`/non-finite yields "—". Whole numbers for the
+ * same reason elevation is whole — a tenth of a mile per hour is noise.
+ */
+export function formatWindSpeed(kmh: number | null, unit: DistanceUnit): string {
+  if (kmh == null || !Number.isFinite(kmh)) return "—";
+  if (unit === "mi") return `${Math.round((kmh * METERS_PER_KM) / METERS_PER_MILE)} mph`;
+  return `${Math.round(kmh)} km/h`;
+}
+
 type DistanceUnitContextValue = {
   unit: DistanceUnit;
   unitLabel: DistanceUnit;
@@ -100,6 +132,8 @@ type DistanceUnitContextValue = {
   formatDistance: (meters: number) => string;
   formatPace: (secPerKm: number | null) => string;
   formatElevation: (meters: number | null) => string;
+  formatTemperature: (celsius: number | null) => string;
+  formatWindSpeed: (kmh: number | null) => string;
 };
 
 const DistanceUnitContext = createContext<DistanceUnitContextValue | null>(null);
@@ -168,6 +202,8 @@ export function DistanceUnitProvider({ children }: { children: React.ReactNode }
       formatDistance: (meters: number) => formatDistanceValue(meters, unit),
       formatPace: (secPerKm: number | null) => formatPaceValue(secPerKm, unit),
       formatElevation: (meters: number | null) => formatElevationValue(meters, unit),
+      formatTemperature: (celsius: number | null) => formatTemperature(celsius, unit),
+      formatWindSpeed: (kmh: number | null) => formatWindSpeed(kmh, unit),
     }),
     [unit, setUnit],
   );

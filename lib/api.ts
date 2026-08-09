@@ -1844,6 +1844,30 @@ export type RouteFeature = {
   };
 };
 
+/**
+ * The stored conditions at an outdoor activity's start — captured once at
+ * import and never refreshed, so this is history, not a forecast.
+ *
+ * `status` is the disposition of the capture ATTEMPT: only "ok" carries
+ * readings, and the reading fields are dropped from the wire for the other
+ * two. Values are metric like `distance_meters` (the raw-measurement
+ * convention) and are formatted client-side through `useDistanceUnit` —
+ * unlike GET /weather, which converts server-side.
+ */
+export type ActivityWeather = {
+  status: "ok" | "no_coordinates" | "unavailable";
+  observed_at?: string; // RFC3339, the provider's observation hour, UTC
+  temp_c?: number;
+  feels_like_c?: number;
+  dew_point_c?: number;
+  humidity?: number; // percent
+  wind_kmh?: number;
+  wind_deg?: number; // meteorological degrees — where the wind comes FROM
+  precip_mm?: number; // total for the observation hour; 0 on a dry hour
+  condition?: string; // provider tag, e.g. "Clear"
+  icon?: string; // provider icon code, e.g. "01d"
+};
+
 export type RunningSession = {
   id: string;
   activity_type: ActivityType;
@@ -1880,6 +1904,10 @@ export type RunningSession = {
   // Simplified GPS route for the map; present only on the detail GET for
   // GPS-recorded runs. Absent for indoor / no-GPS activities.
   route?: RouteFeature;
+  // Conditions at the activity's start; present only on the detail GET, and
+  // only once a capture has resolved. Absent — like `route` — is the whole
+  // signal: there is no beat to render.
+  weather?: ActivityWeather;
   // Server-derived detail blocks (running only; absent on list responses).
   // The page renders these verbatim — no client-side re-derivation.
   unit?: "mi" | "km";

@@ -1,7 +1,13 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen } from "@testing-library/react";
-import type { Activity, HeartRateZones, RunningTrackpoint } from "@/lib/api";
+import type {
+  Activity,
+  ActivityWeather,
+  HeartRateZones,
+  RouteFeature,
+  RunningTrackpoint,
+} from "@/lib/api";
 
 // Route + auth. The router object is hoisted and stable: the load effect
 // depends on its identity, and a fresh object per render would re-run it.
@@ -60,6 +66,9 @@ vi.mock("@/lib/distance-unit-context", () => ({
     formatPace: () => "—",
     formatElevation: (m: number | null) =>
       m == null ? "—" : `${Math.round(m * 3.28084).toLocaleString("en-US")} ft`,
+    formatTemperature: (c: number | null) => (c == null ? "—" : `${Math.round(c * 1.8 + 32)}°F`),
+    formatWindSpeed: (kmh: number | null) =>
+      kmh == null ? "—" : `${Math.round((kmh * 1000) / 1609.344)} mph`,
   }),
 }));
 
@@ -325,5 +334,80 @@ describe("HikingDetailPage — videos", () => {
 
     await screen.findByText("Franconia Ridge");
     expect(screen.getByTestId("video-strip")).toBeInTheDocument();
+  });
+});
+
+// Route coverage, hiking. The widget's own behaviour is covered by
+// WeatherRecap.test.tsx; what the PAGE suite must prove is that the route
+// renders it, in the beat the SOW places it in — between the map and the
+// elevation profile.
+describe("HikingDetailPage — conditions", () => {
+  /** A one-segment route so MapView renders and the slot is assertable. */
+  const route: RouteFeature = {
+    type: "Feature",
+    geometry: {
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [-71.64, 44.14],
+          [-71.65, 44.16],
+        ],
+      ],
+    },
+    properties: { bounds: { min_lat: 44.14, min_lng: -71.65, max_lat: 44.16, max_lng: -71.64 } },
+  };
+
+  const weather: ActivityWeather = {
+    status: "ok",
+    observed_at: "2026-06-18T13:00:00Z",
+    temp_c: 12.4,
+    feels_like_c: 9.8,
+    dew_point_c: 7.2,
+    humidity: 71,
+    wind_kmh: 22.5,
+    wind_deg: 315,
+    precip_mm: 0,
+    condition: "Clouds",
+    icon: "03d",
+  };
+
+  /** The base fixture carries no elevation, so the profile section — the
+   *  beat the widget must precede — would self-hide. Give it a climb. */
+  function climbingTrackpoints(): RunningTrackpoint[] {
+    return synthesize([
+      { meters: METERS_PER_MILE, paceSecPerKm: 900, hr: 130, elevation: 700, sampleMeters: 20 },
+      { meters: METERS_PER_MILE, paceSecPerKm: 900, hr: 130, elevation: 1600, sampleMeters: 20 },
+    ]);
+  }
+
+  it("renders the conditions beat after the map and before the elevation profile", async () => {
+    getActivityMock.mockResolvedValue(
+      hikingSession({ route, weather, trackpoints: climbingTrackpoints() }),
+    );
+
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    const map = screen.getByLabelText("Hike route map");
+    const conditions = screen.getByText("Conditions");
+    const profile = screen.getByText("Elevation profile");
+    // 54°F / 14 mph — formatted client-side off the active unit (mi).
+    expect(screen.getByText("54°F")).toBeInTheDocument();
+    expect(screen.getByText("14 mph NW")).toBeInTheDocument();
+
+    expect(map.compareDocumentPosition(conditions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      conditions.compareDocumentPosition(profile) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("omits the beat for an indoor hike that still carries a stored reading", async () => {
+    getActivityMock.mockResolvedValue(hikingSession({ environment: "indoor", weather }));
+
+    render(<HikingDetailPage />);
+
+    await screen.findByText("Franconia Ridge");
+    expect(screen.queryByText("Conditions")).not.toBeInTheDocument();
+    expect(screen.queryByText("54°F")).not.toBeInTheDocument();
   });
 });

@@ -2,7 +2,9 @@
 
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type {
+  ActivityWeather,
   PlannedWorkout,
+  RouteFeature,
   RunningIntervalSegment,
   RunningSession,
   RunningSplit,
@@ -99,6 +101,14 @@ function formatElevationMi(meters: number | null): string {
   if (meters == null || !Number.isFinite(meters)) return "—";
   return `${Math.round(meters * FEET_PER_METER).toLocaleString("en-US")} ft`;
 }
+function formatTemperatureMi(celsius: number | null): string {
+  if (celsius == null || !Number.isFinite(celsius)) return "—";
+  return `${Math.round(celsius * 1.8 + 32)}°F`;
+}
+function formatWindSpeedMi(kmh: number | null): string {
+  if (kmh == null || !Number.isFinite(kmh)) return "—";
+  return `${Math.round((kmh * 1000) / METERS_PER_MILE)} mph`;
+}
 
 vi.mock("@/lib/distance-unit-context", () => ({
   // The calibrate modal (rendered by the page) also imports the pure helpers
@@ -115,6 +125,8 @@ vi.mock("@/lib/distance-unit-context", () => ({
     formatDistance: formatDistanceMi,
     formatPace: formatPaceMi,
     formatElevation: formatElevationMi,
+    formatTemperature: formatTemperatureMi,
+    formatWindSpeed: formatWindSpeedMi,
   }),
 }));
 
@@ -931,5 +943,78 @@ describe("RunningDetailPage — videos", () => {
 
     await screen.findByText("Mi 1");
     expect(screen.getByTestId("video-strip")).toHaveAttribute("data-video-count", "1");
+  });
+});
+
+// Route coverage, running. The widget's own behaviour is covered by
+// WeatherRecap.test.tsx; what the PAGE suite must prove is that the route
+// renders it, in the beat the SOW places it in — between the map and the work.
+describe("RunningDetailPage — conditions", () => {
+  /** A one-segment route so MapView renders and the slot is assertable. */
+  const route: RouteFeature = {
+    type: "Feature",
+    geometry: {
+      type: "MultiLineString",
+      coordinates: [
+        [
+          [-71.06, 42.36],
+          [-71.05, 42.37],
+        ],
+      ],
+    },
+    properties: { bounds: { min_lat: 42.36, min_lng: -71.06, max_lat: 42.37, max_lng: -71.05 } },
+  };
+
+  const weather: ActivityWeather = {
+    status: "ok",
+    observed_at: "2026-06-18T13:00:00Z",
+    temp_c: 31.1,
+    feels_like_c: 36.4,
+    dew_point_c: 21.7,
+    humidity: 58,
+    wind_kmh: 14.5,
+    wind_deg: 210,
+    precip_mm: 0,
+    condition: "Clear",
+    icon: "01d",
+  };
+
+  it("renders the conditions beat after the map and before The Miles", async () => {
+    getActivityMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      route,
+      weather,
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    const map = screen.getByLabelText("Run route map");
+    const conditions = screen.getByText("Conditions");
+    const miles = screen.getByText("The Miles");
+    // 88°F / 9 mph — the page formats client-side off the active unit (mi).
+    expect(screen.getByText("88°F")).toBeInTheDocument();
+    expect(screen.getByText("9 mph SSW")).toBeInTheDocument();
+
+    expect(map.compareDocumentPosition(conditions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      conditions.compareDocumentPosition(miles) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("omits the beat for an indoor run that still carries a stored reading", async () => {
+    getActivityMock.mockResolvedValue({
+      ...runningSession(steadyTrackpoints()),
+      environment: "indoor",
+      weather,
+    });
+    getPlannedWorkoutBySessionMock.mockResolvedValue(null);
+
+    render(<RunningDetailPage />);
+
+    await screen.findByText("Mi 1");
+    expect(screen.queryByText("Conditions")).not.toBeInTheDocument();
+    expect(screen.queryByText("88°F")).not.toBeInTheDocument();
   });
 });
