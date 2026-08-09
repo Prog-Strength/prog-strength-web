@@ -45,8 +45,8 @@ import {
   type WeatherSettings,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { WeatherIcon } from "@/components/weather/icons";
 import { MiniCard, MiniCardSkeleton } from "./mini-card";
-import { WeatherIcon } from "./weather-icons";
 import { WeatherLocationsPopover } from "./weather-locations-popover";
 
 /** Horizontal travel below which a touch is a tap, not a page swipe. */

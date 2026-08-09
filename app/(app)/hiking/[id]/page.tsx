@@ -25,6 +25,7 @@ import { MapView } from "@/components/activity-detail/MapView";
 import { SectionKicker } from "@/components/activity-detail/SectionKicker";
 import { HeartRateRecap } from "@/components/activity-detail/HeartRateRecap";
 import { ElevationRecap } from "@/components/activity-detail/ElevationRecap";
+import { WeatherRecap } from "@/components/activity-detail/WeatherRecap";
 import { HeartRateZones } from "@/components/activity-detail/HeartRateZones";
 import { PhotoStrip } from "@/components/activity-detail/PhotoStrip";
 import { VideoStrip } from "@/components/activity-detail/VideoStrip";
@@ -367,7 +368,16 @@ export default function HikingDetailPage() {
             mileMarkers={markers}
           />
 
-          {/* 5 — Elevation profile — the CENTERPIECE chart of a hike, and the
+          {/* 5 — Conditions. The same slot the run detail gives it: beside the
+              map, before the work. Rides the detail response — no second round
+              trip — and self-hides with no stored reading. */}
+          <WeatherRecap
+            weather={session.weather}
+            environment={session.environment}
+            discipline="hike"
+          />
+
+          {/* 6 — Elevation profile — the CENTERPIECE chart of a hike, and the
               other half of the linked instrument. */}
           {hasPlottableSeries(elevStrip) && (
             <section className="flex flex-col gap-3">
@@ -399,7 +409,7 @@ export default function HikingDetailPage() {
             </section>
           )}
 
-          {/* 6 — Heart-rate recap (gated on a plottable series). */}
+          {/* 7 — Heart-rate recap (gated on a plottable series). */}
           {hasPlottableSeries(hrStrip) && (
             <HeartRateRecap
               points={hrStrip}
@@ -409,7 +419,7 @@ export default function HikingDetailPage() {
             />
           )}
 
-          {/* 7 — Time in heart-rate zones. The same standard widget the run
+          {/* 8 — Time in heart-rate zones. The same standard widget the run
               detail renders, off the same server-computed block — a hike with
               HR earns the breakdown as much as a run does. */}
           {session.heart_rate_zones && session.heart_rate_zones.zones.length > 0 && (
