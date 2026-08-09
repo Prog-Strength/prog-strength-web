@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
 
 describe("dashboard tile catalog", () => {
-  test("has exactly 19 tiles", () => {
-    expect(TILE_CATALOG.length).toBe(19);
+  test("has exactly 20 tiles", () => {
+    expect(TILE_CATALOG.length).toBe(20);
   });
 
   test("ids are in the Go catalog order", () => {
@@ -27,6 +27,7 @@ describe("dashboard tile catalog", () => {
       "recovery_log",
       "streak",
       "quote",
+      "weather",
     ]);
   });
 
@@ -40,7 +41,7 @@ describe("dashboard tile catalog", () => {
   // `href` is optional only for tiles with no page behind them. TileCard casts
   // away the undefined for every other id, so this pins exactly which ids are
   // allowed to omit it — without this the cast could silently start lying.
-  const PAGELESS_TILE_IDS: readonly TileId[] = ["quote"];
+  const PAGELESS_TILE_IDS: readonly TileId[] = ["quote", "weather"];
 
   test("every tile has a non-empty href except the pageless ones", () => {
     for (const entry of TILE_CATALOG) {
@@ -78,6 +79,7 @@ describe("dashboard tile catalog", () => {
     recovery_log: true,
     streak: true,
     quote: true,
+    weather: true,
   };
 
   test("every TileId is in the catalog", () => {

@@ -62,6 +62,7 @@ import { EffortHeartCard } from "./running/effort-heart";
 import { VerticalGainCard } from "./running/vertical-gain";
 import { RunningEmptyCard } from "./running/empty-card";
 import { QuoteCard } from "./quote-tile";
+import { WeatherCard } from "./weather-tile";
 
 export function LiftingCard({
   section,
@@ -278,6 +279,12 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
   // the assertion below cannot drift into an undefined href.
   if (id === "quote") {
     return data.quote.present ? <QuoteCard quote={data.quote} /> : null;
+  }
+  // Weather self-fetches — deliberately not a /dashboard/summary section
+  // (see sows/weather-dashboard-tile.md), and like quote it has no page
+  // behind it, so it also resolves before the href assertion.
+  if (id === "weather") {
+    return <WeatherCard />;
   }
   const href = tileEntry(id).href as string;
   switch (id) {
