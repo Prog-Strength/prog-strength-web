@@ -126,13 +126,18 @@ export function WeatherRecap({
       {cells.length > 0 && (
         <dl className="flex flex-wrap gap-x-8 gap-y-3 border-y border-[var(--border)] py-4">
           {cells.map((cell) => (
-            <div key={cell.label} className="flex flex-col gap-1">
-              <dd className="text-base font-semibold tabular-nums tracking-[-0.03em] text-[var(--foreground)]">
-                {cell.value}
-              </dd>
+            // `dt` before `dd` in the DOM because that is the order HTML
+            // requires and the order assistive tech pairs them in — a
+            // value-first group announces "36°C, Feels like" instead of
+            // naming the metric first. `flex-col-reverse` puts the value back
+            // on top visually, so the strip reads exactly as it did before.
+            <div key={cell.label} className="flex flex-col-reverse gap-1">
               <dt className="text-[10px] uppercase tracking-wider text-[var(--faint)]">
                 {cell.label}
               </dt>
+              <dd className="text-base font-semibold tabular-nums tracking-[-0.03em] text-[var(--foreground)]">
+                {cell.value}
+              </dd>
             </div>
           ))}
         </dl>

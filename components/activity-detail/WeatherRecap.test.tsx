@@ -48,11 +48,15 @@ describe("WeatherRecap — absent by omission", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  // The fixture carries a FULL set of readings on purpose: a bare `{ status }`
+  // row would render nothing anyway via the "no headline and no cells" guard,
+  // so the case could never fail. With every field present, the status check
+  // is the only thing standing between this row and a rendered beat.
   it.each(["no_coordinates", "unavailable"] as const)(
-    "renders nothing for the %s status",
+    "renders nothing for the %s status even with a full set of readings",
     (status) => {
       const { container } = renderRecap({
-        weather: { status },
+        weather: okWeather({ status }),
         environment: "outdoor",
       });
       expect(container.firstChild).toBeNull();
@@ -101,6 +105,26 @@ describe("WeatherRecap — headline and metric strip", () => {
     expect(screen.getByText("15 km/h SSW")).toBeInTheDocument();
   });
 
+  // The 16-entry table is indexed by a rounded 22.5° sector, so the top
+  // sector — which opens at 348.75° — rounds to index 16 and would read off
+  // the end of the array without the `% COMPASS.length` wrap.
+  it.each([348.75, 350, 0, 360, -10, -360])(
+    "normalizes a %p° bearing into the N sector",
+    (wind_deg) => {
+      renderRecap({ weather: okWeather({ wind_deg }), environment: "outdoor" });
+      expect(screen.getByText("15 km/h N")).toBeInTheDocument();
+    },
+  );
+
+  // A negative bearing that does NOT land on north is what actually pins the
+  // `((deg % 360) + 360) % 360` normalization: JS `%` keeps the sign, so a
+  // negative index would be `undefined` — and every negative that wraps TO
+  // north hides that, rounding to `-0`, which reads COMPASS[0] anyway.
+  it("wraps a negative bearing forward — -30° is the same wind as 330°, NNW", () => {
+    renderRecap({ weather: okWeather({ wind_deg: -30 }), environment: "outdoor" });
+    expect(screen.getByText("15 km/h NNW")).toBeInTheDocument();
+  });
+
   it("drops the direction when wind_deg is absent but keeps the speed", () => {
     const weather = okWeather();
     delete weather.wind_deg;
@@ -112,6 +136,27 @@ describe("WeatherRecap — headline and metric strip", () => {
     renderRecap({ weather: okWeather(), environment: "outdoor" });
     expect(screen.queryByText("Precip")).not.toBeInTheDocument();
     expect(screen.queryByText(/0\.0 mm/)).not.toBeInTheDocument();
+  });
+
+  // HTML requires the term before its description, and assistive tech pairs
+  // them by document order — so a value-first group is announced as
+  // "36°C, Feels like". The strip's reversed VISUAL order (value on top) is a
+  // `flex-col-reverse` concern and must not leak back into the DOM.
+  it("puts each dt before its dd in document order", () => {
+    const { container } = renderRecap({
+      weather: okWeather({ precip_mm: 1.2 }),
+      environment: "outdoor",
+    });
+
+    const groups = container.querySelectorAll("dl > div");
+    expect(groups).toHaveLength(5);
+    for (const group of groups) {
+      const dt = group.querySelector("dt");
+      const dd = group.querySelector("dd");
+      expect(dt).not.toBeNull();
+      expect(dd).not.toBeNull();
+      expect(dt!.compareDocumentPosition(dd!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
   // Individual absent fields drop their own cell — never a dash placeholder.
