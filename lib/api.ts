@@ -4948,8 +4948,11 @@ export type WeatherSettings = {
 
 /**
  * One weather reading for a location. Everything past `status` is
- * optional: a degraded status ("disabled", "budget_exhausted",
- * "unavailable") carries no conditions for the tile to render.
+ * optional: "disabled" carries no conditions, while "stale",
+ * "budget_exhausted", and "unavailable" MAY carry a cached (stale)
+ * reading — or nothing at all. Renderers should key off the presence
+ * of `current`, not the status alone, so a usable stale reading isn't
+ * dropped.
  */
 export type WeatherReading = {
   status: WeatherStatus;
@@ -5021,8 +5024,9 @@ export async function getWeatherLocations(
 /**
  * PUT /weather/locations. Full replace of the user's saved places, in
  * order — not a patch. Entries without an `id` are created server-side;
- * saved entries omitted from the body are removed. Throws on non-2xx
- * (the server rejects e.g. exceeding max_locations).
+ * saved entries omitted from the body are removed. Non-2xx throws via
+ * `unwrap`, which surfaces the envelope's specific server error (cap
+ * exceeded, invalid coordinates, blank label) for callers to render.
  */
 export async function putWeatherLocations(
   token: string,
@@ -5033,9 +5037,6 @@ export async function putWeatherLocations(
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ locations }),
   });
-  if (!resp.ok) {
-    throw new Error(`PUT /weather/locations failed: ${resp.status}`);
-  }
   return unwrap<{ locations: WeatherLocation[] } | null>(resp, null);
 }
 
@@ -5049,7 +5050,9 @@ export async function searchWeatherLocations(
   token: string,
   q: string,
 ): Promise<WeatherGeoResult[]> {
-  const resp = await fetch(`${config.apiUrl}/weather/search?q=${encodeURIComponent(q)}`, {
+  const params = new URLSearchParams();
+  params.set("q", q);
+  const resp = await fetch(`${config.apiUrl}/weather/search?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await unwrap<{ results?: WeatherGeoResult[] } | null>(resp, null);
@@ -5066,12 +5069,12 @@ export async function reverseWeatherLocation(
   lat: number,
   lon: number,
 ): Promise<WeatherGeoResult[]> {
-  const resp = await fetch(
-    `${config.apiUrl}/weather/reverse?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+  const params = new URLSearchParams();
+  params.set("lat", String(lat));
+  params.set("lon", String(lon));
+  const resp = await fetch(`${config.apiUrl}/weather/reverse?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const data = await unwrap<{ results?: WeatherGeoResult[] } | null>(resp, null);
   return data?.results ?? [];
 }
