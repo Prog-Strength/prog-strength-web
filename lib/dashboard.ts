@@ -218,12 +218,22 @@ export type BloodPressureView = {
 export type RecoveryHrvStatus = "balanced" | "elevated" | "suppressed" | "unknown";
 export type RecoveryTrendDirection = "rising" | "falling" | "steady" | "unknown";
 
-/** A single date-aligned day in the recovery history; nulls preserved as null. */
+/**
+ * A single date-aligned day in the recovery history; nulls preserved as null.
+ * The band fields are that day's OWN trailing band — server figures, passed
+ * through untouched — and are null (`status` "unknown") until the day has
+ * enough history behind it.
+ */
 export type RecoveryDayPoint = {
   date: string; // YYYY-MM-DD, local
   restingHr: number | null;
   recoveryScore: number | null;
   hrv: number | null; // ms
+  baselineAvg: number | null;
+  balancedLow: number | null;
+  balancedHigh: number | null;
+  zScore: number | null;
+  status: RecoveryHrvStatus;
 };
 
 /** Trailing baselines behind the tile; averages null until calibrated. */
@@ -249,6 +259,18 @@ export type RecoveryHrvView = {
 };
 
 /**
+ * The baseline against its own past. Distinct from `RecoveryHrvView.trend`,
+ * which compares the recent mean against the window it sits inside; the two may
+ * point opposite ways. Nothing renders this yet.
+ */
+export type RecoveryBaselineTrendView = {
+  direction: RecoveryTrendDirection;
+  deltaMs: number | null;
+  fromAvg: number | null;
+  overDays: number;
+};
+
+/**
  * Display view-model for the recovery widget (Whoop-sourced). Present only
  * for a connected user; the page renders NO card when absent. `restingToday`
  * / `recoveryScore` / `hrvToday` are null when Whoop has no reading yet today.
@@ -264,6 +286,7 @@ export type RecoveryView = {
   days?: RecoveryDayPoint[]; // NEW — date-aligned, nulls preserved
   baseline?: RecoveryBaselineView; // NEW
   hrv?: RecoveryHrvView; // NEW
+  baselineTrend?: RecoveryBaselineTrendView; // NEW
 };
 
 /**
@@ -543,6 +566,12 @@ function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
       restingHr: d.resting_heart_rate,
       recoveryScore: d.recovery_score,
       hrv: d.hrv_rmssd_milli,
+      // Server figures, passed through — never re-derived client-side.
+      baselineAvg: d.baseline_avg,
+      balancedLow: d.balanced_low,
+      balancedHigh: d.balanced_high,
+      zScore: d.z_score,
+      status: recoveryStatus(d.status),
     })),
     // Server figures pass through unchanged — never re-derived from a partial
     // series (house convention: a server average is a window figure).
@@ -563,6 +592,12 @@ function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
       zScore: recovery.hrv.z_score,
       trend: recoveryTrend(recovery.hrv.trend),
       shortAvg: recovery.hrv.short_avg,
+    },
+    baselineTrend: {
+      direction: recoveryTrend(recovery.baseline_trend.direction),
+      deltaMs: recovery.baseline_trend.delta_ms,
+      fromAvg: recovery.baseline_trend.from_avg,
+      overDays: recovery.baseline_trend.over_days,
     },
   };
 }

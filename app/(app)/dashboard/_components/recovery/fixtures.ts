@@ -54,13 +54,22 @@ function isoDate(offset: number): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-/** Build the 31-day window from an HRV series; a null HRV ⇒ a fully-null day. */
+/**
+ * Build the 31-day window from an HRV series; a null HRV ⇒ a fully-null day.
+ * The per-day band fields are left null / "unknown": no shipped tile renders
+ * them yet, and a fabricated per-day band would be fixture fiction.
+ */
 export function makeDays(hrv: (number | null)[] = HRV_SERIES): RecoveryDayPoint[] {
   return hrv.map((v, i) => ({
     date: isoDate(i),
     hrv: v,
     restingHr: v === null ? null : 49 + (i % 6),
     recoveryScore: v === null ? null : 48 + (i % 30),
+    baselineAvg: null,
+    balancedLow: null,
+    balancedHigh: null,
+    zScore: null,
+    status: "unknown",
   }));
 }
 
@@ -80,7 +89,17 @@ function baseline(): RecoveryBaselineView {
 /** Calibrated + suppressed — the DX's headline fixture. Today 74 ms, z −1.37. */
 export function suppressedView(): RecoveryView {
   const days = makeDays();
-  days[days.length - 1] = { date: FIXTURE_TODAY, hrv: 74, restingHr: 51, recoveryScore: 58 };
+  days[days.length - 1] = {
+    date: FIXTURE_TODAY,
+    hrv: 74,
+    restingHr: 51,
+    recoveryScore: 58,
+    baselineAvg: null,
+    balancedLow: null,
+    balancedHigh: null,
+    zScore: null,
+    status: "unknown",
+  };
   return {
     restingToday: 51,
     recoveryScore: 58,
@@ -102,7 +121,17 @@ export function suppressedView(): RecoveryView {
 /** Calibrated + balanced — the boring good day. Today 94 ms, z +0.22. */
 export function balancedView(): RecoveryView {
   const days = makeDays();
-  days[days.length - 1] = { date: FIXTURE_TODAY, hrv: 94, restingHr: 52, recoveryScore: 71 };
+  days[days.length - 1] = {
+    date: FIXTURE_TODAY,
+    hrv: 94,
+    restingHr: 52,
+    recoveryScore: 71,
+    baselineAvg: null,
+    balancedLow: null,
+    balancedHigh: null,
+    zScore: null,
+    status: "unknown",
+  };
   return {
     restingToday: 52,
     recoveryScore: 71,
@@ -154,7 +183,17 @@ export function calibratingView(): RecoveryView {
 /** No reading yet today — 7am before the webhook; baseline and trend intact. */
 export function noReadingView(): RecoveryView {
   const days = makeDays();
-  days[days.length - 1] = { date: FIXTURE_TODAY, hrv: null, restingHr: null, recoveryScore: null };
+  days[days.length - 1] = {
+    date: FIXTURE_TODAY,
+    hrv: null,
+    restingHr: null,
+    recoveryScore: null,
+    baselineAvg: null,
+    balancedLow: null,
+    balancedHigh: null,
+    zScore: null,
+    status: "unknown",
+  };
   return {
     restingToday: null,
     recoveryScore: null,
