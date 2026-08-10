@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   DashboardRecovery,
   DashboardRecoveryBaseline,
+  DashboardRecoveryBaselineTrend,
   DashboardRecoveryHrv,
   DashboardRunning,
   DashboardSummary,
@@ -384,6 +385,13 @@ const UNKNOWN_HRV: DashboardRecoveryHrv = {
   short_avg: null,
 };
 
+const UNKNOWN_BASELINE_TREND: DashboardRecoveryBaselineTrend = {
+  direction: "unknown",
+  delta_ms: null,
+  from_avg: null,
+  over_days: 28,
+};
+
 function recoveryBlock(over: Partial<DashboardRecovery>): DashboardRecovery {
   return {
     today: null,
@@ -391,6 +399,7 @@ function recoveryBlock(over: Partial<DashboardRecovery>): DashboardRecovery {
     days: [],
     baseline: EMPTY_BASELINE,
     hrv: UNKNOWN_HRV,
+    baseline_trend: UNKNOWN_BASELINE_TREND,
     ...over,
   };
 }
@@ -483,12 +492,22 @@ describe("adaptDashboard — recovery (Whoop)", () => {
             resting_heart_rate: null,
             recovery_score: null,
             hrv_rmssd_milli: null,
+            baseline_avg: null,
+            balanced_low: null,
+            balanced_high: null,
+            z_score: null,
+            status: "unknown",
           },
           {
             date: "2026-07-02",
             resting_heart_rate: 52,
             recovery_score: 78,
             hrv_rmssd_milli: 91,
+            baseline_avg: null,
+            balanced_low: null,
+            balanced_high: null,
+            z_score: null,
+            status: "unknown",
           },
         ],
       }),
@@ -500,6 +519,11 @@ describe("adaptDashboard — recovery (Whoop)", () => {
       restingHr: null,
       recoveryScore: null,
       hrv: null,
+      baselineAvg: null,
+      balancedLow: null,
+      balancedHigh: null,
+      zScore: null,
+      status: "unknown",
     });
     expect(data.recovery.days![1].hrv).toBe(91);
   });
@@ -549,6 +573,143 @@ describe("adaptDashboard — recovery (Whoop)", () => {
     if (!data.recovery.present) throw new Error("recovery absent");
     expect(data.recovery.hrv!.status).toBe("unknown");
     expect(data.recovery.hrv!.trend).toBe("unknown");
+  });
+
+  it("passes per-day bands and the baseline trend straight through", () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: recoveryBlock({
+        days: [
+          {
+            date: "2026-08-09",
+            resting_heart_rate: 59,
+            recovery_score: 61,
+            hrv_rmssd_milli: 77.4,
+            baseline_avg: 88.2,
+            balanced_low: 68.1,
+            balanced_high: 108.3,
+            z_score: -0.53,
+            status: "balanced",
+          },
+        ],
+        baseline_trend: {
+          direction: "rising",
+          delta_ms: 6.4,
+          from_avg: 81.8,
+          over_days: 28,
+        },
+      }),
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+
+    expect(data.recovery.days![0]).toEqual({
+      date: "2026-08-09",
+      restingHr: 59,
+      recoveryScore: 61,
+      hrv: 77.4,
+      baselineAvg: 88.2,
+      balancedLow: 68.1,
+      balancedHigh: 108.3,
+      zScore: -0.53,
+      status: "balanced",
+    });
+    expect(data.recovery.baselineTrend).toEqual({
+      direction: "rising",
+      deltaMs: 6.4,
+      fromAvg: 81.8,
+      overDays: 28,
+    });
+  });
+
+  it("narrows unrecognised day status and drift direction to unknown", () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: recoveryBlock({
+        days: [
+          {
+            date: "2026-08-09",
+            resting_heart_rate: 59,
+            recovery_score: 61,
+            hrv_rmssd_milli: 77.4,
+            baseline_avg: null,
+            balanced_low: null,
+            balanced_high: null,
+            z_score: null,
+            status: "sideways",
+          },
+        ],
+        baseline_trend: {
+          direction: "sideways",
+          delta_ms: null,
+          from_avg: null,
+          over_days: 28,
+        },
+      }),
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+
+    expect(data.recovery.days![0].status).toBe("unknown");
+    expect(data.recovery.baselineTrend!.direction).toBe("unknown");
+  });
+
+  it("carries a band that begins part-way across the series", () => {
+    const withRecovery: DashboardSummary = {
+      ...fullSummary,
+      recovery: recoveryBlock({
+        days: [
+          {
+            date: "2026-08-08",
+            resting_heart_rate: 57,
+            recovery_score: 66,
+            hrv_rmssd_milli: 84.1,
+            baseline_avg: null,
+            balanced_low: null,
+            balanced_high: null,
+            z_score: null,
+            status: "unknown",
+          },
+          {
+            date: "2026-08-09",
+            resting_heart_rate: 59,
+            recovery_score: 61,
+            hrv_rmssd_milli: 77.4,
+            baseline_avg: 88.2,
+            balanced_low: 68.1,
+            balanced_high: 108.3,
+            z_score: -0.53,
+            status: "balanced",
+          },
+        ],
+      }),
+    };
+    const data = adaptDashboard(withRecovery, profile());
+    if (!data.recovery.present) throw new Error("recovery absent");
+
+    // Day one is still calibrating: metrics present, band not yet earned.
+    expect(data.recovery.days![0]).toEqual({
+      date: "2026-08-08",
+      restingHr: 57,
+      recoveryScore: 66,
+      hrv: 84.1,
+      baselineAvg: null,
+      balancedLow: null,
+      balancedHigh: null,
+      zScore: null,
+      status: "unknown",
+    });
+    expect(data.recovery.days![1]).toEqual({
+      date: "2026-08-09",
+      restingHr: 59,
+      recoveryScore: 61,
+      hrv: 77.4,
+      baselineAvg: 88.2,
+      balancedLow: 68.1,
+      balancedHigh: 108.3,
+      zScore: -0.53,
+      status: "balanced",
+    });
   });
 });
 

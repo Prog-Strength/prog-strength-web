@@ -4746,6 +4746,31 @@ export type DashboardRecoveryHrv = {
 };
 
 /**
+ * One charted day of the recovery series: the day's raw metrics plus the band
+ * as it stood on that day. The band fields are null and `status` is "unknown"
+ * until the day has `min_baseline_days` behind it.
+ */
+export type DashboardRecoveryDayPoint = DashboardRecoveryDay & {
+  baseline_avg: number | null;
+  balanced_low: number | null;
+  balanced_high: number | null;
+  z_score: number | null;
+  status: string;
+};
+
+/**
+ * The baseline against its own past. Distinct from `DashboardRecoveryHrv.trend`,
+ * which compares the recent mean against the window it sits inside; the two may
+ * point opposite ways.
+ */
+export type DashboardRecoveryBaselineTrend = {
+  direction: string;
+  delta_ms: number | null;
+  from_avg: number | null;
+  over_days: number;
+};
+
+/**
  * The dashboard's recovery widget, sourced from Whoop. Present only for users
  * with a connected Whoop account (omitted → null otherwise). `today` is the
  * latest daily recovery snapshot (null when Whoop has no reading yet);
@@ -4757,9 +4782,10 @@ export type DashboardRecoveryHrv = {
 export type DashboardRecovery = {
   today: DashboardRecoveryDay | null;
   resting_hr_spark: number[];
-  days: DashboardRecoveryDay[];
+  days: DashboardRecoveryDayPoint[];
   baseline: DashboardRecoveryBaseline;
   hrv: DashboardRecoveryHrv;
+  baseline_trend: DashboardRecoveryBaselineTrend;
 };
 
 /**

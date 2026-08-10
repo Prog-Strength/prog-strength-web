@@ -54,13 +54,25 @@ function isoDate(offset: number): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-/** Build the 31-day window from an HRV series; a null HRV ⇒ a fully-null day. */
+/**
+ * Build the 31-day window from an HRV series; a null HRV ⇒ a fully-null day.
+ * The interior days' band fields are deliberately left null / "unknown": a
+ * day's own trailing band cannot be known without recomputing it, so inventing
+ * one would be fixture fiction. The calibrated views below overwrite the LAST
+ * day with figures that agree with their `hrv` block, mirroring the server,
+ * where the scalar and series bands come from the same helpers.
+ */
 export function makeDays(hrv: (number | null)[] = HRV_SERIES): RecoveryDayPoint[] {
   return hrv.map((v, i) => ({
     date: isoDate(i),
     hrv: v,
     restingHr: v === null ? null : 49 + (i % 6),
     recoveryScore: v === null ? null : 48 + (i % 30),
+    baselineAvg: null,
+    balancedLow: null,
+    balancedHigh: null,
+    zScore: null,
+    status: "unknown",
   }));
 }
 
@@ -80,7 +92,18 @@ function baseline(): RecoveryBaselineView {
 /** Calibrated + suppressed — the DX's headline fixture. Today 74 ms, z −1.37. */
 export function suppressedView(): RecoveryView {
   const days = makeDays();
-  days[days.length - 1] = { date: FIXTURE_TODAY, hrv: 74, restingHr: 51, recoveryScore: 58 };
+  // Band agrees with the `hrv` block below — the server derives both together.
+  days[days.length - 1] = {
+    date: FIXTURE_TODAY,
+    hrv: 74,
+    restingHr: 51,
+    recoveryScore: 58,
+    baselineAvg: 91.2,
+    balancedLow: 78.6,
+    balancedHigh: 103.8,
+    zScore: -1.37,
+    status: "suppressed",
+  };
   return {
     restingToday: 51,
     recoveryScore: 58,
@@ -102,7 +125,18 @@ export function suppressedView(): RecoveryView {
 /** Calibrated + balanced — the boring good day. Today 94 ms, z +0.22. */
 export function balancedView(): RecoveryView {
   const days = makeDays();
-  days[days.length - 1] = { date: FIXTURE_TODAY, hrv: 94, restingHr: 52, recoveryScore: 71 };
+  // Band agrees with the `hrv` block below — the server derives both together.
+  days[days.length - 1] = {
+    date: FIXTURE_TODAY,
+    hrv: 94,
+    restingHr: 52,
+    recoveryScore: 71,
+    baselineAvg: 91.2,
+    balancedLow: 78.6,
+    balancedHigh: 103.8,
+    zScore: 0.22,
+    status: "balanced",
+  };
   return {
     restingToday: 52,
     recoveryScore: 71,
@@ -154,7 +188,19 @@ export function calibratingView(): RecoveryView {
 /** No reading yet today — 7am before the webhook; baseline and trend intact. */
 export function noReadingView(): RecoveryView {
   const days = makeDays();
-  days[days.length - 1] = { date: FIXTURE_TODAY, hrv: null, restingHr: null, recoveryScore: null };
+  // A missing morning drops the z-score and the status but KEEPS the band: the
+  // absent reading must not erase the band that morning sat in.
+  days[days.length - 1] = {
+    date: FIXTURE_TODAY,
+    hrv: null,
+    restingHr: null,
+    recoveryScore: null,
+    baselineAvg: 91.2,
+    balancedLow: 78.6,
+    balancedHigh: 103.8,
+    zScore: null,
+    status: "unknown",
+  };
   return {
     restingToday: null,
     recoveryScore: null,

@@ -71,7 +71,7 @@ export function HrvBalanceCard({ section, href }: { section: RecoveryView; href:
         {todayVal !== null ? (
           <>
             <span className="font-mono text-xl font-semibold tracking-tight tabular-nums text-[var(--foreground)]">
-              {todayVal}
+              {Math.round(todayVal)}
               <span className="ml-0.5 text-xs font-medium text-[var(--muted)]">ms</span>
             </span>
             <span className="text-sm font-medium" style={{ color: statusColor }}>

@@ -266,6 +266,12 @@ describe("DashboardPage — full payload", () => {
           trend: "unknown",
           short_avg: null,
         },
+        baseline_trend: {
+          direction: "unknown",
+          delta_ms: null,
+          from_avg: null,
+          over_days: 28,
+        },
       },
     };
     render(<DashboardPage />);

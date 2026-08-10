@@ -52,14 +52,34 @@ describe("TrendRailCard", () => {
       hrv: 74,
       restingHr: 51,
       recoveryScore: 55,
+      baselineAvg: null,
+      balancedLow: null,
+      balancedHigh: null,
+      zScore: null,
+      status: "unknown",
     };
     days[days.length - 2] = {
       date: days[days.length - 2].date,
       hrv: 72,
       restingHr: 51,
       recoveryScore: 54,
+      baselineAvg: null,
+      balancedLow: null,
+      balancedHigh: null,
+      zScore: null,
+      status: "unknown",
     };
-    days[days.length - 1] = { date: FIXTURE_TODAY, hrv: 70, restingHr: 52, recoveryScore: 50 };
+    days[days.length - 1] = {
+      date: FIXTURE_TODAY,
+      hrv: 70,
+      restingHr: 52,
+      recoveryScore: 50,
+      baselineAvg: null,
+      balancedLow: null,
+      balancedHigh: null,
+      zScore: null,
+      status: "unknown",
+    };
     const { container } = render(<TrendRailCard section={view} href={HREF} />);
     const warning = railMarks(container).filter(
       (m) => m.style.backgroundColor === "var(--warning)",
