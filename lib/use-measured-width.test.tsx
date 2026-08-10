@@ -89,6 +89,31 @@ describe("useMeasuredWidth", () => {
     expect(instances[0].disconnect).toHaveBeenCalledTimes(1);
   });
 
+  it("observes a node that attaches AFTER mount, not only one present on mount", () => {
+    // The tile's chart box only exists in the calibrated branch, so a payload
+    // that finishes calibrating mid-session attaches its target on a later
+    // render. Wiring the observer in a mount-time effect measures that node
+    // once and then never watches it; observing from the ref callback does.
+    vi.stubGlobal("ResizeObserver", SpyResizeObserver);
+    const { rerender } = render(<Harness attach={false} />);
+    expect(instances).toHaveLength(0);
+
+    rerender(<Harness attach />);
+
+    expect(instances).toHaveLength(1);
+    expect(instances[0].observe).toHaveBeenCalledWith(screen.getByTestId("box"));
+  });
+
+  it("disconnects the previous observer when the node detaches", () => {
+    vi.stubGlobal("ResizeObserver", SpyResizeObserver);
+    const { rerender } = render(<Harness />);
+    expect(instances[0].disconnect).not.toHaveBeenCalled();
+
+    rerender(<Harness attach={false} />);
+
+    expect(instances[0].disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it("still measures on attach when ResizeObserver is undefined", () => {
     vi.stubGlobal("ResizeObserver", undefined);
     expect(() => render(<Harness />)).not.toThrow();
