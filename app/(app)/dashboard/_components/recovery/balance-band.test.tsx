@@ -48,4 +48,18 @@ describe("HrvBalanceCard", () => {
     expect(container.querySelector("rect")).not.toBeNull();
     expect(container.querySelector("circle")).toBeNull();
   });
+
+  it("headline: integer milliseconds, never the raw Whoop float", () => {
+    const section = balancedView();
+    const days = section.days!;
+    // The headline reads the LAST day of the window, not the scalar — move both,
+    // as the server does, so the fixture stays a payload a real morning produces.
+    days[days.length - 1] = { ...days[days.length - 1], hrv: 77.39185 };
+    section.hrvToday = 77.39185;
+
+    const { container } = render(<HrvBalanceCard section={section} href={HREF} />);
+
+    expect(screen.getByText("77")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("77.39185");
+  });
 });
