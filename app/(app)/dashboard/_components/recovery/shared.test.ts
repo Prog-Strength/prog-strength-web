@@ -1,5 +1,20 @@
 import { describe, expect, test } from "vitest";
-import { hrvStatusColor, signed, signedUnit, statusWord, trendLabel, weekday } from "./shared";
+import type { RecoveryBaselineTrendView } from "@/lib/dashboard";
+import {
+  driftColor,
+  driftGlyph,
+  driftTag,
+  hrvStatusColor,
+  signed,
+  signedUnit,
+  statusWord,
+  trendLabel,
+  weekday,
+} from "./shared";
+
+function drift(over: Partial<RecoveryBaselineTrendView> = {}): RecoveryBaselineTrendView {
+  return { direction: "rising", deltaMs: 6.4, fromAvg: 84.8, overDays: 28, ...over };
+}
 
 describe("hrvStatusColor — the SOW color contract", () => {
   test("suppressed maps to --warning and never --danger", () => {
@@ -27,6 +42,19 @@ describe("statusWord", () => {
     expect(statusWord("balanced")).toBe("Balanced");
     expect(statusWord("elevated")).toBe("Elevated");
     expect(statusWord("unknown")).toBe("Calibrating");
+  });
+
+  test("unknown splits on why: no reading yet vs still calibrating", () => {
+    expect(statusWord("unknown", false)).toBe("No reading yet");
+    expect(statusWord("unknown", true)).toBe("Calibrating");
+    // The default keeps the other recovery tiles' behaviour byte-for-byte.
+    expect(statusWord("unknown")).toBe("Calibrating");
+  });
+
+  test("the other three statuses ignore hasReading", () => {
+    expect(statusWord("suppressed", false)).toBe("Suppressed");
+    expect(statusWord("balanced", false)).toBe("Balanced");
+    expect(statusWord("elevated", false)).toBe("Elevated");
   });
 });
 
@@ -63,6 +91,58 @@ describe("signedUnit", () => {
   test("appends the unit", () => {
     expect(signedUnit(-8.9, "ms", 1)).toBe("−8.9 ms");
     expect(signedUnit(2, "bpm")).toBe("+2 bpm");
+  });
+});
+
+describe("driftGlyph", () => {
+  test("a glyph per direction", () => {
+    expect(driftGlyph("rising")).toBe("▲");
+    expect(driftGlyph("falling")).toBe("▼");
+    expect(driftGlyph("steady")).toBe("▬");
+    expect(driftGlyph("unknown")).toBe("·");
+  });
+});
+
+describe("driftColor", () => {
+  test("rising is success, falling is warning", () => {
+    expect(driftColor("rising")).toBe("var(--success)");
+    expect(driftColor("falling")).toBe("var(--warning)");
+  });
+
+  test("steady is muted, so an ordinary month reads calm", () => {
+    expect(driftColor("steady")).toBe("var(--muted)");
+  });
+
+  test("unknown is muted", () => {
+    expect(driftColor("unknown")).toBe("var(--muted)");
+  });
+});
+
+describe("driftTag", () => {
+  test("formats a rising drift as glyph, signed delta, and whole weeks", () => {
+    expect(driftTag(drift())).toBe("▲ +6 ms · 4w");
+  });
+
+  test("a falling drift carries a unicode minus, not an ascii hyphen", () => {
+    const tag = driftTag(drift({ direction: "falling", deltaMs: -8.1 }));
+    expect(tag).toBe("▼ −8 ms · 4w");
+    expect(tag).not.toContain("-8");
+  });
+
+  test("a steady direction still prints its magnitude", () => {
+    expect(driftTag(drift({ direction: "steady" }))).toBe("▬ +6 ms · 4w");
+  });
+
+  test("an unknown direction is a shrug", () => {
+    expect(driftTag(drift({ direction: "unknown" }))).toBe("drift not yet known");
+  });
+
+  test("a null delta is a shrug", () => {
+    expect(driftTag(drift({ deltaMs: null }))).toBe("drift not yet known");
+  });
+
+  test("respects the unit argument", () => {
+    expect(driftTag(drift(), " bpm")).toBe("▲ +6 bpm · 4w");
   });
 });
 
