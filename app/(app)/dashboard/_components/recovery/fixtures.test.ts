@@ -8,23 +8,67 @@
  * fixture where they DO disagree therefore describes a payload the API cannot
  * emit — and the drifting-band tile is being built against these exact views,
  * so such a fixture would render a plausible-looking tile asserting an
- * impossible state rather than failing loudly. The numbers are duplicated by
- * hand in fixtures.ts (once in `days[last]`, once in `hrv`); this test is what
- * keeps the two copies honest.
+ * impossible state rather than failing loudly. The four original views
+ * duplicate the numbers by hand in fixtures.ts (once in `days[last]`, once in
+ * `hrv`); this test is what keeps the two copies honest. The drift views derive
+ * the scalar blocks from their generated last day and so satisfy it by
+ * construction — they are in the table anyway, because "by construction" is a
+ * property of today's `driftView` and not a law of nature.
  *
- * `legacyView` is deliberately EXCLUDED: it is the pre-derived-blocks payload
- * and has no `days` and no `hrv`, so the invariant does not apply to it.
- * Please do not "helpfully" add it.
+ * The file's second remit is `driftingDays` itself. That generator hand-authors
+ * per-day bands, which is the thing `makeDays` deliberately refuses to do, so
+ * the shape of what it authors — where the band starts, where it breaks, what a
+ * missing morning keeps — is pinned here rather than discovered by the tile.
+ *
+ * `legacyView` is deliberately EXCLUDED from the table: it is the
+ * pre-derived-blocks payload and has no `days` and no `hrv`, so the invariant
+ * does not apply to it. Please do not "helpfully" add it.
  */
 
 import { describe, expect, it } from "vitest";
-import { balancedView, calibratingView, noReadingView, suppressedView } from "./fixtures";
+import {
+  balancedView,
+  bandGapView,
+  calibratingView,
+  DRIFT_GAP_INDEX,
+  DRIFT_HRV_SERIES,
+  DRIFT_HRV_SERIES_GAPLESS,
+  driftingDays,
+  fallingView,
+  noReadingDriftView,
+  noReadingView,
+  partialBandView,
+  risingView,
+  steadyDriftView,
+  suppressedDriftView,
+  suppressedView,
+} from "./fixtures";
+
+/**
+ * The generator's rounding, mirrored so the recomputations below compare like
+ * with like. The `-0` normalisation is the load-bearing half: `toBe` is
+ * `Object.is`, so a day whose z rounds to `-0` would fail against a bare
+ * `Math.round` result even though the two are numerically equal. Mirroring keeps
+ * the assertion exact instead of softening it to `toBeCloseTo`.
+ */
+function round(n: number, dp: number): number {
+  const f = 10 ** dp;
+  const r = Math.round(n * f) / f;
+  return r === 0 ? 0 : r;
+}
 
 const VIEWS = [
   ["suppressedView", suppressedView],
   ["balancedView", balancedView],
   ["calibratingView", calibratingView],
   ["noReadingView", noReadingView],
+  ["risingView", risingView],
+  ["fallingView", fallingView],
+  ["steadyDriftView", steadyDriftView],
+  ["partialBandView", partialBandView],
+  ["bandGapView", bandGapView],
+  ["noReadingDriftView", noReadingDriftView],
+  ["suppressedDriftView", suppressedDriftView],
 ] as const;
 
 describe.each(VIEWS)("%s — last day agrees with the scalar blocks", (_name, build) => {
@@ -49,5 +93,118 @@ describe.each(VIEWS)("%s — last day agrees with the scalar blocks", (_name, bu
 
   it("matches the baseline block's hrv average", () => {
     expect(last!.baselineAvg).toBe(view.baseline!.hrvAvg);
+  });
+});
+
+describe("driftingDays", () => {
+  it("walks the baseline from fromAvg to toAvg", () => {
+    const days = driftingDays({ fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6 });
+    expect(days[0].baselineAvg).toBe(84.8);
+    expect(days.at(-1)!.baselineAvg).toBe(91.2);
+    // Monotone in between, so the polygon slopes rather than wanders.
+    const walk = days.map((d) => d.baselineAvg!);
+    expect(walk.every((v, i) => i === 0 || v >= walk[i - 1])).toBe(true);
+  });
+
+  it("hangs each day's band off that day's own baseline", () => {
+    const days = driftingDays({ fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6 });
+    for (const d of days) {
+      expect(d.balancedLow).toBe(round(d.baselineAvg! - 12.6, 1));
+      expect(d.balancedHigh).toBe(round(d.baselineAvg! + 12.6, 1));
+    }
+  });
+
+  it("classifies each z-score against that day's own band", () => {
+    const days = driftingDays({ fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6 });
+    for (const d of days) {
+      if (d.hrv === null) continue;
+      expect(d.zScore).toBe(round((d.hrv - d.baselineAvg!) / 12.6, 2));
+      const expected =
+        d.zScore! > 1 ? "elevated" : d.zScore! < -1 ? "suppressed" : ("balanced" as const);
+      expect(d.status).toBe(expected);
+    }
+  });
+
+  it("leaves every day before bandFrom unbanded and unknown", () => {
+    const days = driftingDays({ fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6, bandFrom: 5 });
+    for (const d of days.slice(0, 5)) {
+      expect(d.baselineAvg).toBeNull();
+      expect(d.balancedLow).toBeNull();
+      expect(d.balancedHigh).toBeNull();
+      expect(d.zScore).toBeNull();
+      expect(d.status).toBe("unknown");
+    }
+    for (const d of days.slice(5)) expect(d.baselineAvg).not.toBeNull();
+    // The unbanded days keep their readings — they are marks, not holes.
+    expect(days[0].hrv).toBe(DRIFT_HRV_SERIES[0]);
+  });
+
+  it("nulls exactly one interior baseline for bandGapAt", () => {
+    const days = driftingDays({ fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6, bandGapAt: 15 });
+    const unbanded = days.flatMap((d, i) => (d.baselineAvg === null ? [i] : []));
+    expect(unbanded).toEqual([15]);
+    expect(days[15].status).toBe("unknown");
+    expect(days[15].hrv).toBe(DRIFT_HRV_SERIES[15]);
+  });
+
+  it("keeps the band on a missing morning but drops the z and the status", () => {
+    const days = driftingDays({ fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6 });
+    const gap = days[DRIFT_GAP_INDEX];
+    expect(gap.hrv).toBeNull();
+    expect(gap.baselineAvg).not.toBeNull();
+    expect(gap.balancedLow).not.toBeNull();
+    expect(gap.balancedHigh).not.toBeNull();
+    expect(gap.zScore).toBeNull();
+    expect(gap.status).toBe("unknown");
+  });
+});
+
+describe("the drift views", () => {
+  it("keeps the interior HRV gap by default", () => {
+    expect(DRIFT_HRV_SERIES[DRIFT_GAP_INDEX]).toBeNull();
+    expect(risingView().days![DRIFT_GAP_INDEX].hrv).toBeNull();
+  });
+
+  it("swaps in a gapless series without moving the band", () => {
+    const gapped = risingView().days!;
+    const gapless = risingView(DRIFT_HRV_SERIES_GAPLESS).days!;
+    expect(gapless.map((d) => d.baselineAvg)).toEqual(gapped.map((d) => d.baselineAvg));
+    expect(gapless.filter((d) => d.hrv !== null)).toHaveLength(
+      gapped.filter((d) => d.hrv !== null).length + 1,
+    );
+  });
+
+  it("moves the band in the direction each view claims", () => {
+    const delta = (view: ReturnType<typeof risingView>) =>
+      view.days!.at(-1)!.baselineAvg! - view.days![0].baselineAvg!;
+    expect(delta(risingView())).toBeCloseTo(6.4, 5);
+    expect(delta(fallingView())).toBeCloseTo(-8.1, 5);
+    expect(delta(steadyDriftView())).toBeCloseTo(6.4, 5);
+  });
+
+  it("reports a steady drift whose magnitude the SD alone would not license", () => {
+    // 0.35 × 20.1 = 7.035 ms, which 6.4 does not clear — the tile must still
+    // print the 6.4.
+    const view = steadyDriftView();
+    expect(view.baseline!.hrvStdDev).toBe(20.1);
+    expect(view.baselineTrend).toEqual({
+      direction: "steady",
+      deltaMs: 6.4,
+      fromAvg: 84.8,
+      overDays: 28,
+    });
+  });
+
+  it("puts the suppressed view's 7-day average in the gauge's lower quarter", () => {
+    const view = suppressedDriftView();
+    const hrvAvg = view.baseline!.hrvAvg!;
+    const half = view.hrv!.balancedHigh! - hrvAvg;
+    const pct = (((view.hrv!.shortAvg! - hrvAvg) / half + 2) / 4) * 100;
+    expect(pct).toBeLessThan(25);
+    expect(pct).toBeCloseTo(21.8, 1);
+  });
+
+  it("gives every view a baselineTrend, which the chart guard requires", () => {
+    for (const [, build] of VIEWS) expect(build().baselineTrend).toBeDefined();
   });
 });
