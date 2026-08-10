@@ -35,6 +35,7 @@ import {
   DRIFT_HRV_SERIES_GAPLESS,
   driftingDays,
   fallingView,
+  noReadingDriftView,
   noReadingView,
   partialBandView,
   risingView,
@@ -66,6 +67,7 @@ const VIEWS = [
   ["steadyDriftView", steadyDriftView],
   ["partialBandView", partialBandView],
   ["bandGapView", bandGapView],
+  ["noReadingDriftView", noReadingDriftView],
   ["suppressedDriftView", suppressedDriftView],
 ] as const;
 

@@ -552,6 +552,39 @@ export function bandGapView(hrv: (number | null)[] = DRIFT_HRV_SERIES): Recovery
 }
 
 /**
+ * The 7am state, on a DRIFTING band — `risingView` with this morning's reading
+ * missing, and nothing else changed.
+ *
+ * This is the state the SOW singles out as the idiom's pass/fail criterion, and
+ * it describes it with the band present: "the word reads *No reading yet*, the
+ * 28px figure still prints the 7-day average, the gauge still has its tick, and
+ * the chart simply has no final mark". `noReadingView` cannot pin that — it is
+ * built on `makeDays`, whose interior days carry no band of their own, so its
+ * chart honestly draws no polygon at all and would pass a tile that had lost
+ * the band entirely. Here every day carries its own band, so the polygon is
+ * REQUIRED to survive the missing morning.
+ *
+ * The generator supplies the shape: a null reading keeps the band and drops the
+ * z and the status, which is the engine's contract for a morning before the
+ * webhook lands. `driftView` then derives the scalar `hrv` block from that last
+ * day — `status: "unknown"`, `zScore: null`, the band still there — so the
+ * fixtures' "last day agrees with the scalar blocks" invariant holds by
+ * construction rather than by hand-copied numbers. `shortAvg` stays 92.8, as in
+ * `risingView`: the 7-day mean is computed over a window that includes today
+ * but does not require it, so a missing morning leaves it intact.
+ */
+export function noReadingDriftView(hrv: (number | null)[] = DRIFT_HRV_SERIES): RecoveryView {
+  const beforeThisMorning = hrv.map((v, i) => (i === hrv.length - 1 ? null : v));
+  return driftView({
+    days: driftingDays({ hrv: beforeThisMorning, fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6 }),
+    hrvStdDev: 12.6,
+    shortAvg: 92.8,
+    trend: "rising",
+    baselineTrend: { direction: "rising", deltaMs: 6.4, fromAvg: 84.8, overDays: 28 },
+  });
+}
+
+/**
  * A suppressed morning under an essentially flat baseline: 90.8 → 91.2, a
  * 0.4 ms move that is nowhere near the 4.4 ms this view's SD demands, so the
  * verdict is `steady` and the band draws as a level ribbon. Today is 74 ms —
