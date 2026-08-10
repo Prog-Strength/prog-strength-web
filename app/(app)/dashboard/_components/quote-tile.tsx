@@ -23,7 +23,7 @@ import { useCallback, useState } from "react";
 
 import { rerollDashboardQuote } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { QuoteView } from "@/lib/dashboard";
+import { adaptQuote, type QuoteView } from "@/lib/dashboard";
 import { MiniCard } from "./mini-card";
 
 /**
@@ -73,7 +73,14 @@ export function QuoteCard({ quote }: { quote: QuoteView }) {
         token,
         Intl.DateTimeFormat().resolvedOptions().timeZone,
       );
-      if (next) setCurrent(next);
+      // adaptQuote, not the raw response. The reroll endpoint returns the
+      // same snake_case shape the summary does, and the prop this state was
+      // seeded from arrived already adapted — so the wire object has to be
+      // converted before it can replace it. Assigning it directly type-checks
+      // (every renamed field is optional on QuoteView, and excess-property
+      // checks don't apply to a variable), and the attribution silently
+      // stops being a link until the next page load.
+      if (next) setCurrent(adaptQuote(next));
     } catch {
       // A failed reroll leaves the current quote in place. There is nothing
       // useful to say here — the tile is decorative, and an error banner on

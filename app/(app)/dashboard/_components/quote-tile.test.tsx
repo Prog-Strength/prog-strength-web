@@ -1,6 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { DashboardQuote } from "@/lib/api";
 import type { QuoteView } from "@/lib/dashboard";
 import { QuoteCard } from "./quote-tile";
 
@@ -16,12 +17,34 @@ vi.mock("@/lib/auth", () => ({
   clearToken: vi.fn(),
 }));
 
+/** The prop the page passes down: already adapted to the view shape. */
 function quote(overrides: Partial<QuoteView> = {}): QuoteView {
   return {
     id: "emerson-insist-on-yourself",
     text: "Insist on yourself; never imitate.",
     author: "Ralph Waldo Emerson",
     offset: 0,
+    ...overrides,
+  };
+}
+
+/**
+ * What a reroll actually resolves to: the raw wire shape, snake_case,
+ * straight out of `unwrap` with no adaptation on the way.
+ *
+ * Typed as DashboardQuote on purpose. These mocks stand in for
+ * rerollDashboardQuote's return value, and when they were hand-written in
+ * the *view* shape they quietly asserted a contract the client never
+ * produced — a reroll test that passed while the real tile dropped its
+ * links. The annotation is what keeps the stand-in honest with the thing
+ * it stands in for.
+ */
+function wireQuote(overrides: Partial<DashboardQuote> = {}): DashboardQuote {
+  return {
+    id: "frost-it-goes-on",
+    text: "In three words I can sum up everything I've learned about life: It goes on.",
+    author: "Robert Frost",
+    offset: 1,
     ...overrides,
   };
 }
@@ -134,13 +157,9 @@ describe("QuoteCard", () => {
     // The links live on the same state as the text, so a reroll that
     // updated one without the other would attribute the new quote to the
     // old author's article.
-    rerollDashboardQuoteMock.mockResolvedValue({
-      id: "frost-it-goes-on",
-      text: "In three words I can sum up everything I've learned about life: It goes on.",
-      author: "Robert Frost",
-      authorUrl: "https://en.wikipedia.org/wiki/Robert_Frost",
-      offset: 1,
-    });
+    rerollDashboardQuoteMock.mockResolvedValue(
+      wireQuote({ author_url: "https://en.wikipedia.org/wiki/Robert_Frost" }),
+    );
 
     render(
       <QuoteCard
@@ -156,6 +175,52 @@ describe("QuoteCard", () => {
       ),
     );
     expect(screen.queryByRole("link", { name: "Ralph Waldo Emerson" })).not.toBeInTheDocument();
+  });
+
+  it("links the source of a rerolled quote too", async () => {
+    // Both halves of the attribution come off the same response, and both
+    // were dropped by the same missing adaptation — assert the source link
+    // separately so a fix that only reaches the author cannot pass.
+    rerollDashboardQuoteMock.mockResolvedValue(
+      wireQuote({
+        id: "coelho-dream-come-true",
+        text: "It's the possibility of having a dream come true that makes life interesting.",
+        author: "Paulo Coelho",
+        author_url: "https://en.wikipedia.org/wiki/Paulo_Coelho",
+        source: "The Alchemist",
+        source_url: "https://en.wikipedia.org/wiki/The_Alchemist_(novel)",
+      }),
+    );
+
+    render(<QuoteCard quote={quote()} />);
+    fireEvent.click(screen.getByRole("button", { name: /another quote/i }));
+
+    await waitFor(() => expect(screen.getByText(/dream come true/)).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "The Alchemist" })).toHaveAttribute(
+      "href",
+      "https://en.wikipedia.org/wiki/The_Alchemist_(novel)",
+    );
+    expect(screen.getByRole("link", { name: "Paulo Coelho" })).toHaveAttribute(
+      "href",
+      "https://en.wikipedia.org/wiki/Paulo_Coelho",
+    );
+  });
+
+  it("keeps the rerolled attribution plain when the corpus has no article", async () => {
+    // The mirror of the two above: absent links must stay absent rather
+    // than the adaptation inventing an href from an undefined field.
+    rerollDashboardQuoteMock.mockResolvedValue(wireQuote());
+
+    render(
+      <QuoteCard
+        quote={quote({ authorUrl: "https://en.wikipedia.org/wiki/Ralph_Waldo_Emerson" })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /another quote/i }));
+
+    await waitFor(() => expect(screen.getByText(/It goes on\./)).toBeInTheDocument());
+    expect(screen.getByText("Robert Frost")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Robert Frost" })).not.toBeInTheDocument();
   });
 
   it("asks the server to advance and swaps in the result", async () => {
