@@ -568,11 +568,18 @@ function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
 }
 
 /**
- * The quote passthrough. It exists for symmetry with the other adapters
- * and to keep the snake_case boundary in one place, not because there is
- * any conversion to do.
+ * Wire quote → view quote. Not the passthrough it once was: `author_url`
+ * and `source_url` are renamed here, and they are the whole reason this
+ * has to be called rather than assumed.
+ *
+ * Exported because the summary is not the only way a quote arrives. The
+ * tile's reroll button fetches one directly, and that response lands in
+ * the same view state this produces — so it has to come through here too.
+ * Skipping it does not fail loudly: every field this renames is optional
+ * on QuoteView, so a raw DashboardQuote is assignable to it, and the
+ * links simply vanish. See quote-tile.tsx.
  */
-function adaptQuote(quote: DashboardQuote): QuoteView {
+export function adaptQuote(quote: DashboardQuote): QuoteView {
   return {
     id: quote.id,
     text: quote.text,
