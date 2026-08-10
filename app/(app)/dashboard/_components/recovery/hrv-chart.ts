@@ -119,6 +119,10 @@ export function scaler(domain: [number, number], top: number, height: number) {
  * `balanced_z` is retuned. Deriving the half-width from the bounds makes the
  * tick and the labels agree by construction, whatever those two constants are.
  *
+ * The half-width is taken from the UPPER bound alone, so the `balancedLow`
+ * label the caller prints at 25% is exact only while the server's band is
+ * symmetric about `hrv_avg` — which `hrv_avg ± z × sd` is.
+ *
  * Null when there is no 7-day mean or the band is degenerate. The clamp pins a
  * wildly atypical week to an end of the bar rather than letting it escape.
  */
