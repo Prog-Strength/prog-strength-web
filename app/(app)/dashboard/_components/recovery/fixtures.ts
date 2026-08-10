@@ -94,7 +94,6 @@ export function suppressedView(): RecoveryView {
   const days = makeDays();
   // Band agrees with the `hrv` block below — the server derives both together.
   days[days.length - 1] = {
-    ...days[days.length - 1],
     date: FIXTURE_TODAY,
     hrv: 74,
     restingHr: 51,
@@ -128,7 +127,6 @@ export function balancedView(): RecoveryView {
   const days = makeDays();
   // Band agrees with the `hrv` block below — the server derives both together.
   days[days.length - 1] = {
-    ...days[days.length - 1],
     date: FIXTURE_TODAY,
     hrv: 94,
     restingHr: 52,
@@ -193,7 +191,6 @@ export function noReadingView(): RecoveryView {
   // A missing morning drops the z-score and the status but KEEPS the band: the
   // absent reading must not erase the band that morning sat in.
   days[days.length - 1] = {
-    ...days[days.length - 1],
     date: FIXTURE_TODAY,
     hrv: null,
     restingHr: null,
