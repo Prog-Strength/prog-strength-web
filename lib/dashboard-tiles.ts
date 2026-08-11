@@ -22,6 +22,7 @@ export type TileId =
   | "hrv_balance"
   | "morning_vitals"
   | "recovery_log"
+  | "sleep"
   | "streak"
   | "quote"
   | "weather";
@@ -134,6 +135,15 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     title: "Recovery Log",
     href: "/recovery",
     description: "Your last few mornings as dated readings.",
+  },
+  {
+    id: "sleep",
+    title: "Sleep",
+    // Deliberately the recovery page, not a /sleep page: there is no Sleep page
+    // until there is sleep history worth charting (a SOW non-goal), so the tile
+    // deep-links to the nearest home for Whoop-sourced data in the interim.
+    href: "/recovery",
+    description: "Last night's stages and how it measured against your need.",
   },
   {
     id: "streak",

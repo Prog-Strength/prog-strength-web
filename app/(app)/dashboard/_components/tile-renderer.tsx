@@ -29,6 +29,12 @@
  * `RunningEmptyCard` CTA when the section is absent. The retired page-local
  * `RunningCard` (a single spark-less bridge card) now lives under `./running/`
  * as `LoadRampCard`, `WeekLogCard`, `EffortHeartCard`, and `VerticalGainCard`.
+ *
+ * The `sleep` tile is the one card whose empty states depend on something
+ * `DashboardData` does not carry — whether the Whoop connection consented to
+ * `read:sleep`. It reads that itself, inside `./sleep/sleep-tile.tsx`, so this
+ * switch stays a pure switch; see that file for why the under-scoped check has
+ * to run ahead of `present`.
  */
 "use client";
 
@@ -57,6 +63,7 @@ import { ReadinessVerdictCard } from "./recovery/readiness-verdict";
 import { HrvTileCard } from "./recovery/hrv-tile";
 import { MorningVitalsCard } from "./recovery/three-dial-vitals";
 import { MorningLedgerCard } from "./recovery/morning-ledger";
+import { SleepTile } from "./sleep/sleep-tile";
 import { LoadRampCard } from "./running/load-ramp";
 import { WeekLogCard } from "./running/week-log";
 import { EffortHeartCard } from "./running/effort-heart";
@@ -353,6 +360,16 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
       ) : (
         <RecoveryConnectCard title="Recovery Log" href={href} />
       );
+    case "sleep":
+      // Three states, and the order is the point — which is why the branching
+      // lives in `SleepTile` rather than here. An under-scoped connection is
+      // CONNECTED, so `present` is true and the section exists; it is simply
+      // empty forever until the user reconnects. Checking `present` first would
+      // render the ordinary empty state and the user would wait for data that
+      // is never coming. The tile therefore reads the connection itself (the
+      // renderer has none to give) and keeps that fetch inside its own wrapper
+      // so this switch stays a pure switch.
+      return <SleepTile section={data.sleep} href={href} />;
     case "streak":
       return <StreakCard streak={data.streak} href={href} />;
     default: {

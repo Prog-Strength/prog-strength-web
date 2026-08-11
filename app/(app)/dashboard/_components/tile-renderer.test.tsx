@@ -6,6 +6,7 @@ import type { TileId } from "@/lib/dashboard-tiles";
 import { TileCard } from "./tile-renderer";
 import { suppressedView } from "./recovery/fixtures";
 import { ordinaryWeek } from "./running/fixtures";
+import { scoredNightView } from "./sleep/fixtures";
 
 function fixture(overrides: Partial<DashboardData> = {}): DashboardData {
   return {
@@ -21,6 +22,7 @@ function fixture(overrides: Partial<DashboardData> = {}): DashboardData {
     bloodPressure: { present: false },
     quote: { present: false },
     recovery: { present: false },
+    sleep: { present: false },
     streak: { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
     ...overrides,
   };
@@ -89,6 +91,22 @@ describe("TileCard", () => {
       expect(screen.getByText("Import a run to start tracking")).toBeInTheDocument();
     },
   );
+
+  it("renders the sleep card for id 'sleep'", async () => {
+    render(
+      <TileCard id="sleep" data={fixture({ sleep: { present: true, ...scoredNightView() } })} />,
+    );
+    expect(await screen.findByRole("heading", { name: "Sleep" })).toBeInTheDocument();
+    expect(screen.getByText("7h 23m")).toBeInTheDocument();
+  });
+
+  it("renders no sleep tile at all when there is no Whoop connection", () => {
+    // The section is absent only for a user with no connection, and the SOW's
+    // answer there is no tile — the grid slot stays empty rather than inviting
+    // a connect flow the recovery family already owns.
+    const { container } = render(<TileCard id="sleep" data={fixture()} />);
+    expect(container).toBeEmptyDOMElement();
+  });
 
   it("renders the blood-pressure empty CTA when the section is absent", () => {
     render(<TileCard id="blood_pressure" data={fixture()} />);

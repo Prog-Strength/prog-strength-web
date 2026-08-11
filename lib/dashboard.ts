@@ -34,6 +34,8 @@ import type {
   DashboardRunningBaseline,
   DashboardRunningWeekRun,
   DashboardSection,
+  DashboardSleep,
+  DashboardSleepNight,
   DashboardSteps,
   DashboardStreak,
   DashboardSummary,
@@ -291,6 +293,50 @@ export type RecoveryView = {
 };
 
 /**
+ * One night in the sleep history. Every metric is nullable: a date in the
+ * window with no record, and a record Whoop has not scored, are both
+ * represented rather than omitted — a night with no data and a night of zero
+ * sleep are different facts.
+ *
+ * Durations are MILLISECONDS as stored — the tile formats, the adapter does
+ * not convert. `needFromNapMilli` is legitimately NEGATIVE (a nap discharges
+ * sleep need), so nothing downstream may clamp it to zero.
+ */
+export type SleepNightView = {
+  date: string; // YYYY-MM-DD, the local WAKE date
+  inBedMilli: number | null;
+  awakeMilli: number | null;
+  lightSleepMilli: number | null;
+  slowWaveSleepMilli: number | null;
+  remSleepMilli: number | null;
+  noDataMilli: number | null;
+  sleepCycleCount: number | null;
+  disturbanceCount: number | null;
+  needBaselineMilli: number | null;
+  needFromSleepDebtMilli: number | null;
+  needFromStrainMilli: number | null;
+  needFromNapMilli: number | null;
+  respiratoryRate: number | null;
+  performancePct: number | null;
+  consistencyPct: number | null;
+  efficiencyPct: number | null;
+};
+
+/**
+ * Display view-model for the sleep widget (Whoop-sourced). Present only for a
+ * connected user, the same gate the recovery family uses.
+ *
+ * `lastNight` is today's main sleep and is null when there is no non-nap
+ * record for today — deliberately not "the most recent night whenever it was",
+ * since promoting a two-day-old night into today's slot would misreport it.
+ * `nights` is the date-aligned trailing window, oldest→newest, gaps included.
+ */
+export type SleepView = {
+  lastNight: SleepNightView | null;
+  nights: SleepNightView[];
+};
+
+/**
  * Display view-model for the streak widget. Always present; `isNew`
  * distinguishes a brand-new (all-zero) streak from a present-but-zero
  * week so the page can render a distinct welcome state.
@@ -344,6 +390,7 @@ export type DashboardData = {
   bodyweight: Section<BodyweightView>;
   bloodPressure: Section<BloodPressureView>;
   recovery: Section<RecoveryView>;
+  sleep: Section<SleepView>;
   streak: StreakView; // always present
   /** Absent unless the quote tile is in the layout; never empty when present. */
   quote: Section<QuoteView>;
@@ -603,6 +650,44 @@ function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
   };
 }
 
+/** Wire night → view night. A pure rename: the server already picked which
+ *  record is "the night", aligned the window to dates, and left every absent
+ *  metric null — re-deriving any of that here would be a second, divergent
+ *  implementation of a rule that lives in the API. */
+function adaptSleepNight(n: DashboardSleepNight): SleepNightView {
+  return {
+    date: n.date,
+    inBedMilli: n.in_bed_milli,
+    awakeMilli: n.awake_milli,
+    lightSleepMilli: n.light_sleep_milli,
+    slowWaveSleepMilli: n.slow_wave_sleep_milli,
+    remSleepMilli: n.rem_sleep_milli,
+    noDataMilli: n.no_data_milli,
+    sleepCycleCount: n.sleep_cycle_count,
+    disturbanceCount: n.disturbance_count,
+    needBaselineMilli: n.need_baseline_milli,
+    needFromSleepDebtMilli: n.need_from_sleep_debt_milli,
+    needFromStrainMilli: n.need_from_strain_milli,
+    needFromNapMilli: n.need_from_nap_milli,
+    respiratoryRate: n.respiratory_rate,
+    performancePct: n.performance_pct,
+    consistencyPct: n.consistency_pct,
+    efficiencyPct: n.efficiency_pct,
+  };
+}
+
+/**
+ * Wire sleep → view sleep. Nulls are preserved as null and the `nights` order
+ * is the server's (oldest→newest, every date present): a gap is a fact this
+ * layer must carry, not one it may zero-fill or drop.
+ */
+function adaptSleep(sleep: DashboardSleep): SleepView {
+  return {
+    lastNight: sleep.last_night ? adaptSleepNight(sleep.last_night) : null,
+    nights: sleep.nights.map(adaptSleepNight),
+  };
+}
+
 /**
  * Wire quote → view quote. Not the passthrough it once was: `author_url`
  * and `source_url` are renamed here, and they are the whole reason this
@@ -690,6 +775,7 @@ export function adaptDashboard(
       bodyweight: { present: false },
       bloodPressure: { present: false },
       recovery: { present: false },
+      sleep: { present: false },
       streak: { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
       quote: { present: false },
     };
@@ -725,6 +811,7 @@ export function adaptDashboard(
     recovery: summary.recovery
       ? { present: true, ...adaptRecovery(summary.recovery) }
       : { present: false },
+    sleep: summary.sleep ? { present: true, ...adaptSleep(summary.sleep) } : { present: false },
     streak: summary.streak
       ? adaptStreak(summary.streak)
       : { weeks: 0, activeDaysThisWeek: 0, week: [], isNew: true },
