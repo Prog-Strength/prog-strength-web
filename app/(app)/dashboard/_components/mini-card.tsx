@@ -53,6 +53,7 @@ export function MiniCard({
   title,
   href,
   icon,
+  wash,
   children,
 }: {
   title: string;
@@ -63,6 +64,15 @@ export function MiniCard({
    */
   href?: string;
   icon?: ReactNode;
+  /**
+   * A CSS background painted OVER the panel's surface and UNDER its content —
+   * the weather tile's condition tint. It has to live here rather than behind
+   * the card: `--surface` is opaque, so a layer under the panel is a layer
+   * nobody sees. Content is lifted above it, so the wash tints the card and
+   * never the text. Omitted by every other tile, and the markup is unchanged
+   * when it is.
+   */
+  wash?: string;
   children: ReactNode;
 }) {
   const header = (
@@ -73,6 +83,21 @@ export function MiniCard({
   );
 
   if (!href) {
+    if (wash) {
+      return (
+        <div className={`${PANEL} relative flex flex-col gap-3`}>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-[var(--radius-card)]"
+            style={{ background: wash }}
+          />
+          <div className="relative flex flex-1 flex-col gap-3">
+            {header}
+            {children}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={`${PANEL} flex flex-col gap-3`}>
         {header}

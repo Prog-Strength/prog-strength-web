@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { WeatherLocation, WeatherReading, WeatherSettings } from "@/lib/api";
 import { WeatherCard, formatAge } from "./weather-tile";
 
@@ -234,6 +234,113 @@ describe("WeatherCard", () => {
     fireEvent.keyDown(body, { key: "ArrowRight" });
     expect(await screen.findByText("61°")).toBeInTheDocument();
     expect(getWeatherMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("spins a labelled loading state while the backend fetches, not a bare shimmer", async () => {
+    // The cache-miss case: this tile's data comes from a third party, so the
+    // wait is real and the user is told who is being waited on.
+    let resolve: (r: WeatherReading) => void = () => {};
+    getWeatherMock.mockReturnValue(
+      new Promise<WeatherReading>((r) => {
+        resolve = r;
+      }),
+    );
+    render(<WeatherCard />);
+
+    expect(await screen.findByText("Checking conditions…")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
+
+    await act(async () => {
+      resolve(reading());
+    });
+    expect(await screen.findByText("72°")).toBeInTheDocument();
+    expect(screen.queryByText("Checking conditions…")).not.toBeInTheDocument();
+  });
+
+  it("opens the full forecast on the location currently shown", async () => {
+    getWeatherLocationsMock.mockResolvedValue({
+      locations: [kyoto, lisbon],
+      settings: settings(),
+    });
+    render(<WeatherCard />);
+    await screen.findByText("72°");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open full forecast" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("tab", { name: "Kyoto" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    // The panel reuses the tile's cache: opening it re-fetches nothing.
+    expect(getWeatherMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("the forecast panel fetches a location the tile never paged to — exactly once", async () => {
+    getWeatherLocationsMock.mockResolvedValue({
+      locations: [kyoto, lisbon],
+      settings: settings(),
+    });
+    render(<WeatherCard />);
+    await screen.findByText("72°");
+    fireEvent.click(screen.getByRole("button", { name: "Open full forecast" }));
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Lisbon" }));
+
+    await waitFor(() => expect(getWeatherMock).toHaveBeenCalledTimes(2));
+    expect(getWeatherMock).toHaveBeenLastCalledWith(
+      "test-token",
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+      "loc-lisbon",
+    );
+
+    // Tabbing back and forth spends nothing more.
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Kyoto" }));
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Lisbon" }));
+    expect(getWeatherMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers no forecast button until there is a location to forecast", async () => {
+    getWeatherLocationsMock.mockResolvedValue({ locations: [], settings: settings() });
+    render(<WeatherCard />);
+
+    await screen.findByRole("button", { name: /add a location/i });
+    expect(screen.queryByRole("button", { name: "Open full forecast" })).not.toBeInTheDocument();
+    // The gear survives — locations are still manageable.
+    expect(screen.getByRole("button", { name: "Manage locations" })).toBeInTheDocument();
+  });
+
+  it("tints the card with the condition currently on screen", async () => {
+    getWeatherLocationsMock.mockResolvedValue({
+      locations: [kyoto, lisbon],
+      settings: settings(),
+    });
+    getWeatherMock.mockImplementation(async (_token: string, _tz: string, id?: string) =>
+      id === "loc-lisbon"
+        ? reading({
+            current: {
+              temp: 61,
+              feels_like: 60,
+              humidity: 70,
+              wind_speed: 12,
+              condition: "Rain",
+              icon: "10d",
+            },
+          })
+        : reading(),
+    );
+    const { container } = render(<WeatherCard />);
+    await screen.findByText("72°");
+
+    // Clear here, rain one page over — the tint follows what is SHOWN, not
+    // whatever happens to be loaded.
+    const wash = () => container.querySelector('[aria-hidden="true"][style*="gradient"]');
+    expect(wash()?.getAttribute("style")).toContain("--weather-clear-soft");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next location" }));
+    await screen.findByText("61°");
+    expect(wash()?.getAttribute("style")).toContain("--weather-rain-soft");
   });
 
   it("PUTs the popover's list and refetches locations", async () => {

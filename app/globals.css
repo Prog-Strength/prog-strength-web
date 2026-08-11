@@ -94,6 +94,31 @@
   --discipline-core-fg: #b4a9d6;
   --discipline-core-dot: #8f82c0;
 
+  /* Weather tones — one hue per condition family, for the weather tile and its
+     forecast panel. A sixth family rather than a reuse of the status tones
+     because the question is different: `--warning` means "pay attention" and
+     rain does not. Held at the same desaturated register as the heart-rate zone
+     scale (calm, dark-native — never a saturated sky-blue sky or a sun-yellow
+     sun), and hue-separated from `--accent` so a forecast never reads as app
+     chrome. Storm sits at magenta-shifted violet for exactly that reason: plain
+     violet is the periwinkle accent.
+
+     The glyphs themselves stay currentColor neutrals (components/weather/
+     icons.tsx) — the tone is applied BY the surface, so an icon used outside a
+     weather surface is unaffected. Proposed for design-system v0.4.6. */
+  --weather-clear: #d3ab6d;
+  --weather-clear-soft: rgba(211, 171, 109, 0.13);
+  --weather-clouds: #8a93a3;
+  --weather-clouds-soft: rgba(138, 147, 163, 0.13);
+  --weather-rain: #6f93c2;
+  --weather-rain-soft: rgba(111, 147, 194, 0.13);
+  --weather-storm: #a98fd6;
+  --weather-storm-soft: rgba(169, 143, 214, 0.13);
+  --weather-snow: #a8c4d8;
+  --weather-snow-soft: rgba(168, 196, 216, 0.13);
+  --weather-fog: #8b8f96;
+  --weather-fog-soft: rgba(139, 143, 150, 0.13);
+
   /* Map chrome — the ONE surface in the app that renders over a canvas whose
      luminance we don't control (a pale topographic basemap, an aerial
      photograph). `--surface` is invisible over imagery and `--border` washes
@@ -164,6 +189,18 @@
   --color-discipline-core-bg: var(--discipline-core-bg);
   --color-discipline-core-fg: var(--discipline-core-fg);
   --color-discipline-core-dot: var(--discipline-core-dot);
+  --color-weather-clear: var(--weather-clear);
+  --color-weather-clear-soft: var(--weather-clear-soft);
+  --color-weather-clouds: var(--weather-clouds);
+  --color-weather-clouds-soft: var(--weather-clouds-soft);
+  --color-weather-rain: var(--weather-rain);
+  --color-weather-rain-soft: var(--weather-rain-soft);
+  --color-weather-storm: var(--weather-storm);
+  --color-weather-storm-soft: var(--weather-storm-soft);
+  --color-weather-snow: var(--weather-snow);
+  --color-weather-snow-soft: var(--weather-snow-soft);
+  --color-weather-fog: var(--weather-fog);
+  --color-weather-fog-soft: var(--weather-fog-soft);
   --color-map-chrome-bg: var(--map-chrome-bg);
   --color-map-chrome-fg: var(--map-chrome-fg);
   --color-map-route-casing: var(--map-route-casing);
@@ -176,4 +213,91 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* --- weather motion ------------------------------------------------------
+   The weather glyphs animate the PART that is actually moving in the sky —
+   rays turn, drops fall, a bolt flickers — and nothing else. Every duration is
+   deliberately slow enough to read as ambient rather than as a loading state:
+   a dashboard tile that twitches is a tile the eye keeps returning to.
+
+   Applied by class from `lib/weather-theme.ts`, never inline, so one place
+   decides what a condition looks like AND every one of them is switched off by
+   the reduced-motion block at the bottom. */
+@keyframes weather-rays {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes weather-drift {
+  0%,
+  100% {
+    transform: translateX(-0.6px);
+  }
+  50% {
+    transform: translateX(0.6px);
+  }
+}
+@keyframes weather-fall {
+  0% {
+    transform: translateY(-1.5px);
+    opacity: 0.25;
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(2.5px);
+    opacity: 0.15;
+  }
+}
+@keyframes weather-flash {
+  0%,
+  88%,
+  100% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 0.25;
+  }
+  96% {
+    opacity: 1;
+  }
+}
+@keyframes weather-sway {
+  0%,
+  100% {
+    transform: translateX(-0.8px);
+  }
+  50% {
+    transform: translateX(0.8px);
+  }
+}
+
+.weather-rays {
+  transform-origin: 12px 12px;
+  animation: weather-rays 48s linear infinite;
+}
+.weather-drift {
+  animation: weather-drift 7s ease-in-out infinite;
+}
+.weather-fall {
+  animation: weather-fall 1.9s ease-in infinite;
+}
+.weather-flash {
+  animation: weather-flash 6s ease-in-out infinite;
+}
+.weather-sway {
+  transform-origin: 12px 12px;
+  animation: weather-sway 9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-rays,
+  .weather-drift,
+  .weather-fall,
+  .weather-flash,
+  .weather-sway {
+    animation: none;
+  }
 }

@@ -46,8 +46,11 @@ import {
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { WeatherIcon } from "@/components/weather/icons";
+import { weatherTheme, weatherWash } from "@/lib/weather-theme";
 import { MiniCard, MiniCardSkeleton } from "./mini-card";
 import { WeatherLocationsPopover } from "./weather-locations-popover";
+import { WeatherForecastModal } from "./weather-forecast-modal";
+import { LoadingBody, Spinner } from "./weather-loading";
 
 /** Horizontal travel below which a touch is a tap, not a page swipe. */
 const SWIPE_THRESHOLD_PX = 40;
@@ -94,6 +97,12 @@ export function WeatherCard() {
   const [page, setPage] = useState(0);
   const [readings, setReadings] = useState<Record<string, ReadingSlot>>({});
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [forecastOpen, setForecastOpen] = useState(false);
+  // When each in-flight fetch STARTED, by location id. The loading body reads
+  // it to decide when a wait has gone from ordinary to worth apologising for,
+  // and it lives here rather than in that component so paging away and back
+  // does not restart the clock on a request that is still running.
+  const [fetchStartedAt, setFetchStartedAt] = useState<Record<string, number>>({});
 
   // The popover's positioning anchor and the outside-click boundary.
   const anchorRef = useRef<HTMLDivElement | null>(null);
@@ -160,6 +169,7 @@ export function WeatherCard() {
       setReadings((prev) => ({ ...prev, [id]: slot }));
     };
     apply("loading");
+    setFetchStartedAt((prev) => ({ ...prev, [id]: Date.now() }));
     const token = getToken();
     if (!token) {
       apply("failed");
@@ -347,7 +357,13 @@ export function WeatherCard() {
         onTouchEnd={onTouchEnd}
         className="flex flex-1 flex-col gap-1.5 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
       >
-        {visible && <ReadingBody location={visible} slot={readings[visible.id]} />}
+        {visible && (
+          <ReadingBody
+            location={visible}
+            slot={readings[visible.id]}
+            startedAt={fetchStartedAt[visible.id] ?? 0}
+          />
+        )}
         {count > 1 && (
           <div className="mt-auto flex items-center justify-center gap-2 pt-1">
             <button
@@ -384,23 +400,57 @@ export function WeatherCard() {
     );
   }
 
-  // The relative wrapper is triple duty: the gear's absolute position, the
-  // popover's placement anchor, and the outside-click boundary. MiniCard's
-  // title prop can't carry actions, so the gear overlays the header's
-  // right side from out here.
+  // The condition currently on screen tints the card. Read off the VISIBLE
+  // location's reading only — a tint driven by any loaded location would make
+  // the card change color while showing the same weather.
+  const visibleSlot = locations && count > 0 ? readings[locations[safePage]?.id ?? ""] : undefined;
+  const visibleIcon =
+    visibleSlot && visibleSlot !== "loading" && visibleSlot !== "failed"
+      ? visibleSlot.current?.icon
+      : undefined;
+  // A refresh with a reading already on screen: the header says "working"
+  // without taking the data away to say it.
+  const refreshing = visibleSlot === "loading" && Boolean(visibleIcon);
+  const canOpenForecast = Boolean(settings?.enabled && !locationsFailed && count > 0);
+
+  // The relative wrapper is quadruple duty: the header actions' absolute
+  // position, the popover's placement anchor, the outside-click boundary, and
+  // the clip for the condition wash. MiniCard's title prop can't carry
+  // actions, so the buttons overlay the header's right side from out here.
   return (
     <div ref={anchorRef} className="relative">
-      <MiniCard title="Weather">{body}</MiniCard>
+      {/* The condition tints the card itself — over the surface, under the
+          content. No tint until a reading says which condition. */}
+      <MiniCard title="Weather" wash={visibleIcon ? weatherWash(visibleIcon) : undefined}>
+        {body}
+      </MiniCard>
       {settings && !locationsFailed && (
-        <button
-          ref={gearRef}
-          type="button"
-          aria-label="Manage locations"
-          onClick={() => setPopoverOpen((open) => !open)}
-          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded text-[var(--muted)] transition hover:text-[var(--foreground)]"
-        >
-          <GearIcon />
-        </button>
+        <div className="absolute right-3 top-3 flex items-center gap-1">
+          {refreshing && (
+            <span className="mr-0.5 text-[var(--muted)]">
+              <Spinner size={13} />
+            </span>
+          )}
+          {canOpenForecast && (
+            <button
+              type="button"
+              aria-label="Open full forecast"
+              onClick={() => setForecastOpen(true)}
+              className="flex h-6 w-6 items-center justify-center rounded text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            >
+              <ExpandIcon />
+            </button>
+          )}
+          <button
+            ref={gearRef}
+            type="button"
+            aria-label="Manage locations"
+            onClick={() => setPopoverOpen((open) => !open)}
+            className="flex h-6 w-6 items-center justify-center rounded text-[var(--muted)] transition hover:text-[var(--foreground)]"
+          >
+            <GearIcon />
+          </button>
+        </div>
       )}
       {popoverOpen && settings && locations && (
         <WeatherLocationsPopover
@@ -410,7 +460,38 @@ export function WeatherCard() {
           onClose={closePopover}
         />
       )}
+      {forecastOpen && locations && count > 0 && (
+        <WeatherForecastModal
+          locations={locations}
+          slots={readings}
+          initialLocationId={locations[safePage]?.id ?? locations[0].id}
+          // The panel does not fetch; it asks, and this is the same lazy
+          // loader paging uses — so a location the tile already holds opens
+          // instantly and one it does not costs exactly one request.
+          onNeedReading={loadReading}
+          onClose={() => setForecastOpen(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Corners-out arrows — "show me this in full". */
+function ExpandIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6" />
+    </svg>
   );
 }
 
@@ -431,19 +512,18 @@ function QuietLine({ text }: { text: string }) {
 function ReadingBody({
   location,
   slot,
+  startedAt,
 }: {
   location: WeatherLocation;
   slot: ReadingSlot | undefined;
+  /** When this location's fetch began, for the "taking a while" threshold. */
+  startedAt: number;
 }) {
   if (slot === undefined || slot === "loading") {
-    return (
-      <div className="flex animate-pulse flex-col gap-2" aria-hidden="true">
-        <div className="h-4 w-28 rounded bg-[var(--surface-2)]" />
-        <div className="h-8 w-36 rounded bg-[var(--surface-2)]" />
-        <div className="h-3 w-full rounded bg-[var(--surface-2)]" />
-        <div className="h-10 w-full rounded bg-[var(--surface-2)]" />
-      </div>
-    );
+    // A visible, labelled wait. This tile is the one whose data comes from a
+    // third party, so a cache miss is a real round-trip and the user is owed
+    // more than a shimmer that looks the same as a tile that has given up.
+    return <LoadingBody startedAt={startedAt} />;
   }
   if (slot === "failed") return <QuietLine text="Weather is unavailable." />;
 
@@ -460,7 +540,10 @@ function ReadingBody({
     return <QuietLine text={text} />;
   }
 
+  // The tile strip stays five hours wide; the payload now carries every hour
+  // the provider returned, and the forecast panel reads the rest.
   const hourly = (slot.hourly ?? []).slice(0, 5);
+  const theme = weatherTheme(current.icon);
   return (
     <>
       <div className="flex items-baseline gap-1.5">
@@ -468,7 +551,17 @@ function ReadingBody({
         <span className="shrink-0 text-xs text-[var(--muted)]">{placeMeta(location)}</span>
       </div>
       <div className="flex items-center gap-3">
-        <WeatherIcon icon={current.icon} className="h-8 w-8 shrink-0 text-[var(--muted)]" />
+        {/* The one glyph on the card big enough to animate: the condition's
+            own tone, and its moving part actually moving. The hourly strip
+            below stays still — five twitching glyphs is a fidget, not a
+            forecast. */}
+        {/* The tone rides on a wrapper rather than on the glyph: the icon is a
+            currentColor drawing on purpose, so tinting is the caller's job.
+            Inline because the value is data-driven — it is still a design-system
+            token, never a raw hex. */}
+        <span className="shrink-0" style={{ color: theme.tone }}>
+          <WeatherIcon icon={current.icon} animated className="h-8 w-8" />
+        </span>
         <span className="text-3xl font-semibold tracking-[-0.03em] text-[var(--foreground)]">
           {Math.round(current.temp)}°
         </span>
@@ -491,7 +584,11 @@ function ReadingBody({
           {hourly.map((h) => (
             <div key={h.at} className="flex flex-col items-center gap-0.5">
               <span className="text-[10px] text-[var(--faint)]">{formatHour(h.at)}</span>
-              <WeatherIcon icon={h.icon} className="h-4 w-4 text-[var(--muted)]" />
+              {/* Toned but still: an hour whose weather differs from now is
+                  worth seeing at a glance, and five moving glyphs is not. */}
+              <span style={{ color: weatherTheme(h.icon).tone }}>
+                <WeatherIcon icon={h.icon} className="h-4 w-4" />
+              </span>
               <span className="text-xs text-[var(--foreground)]">{Math.round(h.temp)}°</span>
             </div>
           ))}
