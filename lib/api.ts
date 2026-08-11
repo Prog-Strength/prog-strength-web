@@ -5022,7 +5022,30 @@ export type WeatherReading = {
     icon: string;
   };
   today?: { high: number; low: number; sunrise: string; sunset: string };
-  hourly?: { at: string; temp: number; icon: string }[];
+  /**
+   * Every FUTURE hour the provider's one hourly call returned (up to 20), not
+   * just the five the tile strip shows — the day view reads the rest, and
+   * re-slicing what is already here is what keeps it free.
+   */
+  hourly?: WeatherHour[];
+  /** Today-first daily forecast, up to 8 days, from the same daily call. */
+  daily?: WeatherDay[];
+};
+
+export type WeatherHour = { at: string; temp: number; icon: string };
+
+/** One forecast day. `precip_chance` is already a percentage (0–100). */
+export type WeatherDay = {
+  at: string;
+  high: number;
+  low: number;
+  condition: string;
+  icon: string;
+  precip_chance: number;
+  wind_speed: number;
+  humidity: number;
+  sunrise: string;
+  sunset: string;
 };
 
 /** One geocoding hit from the search/reverse endpoints. */
