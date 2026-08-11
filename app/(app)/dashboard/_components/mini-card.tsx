@@ -18,6 +18,25 @@ import type { ReactNode } from "react";
 
 const PANEL = "rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-4";
 
+/**
+ * The panel and its navigable-hover treatment, for the one card that cannot use
+ * `MiniCard` itself: a tile with its own BUTTONS inside (the HRV tile's pager)
+ * can't be wrapped in a single `<a>`, since a button inside an anchor is invalid
+ * markup and swallows its own clicks. Such a card composes the panel by hand and
+ * links only its body. Exported so it still looks like every other tile — a
+ * second hand-written panel string is how the grid starts drifting apart.
+ */
+export const MINI_CARD_PANEL = PANEL;
+export const MINI_CARD_HOVER =
+  "transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]";
+
+/** The card heading, in the house style. */
+export function MiniCardTitle({ title }: { title: string }) {
+  return (
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{title}</h3>
+  );
+}
+
 /** Loading placeholder — same footprint as a populated card. */
 export function MiniCardSkeleton() {
   return (
@@ -49,7 +68,7 @@ export function MiniCard({
   const header = (
     <div className="flex items-center gap-1.5">
       {icon && <span className="text-[var(--muted)]">{icon}</span>}
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{title}</h3>
+      <MiniCardTitle title={title} />
     </div>
   );
 
@@ -63,10 +82,7 @@ export function MiniCard({
   }
 
   return (
-    <Link
-      href={href}
-      className={`${PANEL} group flex flex-col gap-3 transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]`}
-    >
+    <Link href={href} className={`${PANEL} group flex flex-col gap-3 ${MINI_CARD_HOVER}`}>
       {header}
       {children}
     </Link>

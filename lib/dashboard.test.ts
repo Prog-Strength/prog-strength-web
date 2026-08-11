@@ -847,6 +847,33 @@ describe("adaptDashboard — layout-aware sections", () => {
     expect(data.cycling.present).toBe(false);
   });
 
+  it("repairs a layout naming the retired recovery_trend tile", () => {
+    // The API drops retired ids on read, but the two repos deploy separately —
+    // this client must not depend on the API having caught up. The retired tile
+    // becomes the tile that absorbed it, in the slot it already occupied.
+    const summary: DashboardSummary = {
+      sections: [
+        { id: "s1", title: "", collapsed: false, tile_ids: ["recovery_trend", "steps"] },
+      ] as DashboardSummary["sections"],
+    };
+    const data = adaptDashboard(summary, profile({ distance_unit: "mi" }));
+    expect(data.sections[0].tile_ids).toEqual(["hrv_balance", "steps"]);
+  });
+
+  it("keeps one tile when a layout holds both the retired id and its replacement", () => {
+    // Resolving the retired id can collide with a tile the layout already has,
+    // and the same tile twice would render twice and desync on remove.
+    const summary: DashboardSummary = {
+      sections: [
+        { id: "s1", title: "", collapsed: false, tile_ids: ["hrv_balance"] },
+        { id: "s2", title: "", collapsed: false, tile_ids: ["recovery_trend", "unknown_tile"] },
+      ] as DashboardSummary["sections"],
+    };
+    const data = adaptDashboard(summary, profile({ distance_unit: "mi" }));
+    expect(data.sections[0].tile_ids).toEqual(["hrv_balance"]);
+    expect(data.sections[1].tile_ids).toEqual([]);
+  });
+
   it("converts hiking distances per unit and passes elevation gain through", () => {
     const summary: DashboardSummary = {
       sections: [{ id: "s1", title: "", collapsed: false, tile_ids: ["hiking"] }],

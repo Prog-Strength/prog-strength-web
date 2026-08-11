@@ -1,19 +1,52 @@
 /**
- * The HRV balance chart's own machinery — the guard, the band runs, the ms→pixel
- * scale, and the gauge position.
+ * The HRV tile's own machinery — the guard, the nightly classification, the band
+ * runs, the ms→pixel scale, and the gauge position.
  *
  * Pure, and deliberately free of React: none of this needs a render to be true,
  * which is what makes it cheap to test exhaustively and what makes it the
  * natural import for the `/recovery` page when that chart follows. The tile
  * imports it; nothing here imports the tile.
  *
+ * `prepareHrvChart` is ALSO the tile's agreement contract. Both of the tile's
+ * views — HRV Balance and Recovery Trend — render from the one object it
+ * returns and never re-derive a figure for themselves, so a swipe between them
+ * cannot cross a disagreement: one guard (both views calibrate together), one
+ * nightly classification (`nights`, so a night that reads balanced on the chart
+ * reads balanced on the rail), one verdict for last night (`today.status`) and
+ * one for the week (`week`).
+ *
  * The standing rule for this file is that NOTHING recomputes a server figure.
  * Baselines, band bounds, z-scores and the 7-day mean are read straight off the
  * view as received. The arithmetic here maps an already-computed millisecond
- * value onto a pixel or a percentage of a bar, which is what a chart is.
+ * value onto a pixel or a percentage of a bar, which is what a chart is — plus
+ * the two comparisons below, which sort an already-computed value into the
+ * already-computed band it is being drawn against.
  */
 
-import type { RecoveryBaselineTrendView, RecoveryDayPoint, RecoveryView } from "@/lib/dashboard";
+import type {
+  RecoveryBaselineTrendView,
+  RecoveryDayPoint,
+  RecoveryHrvStatus,
+  RecoveryTrendDirection,
+  RecoveryView,
+} from "@/lib/dashboard";
+
+/** Consecutive suppressed nights that read as a sustained dip rather than one bad night. */
+export const SUSTAINED_DIP_NIGHTS = 3;
+
+/**
+ * One night, as both views draw it. `status` is the SERVER's verdict for that
+ * morning against that morning's own band — never a re-comparison against
+ * today's band, which is what used to make the rail and the chart disagree
+ * about the same night.
+ */
+export type NightMark = {
+  status: RecoveryHrvStatus;
+  /** False when the morning webhook never landed — an absence, not a status. */
+  hasReading: boolean;
+  /** Inside a run of ≥ SUSTAINED_DIP_NIGHTS consecutive suppressed nights. */
+  sustained: boolean;
+};
 
 /**
  * A recovery view with its optional blocks proven present and its band figures
@@ -29,9 +62,16 @@ export type HrvChart = {
   balancedHigh: number;
   /** The 7-day mean; null below min_trend_days, which is a real state. */
   shortAvg: number | null;
+  /** Where the WEEK sits against today's band — the gauge's zone and the
+   *  trend view's delta share it, so the tick and the figure agree in color. */
+  week: RecoveryHrvStatus;
+  /** The recent mean against the window it sits in — NOT the baseline's drift. */
+  trend: RecoveryTrendDirection;
   drift: RecoveryBaselineTrendView;
   /** The last charted day. Its `hrv` is null before the morning webhook lands. */
   today: RecoveryDayPoint;
+  /** One entry per charted night, in series order. Both views paint from this. */
+  nights: NightMark[];
   /** Millisecond domain spanning every mark and every band bound, with headroom. */
   domain: [number, number];
 };
@@ -68,10 +108,69 @@ export function prepareHrvChart(view: RecoveryView): HrvChart | null {
     balancedLow,
     balancedHigh,
     shortAvg: hrv.shortAvg,
+    week: weekStatus(hrv.shortAvg, balancedLow, balancedHigh),
+    trend: hrv.trend,
     drift: baselineTrend,
     today: days[days.length - 1],
+    nights: classifyNights(days),
     domain: [Math.min(...values) - 5, Math.max(...values) + 5],
   };
+}
+
+/**
+ * Where the 7-day mean sits against TODAY's band — the same two bounds the gauge
+ * prints under its 25% and 75% marks, so a tick left of the balanced-low label
+ * and a `suppressed` week are the same fact rather than two facts that happen to
+ * usually coincide.
+ *
+ * Deliberately about the WEEK, not last night: it colors the trend view's delta
+ * and the balance view's gauge tick, both of which are figures about `shortAvg`.
+ * Last night's verdict has its own source (`today.status`) and its own place.
+ */
+export function weekStatus(
+  shortAvg: number | null,
+  balancedLow: number,
+  balancedHigh: number,
+): RecoveryHrvStatus {
+  if (shortAvg === null) return "unknown";
+  if (shortAvg < balancedLow) return "suppressed";
+  if (shortAvg > balancedHigh) return "elevated";
+  return "balanced";
+}
+
+/**
+ * Classify each night once, for every view that draws it.
+ *
+ * The status is the server's own per-day verdict, passed through: each morning
+ * was already judged against the band as it stood THAT morning, which is the
+ * only comparison that stays true on a baseline that drifts. Re-testing an old
+ * reading against today's bounds — which the rail used to do — reports a night
+ * as in-band that the same payload calls suppressed.
+ *
+ * A run of ≥ SUSTAINED_DIP_NIGHTS consecutive suppressed nights is flagged on
+ * every night in the run: one low morning is noise, three in a row is a week
+ * going wrong, and the two should not paint identically. Missing nights break a
+ * run rather than extending it — an absent reading is not evidence of a dip.
+ */
+export function classifyNights(days: RecoveryDayPoint[]): NightMark[] {
+  const nights: NightMark[] = days.map((d) => ({
+    status: d.status,
+    hasReading: d.hrv !== null,
+    sustained: false,
+  }));
+  let start = -1;
+  for (let i = 0; i <= nights.length; i++) {
+    const dipping = i < nights.length && nights[i].hasReading && nights[i].status === "suppressed";
+    if (dipping) {
+      if (start === -1) start = i;
+      continue;
+    }
+    if (start !== -1 && i - start >= SUSTAINED_DIP_NIGHTS) {
+      for (let j = start; j < i; j++) nights[j].sustained = true;
+    }
+    start = -1;
+  }
+  return nights;
 }
 
 /**

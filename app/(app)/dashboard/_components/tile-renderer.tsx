@@ -14,12 +14,14 @@
  * are otherwise unchanged. They are re-exported so `page.tsx` (pre-W6) can keep
  * importing them.
  *
- * The recovery FAMILY — recovery, hrv_balance, morning_vitals, recovery_trend,
- * recovery_log — are the tiles whose section can be "enabled but not present"
- * (the user added the tile but hasn't connected Whoop). All five read the one
- * shared `recovery` section; when enabled-but-absent each family id renders
- * its own titled `RecoveryConnectCard` connect CTA. The other cards each own
- * their `!section.present` empty state internally.
+ * The recovery FAMILY — recovery, hrv_balance, morning_vitals, recovery_log —
+ * are the tiles whose section can be "enabled but not present" (the user added
+ * the tile but hasn't connected Whoop). All four read the one shared `recovery`
+ * section; when enabled-but-absent each family id renders its own titled
+ * `RecoveryConnectCard` connect CTA. The other cards each own their
+ * `!section.present` empty state internally. The family was five: the
+ * `recovery_trend` tile is retired, folded into `hrv_balance` as its second
+ * swipeable view (see `recovery/hrv-tile.tsx`).
  *
  * The running FAMILY — running, running_log, running_effort,
  * running_vertical — is the same pattern applied to running: four tiles
@@ -52,9 +54,8 @@ import { CyclingCard } from "./cycling-card";
 import { HikingCard } from "./hiking-card";
 import { RecoveryConnectCard } from "./recovery/connect-card";
 import { ReadinessVerdictCard } from "./recovery/readiness-verdict";
-import { HrvBalanceCard } from "./recovery/balance-band";
+import { HrvTileCard } from "./recovery/hrv-tile";
 import { MorningVitalsCard } from "./recovery/three-dial-vitals";
-import { TrendRailCard } from "./recovery/trend-rail";
 import { MorningLedgerCard } from "./recovery/morning-ledger";
 import { LoadRampCard } from "./running/load-ramp";
 import { WeekLogCard } from "./running/week-log";
@@ -336,7 +337,7 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
       );
     case "hrv_balance":
       return data.recovery.present ? (
-        <HrvBalanceCard section={data.recovery} href={href} />
+        <HrvTileCard section={data.recovery} href={href} />
       ) : (
         <RecoveryConnectCard title="HRV Balance" href={href} />
       );
@@ -345,12 +346,6 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
         <MorningVitalsCard section={data.recovery} href={href} />
       ) : (
         <RecoveryConnectCard title="Morning Vitals" href={href} />
-      );
-    case "recovery_trend":
-      return data.recovery.present ? (
-        <TrendRailCard section={data.recovery} href={href} />
-      ) : (
-        <RecoveryConnectCard title="Recovery Trend" href={href} />
       );
     case "recovery_log":
       return data.recovery.present ? (
@@ -361,8 +356,14 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
     case "streak":
       return <StreakCard streak={data.streak} href={href} />;
     default: {
+      // The type-level guard stays: a new TileId with no case above fails to
+      // compile here. At RUNTIME this is reachable only for an id the layout
+      // adapter should already have resolved or dropped (a retired tile from an
+      // API that has not caught up), and rendering nothing beats rendering the
+      // id as stray text on the grid.
       const _exhaustive: never = id;
-      return _exhaustive;
+      void _exhaustive;
+      return null;
     }
   }
 }

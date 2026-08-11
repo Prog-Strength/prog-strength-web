@@ -36,7 +36,6 @@ describe("AddTileTray", () => {
       "Recovery",
       "HRV Balance",
       "Morning Vitals",
-      "Recovery Trend",
       "Recovery Log",
       "Streak",
     ]) {

@@ -49,7 +49,6 @@ describe("TileCard", () => {
     ["recovery", "Recovery"],
     ["hrv_balance", "HRV Balance"],
     ["morning_vitals", "Morning Vitals"],
-    ["recovery_trend", "Recovery Trend"],
     ["recovery_log", "Recovery Log"],
   ];
 

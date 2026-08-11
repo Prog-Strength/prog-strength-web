@@ -1,13 +1,13 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen } from "@testing-library/react";
-import { HrvBalanceCard } from "./balance-band";
+import type { RecoveryView } from "@/lib/dashboard";
+import { HrvBalanceView } from "./balance-band";
+import { prepareHrvChart } from "./hrv-chart";
 import {
   bandGapView,
-  calibratingView,
   DRIFT_HRV_SERIES_GAPLESS,
   fallingView,
-  legacyView,
   noReadingDriftView,
   noReadingView,
   partialBandView,
@@ -16,11 +16,21 @@ import {
   suppressedDriftView,
 } from "./fixtures";
 
-const HREF = "/recovery";
-
 /** The component's own geometry, restated so the assertions can check it. */
 const R_MAX = 3.6; // DOT_R (2.6) + 1 — today's mark is the largest drawn.
 const CHART_H = 62;
+
+/**
+ * Render the view the way the tile does: from a prepared chart. The guard lives
+ * on the tile now (both views share it), so a fixture that cannot clear it is a
+ * broken fixture rather than a calibrating state — the tile's own test covers
+ * that path.
+ */
+function renderView(section: RecoveryView) {
+  const chart = prepareHrvChart(section);
+  if (!chart) throw new Error("fixture does not clear the tile's guard");
+  return render(<HrvBalanceView chart={chart} />);
+}
 
 function circles(container: HTMLElement): SVGCircleElement[] {
   return Array.from(container.querySelectorAll("circle"));
@@ -50,9 +60,9 @@ function pointXs(polygon: SVGPolygonElement): number[] {
     .map((pair) => Number(pair.split(",")[0]));
 }
 
-describe("HrvBalanceCard", () => {
+describe("HrvBalanceView", () => {
   it("rising: the drift tag carries the glyph, the magnitude and the window", () => {
-    render(<HrvBalanceCard section={risingView()} href={HREF} />);
+    renderView(risingView());
     // 6.4 ms over 28 days → "▲ +6 ms · 4w". Asserted on text, never on color.
     const tag = screen.getByText(/▲/);
     expect(tag.textContent).toContain("+6");
@@ -60,7 +70,7 @@ describe("HrvBalanceCard", () => {
   });
 
   it("falling: a down glyph and a unicode-minus delta, not an ASCII hyphen", () => {
-    render(<HrvBalanceCard section={fallingView()} href={HREF} />);
+    renderView(fallingView());
     const tag = screen.getByText(/▼/);
     expect(tag.textContent).toContain("−8"); // U+2212
     expect(tag.textContent).not.toContain("-8"); // U+002D
@@ -71,14 +81,14 @@ describe("HrvBalanceCard", () => {
     // athlete's SD (20.1) puts the engine's threshold at 7.0 ms. The card must
     // show the number anyway — this is the behaviour the SOW's whole threshold
     // discussion turns on, and it must not be "simplified" into a bare word.
-    render(<HrvBalanceCard section={steadyDriftView()} href={HREF} />);
+    renderView(steadyDriftView());
     const tag = screen.getByText(/▬/);
     expect(tag.textContent).toContain("+6");
     expect(tag.textContent).toContain("4w");
   });
 
   it("suppressed: the status dot and today's mark carry the SAME token", () => {
-    const { container } = render(<HrvBalanceCard section={suppressedDriftView()} href={HREF} />);
+    const { container } = renderView(suppressedDriftView());
     // The dot is read off days[last], the same object the last mark is coloured
     // from, so the two cannot disagree. Pin that, not the literal warning.
     const dot = screen.getByText("Suppressed").previousElementSibling;
@@ -89,13 +99,26 @@ describe("HrvBalanceCard", () => {
     expect(inlineStyle(dot, "background-color")).toBe(today.getAttribute("fill"));
   });
 
-  it("suppressed: the gauge tick sits below the balanced-low boundary", () => {
-    const { container } = render(<HrvBalanceCard section={suppressedDriftView()} href={HREF} />);
+  it("suppressed: the gauge tick sits below the balanced-low boundary, in warning", () => {
+    const { container } = renderView(suppressedDriftView());
     // shortAvg 77.0 against a band of 91.2 ± 12.6 → 21.8%, under the 25% mark
-    // where `balancedLow` is printed.
+    // where `balancedLow` is printed. The tick's COLOR is the week's status, the
+    // same value the trend view colours its delta with — the position and the
+    // colour are one statement, so they cannot drift apart.
     const left = Number.parseFloat(inlineStyle(gaugeTick(container), "left") ?? "");
     expect(left).toBeGreaterThan(20);
     expect(left).toBeLessThan(25);
+    expect(inlineStyle(gaugeTick(container), "background-color")).toBe("var(--warning)");
+  });
+
+  it("balanced week: the gauge tick is the same green the balanced nights carry", () => {
+    const { container } = renderView(risingView());
+    // shortAvg 92.8 sits inside 78.6–103.8, so the week is balanced and the tick
+    // takes the success token — the one green this tile spends on "in balance",
+    // on either view.
+    expect(inlineStyle(gaugeTick(container), "background-color")).toBe("var(--success)");
+    const balanced = circles(container).filter((c) => c.getAttribute("fill") === "var(--success)");
+    expect(balanced.length).toBeGreaterThan(0);
   });
 
   it("no reading yet, legacy-shaped payload: the word, the figure and the tick", () => {
@@ -105,7 +128,7 @@ describe("HrvBalanceCard", () => {
     // pins is that the three text registers survive a payload with no per-day
     // band at all. The drifting-band 7am state — the one the SOW actually
     // describes, band and all — is the test below.
-    const { container } = render(<HrvBalanceCard section={noReadingView()} href={HREF} />);
+    const { container } = renderView(noReadingView());
     expect(screen.getByText("No reading yet")).toBeInTheDocument();
     // shortAvg 82.3 survives the missing morning.
     expect(screen.getByText("82")).toBeInTheDocument();
@@ -120,7 +143,7 @@ describe("HrvBalanceCard", () => {
     // gauge still has its tick — and the chart simply has no FINAL mark. The
     // band underneath it is untouched, because a missing reading moves no
     // baseline.
-    const { container } = render(<HrvBalanceCard section={noReadingDriftView()} href={HREF} />);
+    const { container } = renderView(noReadingDriftView());
     expect(screen.getByText("No reading yet")).toBeInTheDocument();
     expect(screen.getByText("93")).toBeInTheDocument(); // shortAvg 92.8, rounded
     expect(gaugeTick(container)).not.toBeNull();
@@ -128,12 +151,12 @@ describe("HrvBalanceCard", () => {
     expect(polygons(container)).toHaveLength(1);
 
     // Same view with this morning's reading present: exactly one more mark.
-    const withReading = render(<HrvBalanceCard section={risingView()} href={HREF} />);
+    const withReading = renderView(risingView());
     expect(circles(container)).toHaveLength(circles(withReading.container).length - 1);
   });
 
   it("partial band: one polygon that visibly starts part-way across", () => {
-    const { container } = render(<HrvBalanceCard section={partialBandView()} href={HREF} />);
+    const { container } = renderView(partialBandView());
     const bands = polygons(container);
     expect(bands).toHaveLength(1);
     // The five oldest days carry no band, so the polygon's leftmost point is
@@ -142,7 +165,7 @@ describe("HrvBalanceCard", () => {
   });
 
   it("partial band: the unbanded days still render marks, at 0.45 opacity", () => {
-    const { container } = render(<HrvBalanceCard section={partialBandView()} href={HREF} />);
+    const { container } = renderView(partialBandView());
     const faint = circles(container).filter((c) => c.getAttribute("fill-opacity") === "0.45");
     expect(faint.length).toBeGreaterThanOrEqual(5);
     // Its baseline drift cannot be computed from a part-banded window.
@@ -150,11 +173,11 @@ describe("HrvBalanceCard", () => {
   });
 
   it("band gap: an interior null baseline splits the polygon in two", () => {
-    const gapped = render(<HrvBalanceCard section={bandGapView()} href={HREF} />);
+    const gapped = renderView(bandGapView());
     expect(polygons(gapped.container)).toHaveLength(2);
     gapped.unmount();
 
-    const whole = render(<HrvBalanceCard section={risingView()} href={HREF} />);
+    const whole = renderView(risingView());
     expect(polygons(whole.container)).toHaveLength(1);
   });
 
@@ -162,10 +185,9 @@ describe("HrvBalanceCard", () => {
     const section = risingView();
     const readings = section.days!.filter((d) => d.hrv !== null).length;
 
-    const gapped = render(<HrvBalanceCard section={section} href={HREF} />);
-    const gaplessSection = risingView(DRIFT_HRV_SERIES_GAPLESS);
-    const gaplessMarks = render(
-      <HrvBalanceCard section={gaplessSection} href={HREF} />,
+    const gapped = renderView(section);
+    const gaplessMarks = renderView(
+      risingView(DRIFT_HRV_SERIES_GAPLESS),
     ).container.querySelectorAll("circle").length;
 
     expect(circles(gapped.container)).toHaveLength(readings);
@@ -176,7 +198,7 @@ describe("HrvBalanceCard", () => {
   });
 
   it("no circle is ever scaled: viewBox equals the rendered pixel size", () => {
-    const { container } = render(<HrvBalanceCard section={risingView()} href={HREF} />);
+    const { container } = renderView(risingView());
     const svg = container.querySelector("svg");
     const viewBox = (svg?.getAttribute("viewBox") ?? "").split(" ");
     expect(svg?.getAttribute("width")).toBe(viewBox[2]);
@@ -184,7 +206,7 @@ describe("HrvBalanceCard", () => {
   });
 
   it("marks are inset by EXACTLY their own radius at both ends", () => {
-    const { container } = render(<HrvBalanceCard section={risingView()} href={HREF} />);
+    const { container } = renderView(risingView());
     const width = Number(container.querySelector("svg")?.getAttribute("width"));
     const marks = circles(container);
     const first = Number(marks[0].getAttribute("cx"));
@@ -226,7 +248,7 @@ describe("HrvBalanceCard", () => {
     });
 
     try {
-      const { container } = render(<HrvBalanceCard section={risingView()} href={HREF} />);
+      const { container } = renderView(risingView());
       const svg = container.querySelector("svg");
       const marks = circles(container);
 
@@ -243,21 +265,9 @@ describe("HrvBalanceCard", () => {
     const section = risingView();
     section.hrv = { ...section.hrv!, shortAvg: 84.9143 };
 
-    const { container } = render(<HrvBalanceCard section={section} href={HREF} />);
+    const { container } = renderView(section);
 
     expect(screen.getByText("85")).toBeInTheDocument();
     expect(container.textContent).not.toContain("84.9143");
-  });
-
-  it("calibrating: honest n-of-14 progress and no chart frame around nothing", () => {
-    const { container } = render(<HrvBalanceCard section={calibratingView()} href={HREF} />);
-    expect(screen.getByText(/9 of 14/)).toBeInTheDocument();
-    expect(container.querySelector("svg")).toBeNull();
-  });
-
-  it("legacy payload: the top-of-card guard holds, nothing throws", () => {
-    const { container } = render(<HrvBalanceCard section={legacyView()} href={HREF} />);
-    expect(screen.getByText(/0 of 14/)).toBeInTheDocument();
-    expect(container.querySelector("svg")).toBeNull();
   });
 });

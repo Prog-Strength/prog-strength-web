@@ -5,12 +5,19 @@ import {
   driftGlyph,
   driftTag,
   hrvStatusColor,
+  nightColor,
+  nightOpacity,
   signed,
   signedUnit,
   statusWord,
   trendLabel,
   weekday,
 } from "./shared";
+import type { NightMark } from "./hrv-chart";
+
+function night(over: Partial<NightMark> = {}): NightMark {
+  return { status: "balanced", hasReading: true, sustained: false, ...over };
+}
 
 function drift(over: Partial<RecoveryBaselineTrendView> = {}): RecoveryBaselineTrendView {
   return { direction: "rising", deltaMs: 6.4, fromAvg: 84.8, overDays: 28, ...over };
@@ -155,5 +162,36 @@ describe("weekday", () => {
 
   test("malformed input degrades to an em-dash", () => {
     expect(weekday("nope")).toBe("—");
+  });
+});
+
+describe("nightColor / nightOpacity — one paint for both views of the tile", () => {
+  test("a night takes its status color, so the chart and the rail cannot differ", () => {
+    expect(nightColor(night({ status: "balanced" }))).toBe(hrvStatusColor("balanced"));
+    expect(nightColor(night({ status: "suppressed" }))).toBe(hrvStatusColor("suppressed"));
+    expect(nightColor(night({ status: "elevated" }))).toBe(hrvStatusColor("elevated"));
+  });
+
+  test("balanced is the success token — the one green the tile spends on it", () => {
+    expect(nightColor(night())).toBe("var(--success)");
+  });
+
+  test("a night with no reading takes the surface, not a status color", () => {
+    expect(nightColor(night({ hasReading: false, status: "unknown" }))).toBe("var(--surface-2)");
+    expect(nightOpacity(night({ hasReading: false, status: "unknown" }))).toBe(1);
+  });
+
+  test("an isolated low night is lighter than one inside a sustained dip", () => {
+    expect(nightOpacity(night({ status: "suppressed" }))).toBe(0.55);
+    expect(nightOpacity(night({ status: "suppressed", sustained: true }))).toBe(1);
+  });
+
+  test("a night with no band yet is drawn faintly", () => {
+    expect(nightOpacity(night({ status: "unknown" }))).toBe(0.45);
+  });
+
+  test("ordinary nights are full strength", () => {
+    expect(nightOpacity(night({ status: "balanced" }))).toBe(1);
+    expect(nightOpacity(night({ status: "elevated" }))).toBe(1);
   });
 });

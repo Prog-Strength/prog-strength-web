@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
+import { resolveTileId, TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
 
 describe("dashboard tile catalog", () => {
-  test("has exactly 20 tiles", () => {
-    expect(TILE_CATALOG.length).toBe(20);
+  test("has exactly 19 tiles", () => {
+    expect(TILE_CATALOG.length).toBe(19);
   });
 
   test("ids are in the Go catalog order", () => {
@@ -23,7 +23,6 @@ describe("dashboard tile catalog", () => {
       "recovery",
       "hrv_balance",
       "morning_vitals",
-      "recovery_trend",
       "recovery_log",
       "streak",
       "quote",
@@ -75,7 +74,6 @@ describe("dashboard tile catalog", () => {
     recovery: true,
     hrv_balance: true,
     morning_vitals: true,
-    recovery_trend: true,
     recovery_log: true,
     streak: true,
     quote: true,
@@ -90,17 +88,26 @@ describe("dashboard tile catalog", () => {
     expect(TILE_CATALOG.length).toBe(Object.keys(ALL_TILE_IDS).length);
   });
 
-  test("the five recovery-family tiles have distinct titles and descriptions", () => {
-    const family = ["recovery", "hrv_balance", "morning_vitals", "recovery_trend", "recovery_log"];
+  test("the four recovery-family tiles have distinct titles and descriptions", () => {
+    const family = ["recovery", "hrv_balance", "morning_vitals", "recovery_log"];
     const titles = new Set(family.map((id) => tileEntry(id as TileId).title));
     const descriptions = new Set(family.map((id) => tileEntry(id as TileId).description));
-    expect(titles.size).toBe(5);
-    expect(descriptions.size).toBe(5);
+    expect(titles.size).toBe(4);
+    expect(descriptions.size).toBe(4);
     for (const id of family) {
       expect(tileEntry(id as TileId).href).toBe("/recovery");
     }
     // The rewritten recovery entry no longer describes the retired card.
     expect(tileEntry("recovery").description).not.toContain("resting HR");
+  });
+
+  test("the retired recovery_trend tile resolves to the tile that absorbed it", () => {
+    // It is not in the catalog (so the tray never offers it) but a layout
+    // written before the merge still names it, and that layout must keep a tile.
+    expect(TILE_CATALOG.some((t) => t.id === ("recovery_trend" as TileId))).toBe(false);
+    expect(resolveTileId("recovery_trend")).toBe("hrv_balance");
+    expect(resolveTileId("hrv_balance")).toBe("hrv_balance");
+    expect(resolveTileId("no_such_tile")).toBeNull();
   });
 
   test("the running entry was rewritten for the ramp card", () => {
