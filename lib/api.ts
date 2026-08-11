@@ -4119,6 +4119,17 @@ export async function disconnectCalendar(token: string): Promise<void> {
 export type WhoopConnection = {
   status: "connected" | "revoked" | "error" | "absent";
   connected_at?: string;
+  /**
+   * Scopes the connection did not consent to. Non-empty means CONNECTED BUT
+   * UNDER-SCOPED: the tokens are valid and recovery still syncs, but the paths
+   * needing the absent scope are skipped. A capability axis SEPARATE from
+   * `status` — a Whoop OAuth grant is fixed at consent and a token refresh
+   * cannot widen it, so the user has to re-run the consent flow.
+   *
+   * Optional because an older API build omits the key entirely; absent reads
+   * as "nothing missing".
+   */
+  missing_scopes?: string[];
 };
 
 /** GET /me/whoop/connection. */
@@ -4789,6 +4800,50 @@ export type DashboardRecovery = {
 };
 
 /**
+ * One local date's main sleep in the dashboard payload. `date` is always
+ * populated; every metric is nullable, because a date in the window with no
+ * record — and a record Whoop has not scored — are both represented rather
+ * than omitted. A night with no data and a night of zero sleep are different
+ * facts.
+ *
+ * Durations are MILLISECONDS exactly as Whoop sent them: ingest does no unit
+ * conversion, so presentation rounding stays the tile's job.
+ */
+export type DashboardSleepNight = {
+  date: string;
+  in_bed_milli: number | null;
+  awake_milli: number | null;
+  no_data_milli: number | null;
+  light_sleep_milli: number | null;
+  slow_wave_sleep_milli: number | null;
+  rem_sleep_milli: number | null;
+  sleep_cycle_count: number | null;
+  disturbance_count: number | null;
+  need_baseline_milli: number | null;
+  need_from_sleep_debt_milli: number | null;
+  need_from_strain_milli: number | null;
+  need_from_nap_milli: number | null;
+  respiratory_rate: number | null;
+  performance_pct: number | null;
+  consistency_pct: number | null;
+  efficiency_pct: number | null;
+};
+
+/**
+ * The dashboard's sleep widget, sourced from Whoop. Present only for users
+ * with a connected Whoop account (omitted → null otherwise) — the same gate
+ * the recovery family uses.
+ *
+ * `last_night` is today's main sleep, null when there is no non-nap record for
+ * today (deliberately NOT "the most recent night whenever it was"). `nights`
+ * is the date-aligned trailing window, oldest→newest, with every date present.
+ */
+export type DashboardSleep = {
+  last_night: DashboardSleepNight | null;
+  nights: DashboardSleepNight[];
+};
+
+/**
  * This week's aggregate for an endurance tile (walking/cycling/hiking):
  * total distance (metric meters), session count, and total moving time.
  */
@@ -4899,6 +4954,7 @@ export type DashboardSummary = {
   bodyweight?: DashboardBodyweight | null;
   blood_pressure?: DashboardBloodPressure | null;
   recovery?: DashboardRecovery | null;
+  sleep?: DashboardSleep | null;
   streak?: DashboardStreak;
   // Never null when present: the quote comes from a corpus compiled into
   // the API, so an enabled tile always has content.

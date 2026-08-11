@@ -353,6 +353,15 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
       ) : (
         <RecoveryConnectCard title="Recovery Log" href={href} />
       );
+    case "sleep":
+      // The sleep card is not built yet. The catalog id exists first so the Go
+      // and TS catalogs stay identical in id set and order (their contract
+      // tests assert both), which means this case has to exist to keep the
+      // exhaustiveness guard below satisfied. Rendering nothing is the same
+      // choice the `default` branch makes for an id with no card: an empty grid
+      // slot beats a broken one. The real card replaces this in the commit that
+      // adds `./sleep/`.
+      return null;
     case "streak":
       return <StreakCard streak={data.streak} href={href} />;
     default: {
