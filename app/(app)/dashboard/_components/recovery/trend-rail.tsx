@@ -1,134 +1,115 @@
 /**
- * TrendRailCard — the `recovery_trend` tile ("Recovery Trend").
+ * RecoveryTrendView — the SECOND view of the HRV tile ("Recovery Trend"), one
+ * swipe right of the balance view.
  *
- * Heroes the DIRECTION and deliberately demotes today: one large delta figure
- * — the server 7-day HRV mean (`shortAvg`) against the 30-day baseline
- * (`hrvAvg`), a difference of two server figures, never a re-averaged series —
- * with the trend word beneath and a full-width rail of one mark per day.
- * Marks shade in-band success / out-of-band faint / null blank, and a run of
- * ≥3 consecutive BELOW-band days promotes to warning as a sustained dip
- * (above-band days never warn — elevated is unusual, not alarming). Today is
- * just the last mark, so the headline survives a missing morning webhook.
+ * Heroes the DIRECTION and deliberately demotes today: one large delta figure —
+ * the server 7-day HRV mean (`shortAvg`) against the 30-day baseline (`hrvAvg`),
+ * a difference of two server figures, never a re-averaged series — with the
+ * trend word beneath and a full-width rail of one mark per night.
+ *
+ * Two things here are decided elsewhere on purpose, because this view sits on
+ * the same tile as the balance view and must not contradict it:
+ *
+ *   - THE FIGURE'S COLOR is the WEEK's status (`chart.week`), the same value
+ *     that colors the balance view's gauge tick. Both are statements about
+ *     `shortAvg`, so they are one statement in two places. It is emphatically
+ *     NOT last night's status — that verdict is the other view's dot, and
+ *     coloring a seven-day figure with a one-night verdict is how a tile ends
+ *     up saying "balanced" and "suppressed" about itself in the same breath.
+ *   - EACH MARK'S COLOR is `chart.nights`, the server's own per-morning verdict
+ *     against that morning's own band. The rail used to re-test every night
+ *     against TODAY's bounds, which on a drifting baseline reports a night as
+ *     in-band that the chart one swipe away draws as suppressed.
+ *
+ * A run of ≥3 consecutive suppressed nights reads as a sustained dip and is
+ * drawn solid, where an isolated suppressed night is drawn at reduced weight —
+ * the same weighting the balance view's dots use, since it comes from the same
+ * `nightOpacity`. Above-band nights never escalate: elevated is unusual, not
+ * alarming.
  */
+"use client";
 
-import type { RecoveryView } from "@/lib/dashboard";
-import { MiniCard } from "../mini-card";
-import { hrvStatusColor, signedUnit, trendLabel } from "./shared";
+import { SUSTAINED_DIP_NIGHTS, type HrvChart, type NightMark } from "./hrv-chart";
+import { hrvStatusColor, nightColor, nightOpacity, signedUnit, trendLabel } from "./shared";
 
-const TITLE = "Recovery Trend";
-// Consecutive below-band days that read as a sustained dip.
-const RUN_THRESHOLD = 3;
-
-type MarkTone = "in" | "below" | "above" | "run" | "blank";
-
-const MARK_COLOR: Record<MarkTone, string> = {
-  in: "var(--success)",
-  below: "var(--faint)",
-  above: "var(--faint)",
-  run: "var(--warning)",
-  blank: "var(--surface-2)",
-};
-
-export function TrendRailCard({ section, href }: { section: RecoveryView; href: string }) {
-  const { days, baseline, hrv } = section;
-
-  if (!days || !baseline || !hrv || baseline.hrvAvg === null || hrv.shortAvg === null) {
-    return (
-      <MiniCard title={TITLE} href={href}>
-        <div className="flex flex-col gap-2 py-1">
-          <span className="text-sm font-medium text-[var(--muted)]">Trend calibrating</span>
-          <p className="text-[11px] text-[var(--faint)]">
-            <span className="font-mono tabular-nums text-[var(--muted)]">
-              {baseline?.hrvDays ?? 0} of 14
-            </span>{" "}
-            nights · the week-over-baseline read needs a baseline first
-          </p>
-        </div>
-      </MiniCard>
-    );
-  }
-
-  const deltaMs = hrv.shortAvg - baseline.hrvAvg;
-  const deltaPct = Math.round((deltaMs / baseline.hrvAvg) * 100);
-  const { glyph, word } = trendLabel(hrv.trend);
-  const statusColor = hrvStatusColor(hrv.status);
-
-  const marks = days.map((d) => classify(d.hrv, hrv.balancedLow, hrv.balancedHigh));
-  promoteSustainedDips(marks, RUN_THRESHOLD);
+export function RecoveryTrendView({ chart }: { chart: HrvChart }) {
+  const { hrvAvg, shortAvg, week, trend, nights } = chart;
+  const { glyph, word } = trendLabel(trend);
+  const deltaMs = shortAvg === null ? null : shortAvg - hrvAvg;
+  const deltaPct = deltaMs === null ? null : Math.round((deltaMs / hrvAvg) * 100);
+  const hasDip = nights.some((n) => n.sustained);
 
   return (
-    <MiniCard title={TITLE} href={href}>
-      {/* The hero: one big delta figure. Today is NOT here. */}
-      <div className="flex items-baseline gap-2">
-        <span
-          className="font-mono text-3xl font-semibold tracking-tight tabular-nums"
-          style={{ color: statusColor }}
-        >
-          {glyph} {Math.abs(deltaPct)}%
-        </span>
-        <span className="font-mono text-sm tabular-nums text-[var(--muted)]">
-          {signedUnit(deltaMs, "ms", 1)}
-        </span>
+    <div className="flex flex-col gap-3">
+      <div>
+        {/* The hero: one big delta figure, about the WEEK. Today is NOT here. */}
+        {deltaMs !== null && deltaPct !== null ? (
+          <div className="flex items-baseline gap-2">
+            <span
+              className="font-mono text-3xl font-semibold tracking-tight tabular-nums"
+              style={{ color: week === "unknown" ? "var(--muted)" : hrvStatusColor(week) }}
+            >
+              {glyph} {Math.abs(deltaPct)}%
+            </span>
+            <span className="font-mono text-sm tabular-nums text-[var(--muted)]">
+              {signedUnit(deltaMs, "ms", 1)}
+            </span>
+          </div>
+        ) : (
+          // The band exists (the tile's guard proved it) but the 7-day mean does
+          // not yet — a real state, and a different one from calibrating.
+          <p className="text-sm text-[var(--muted)]">Not enough nights for a weekly read yet</p>
+        )}
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          7-day HRV {word} · vs 30-day baseline{" "}
+          <span className="font-mono tabular-nums">{Math.round(hrvAvg)} ms</span>
+        </p>
       </div>
-      <p className="-mt-1 text-xs text-[var(--muted)]">
-        7-day HRV {word} · vs 30-day baseline{" "}
-        <span className="font-mono tabular-nums">{Math.round(baseline.hrvAvg)} ms</span>
-      </p>
 
-      {/* Full-width rail of day marks — spatial consistency, gaps blank. */}
+      {/* Full-width rail of night marks — spatial consistency, gaps blank. */}
       <div
-        className="mt-1 flex items-end gap-[2px]"
+        className="flex items-end gap-[2px]"
         role="img"
-        aria-label="Thirty days in or out of your balanced band"
+        aria-label={`${nights.length} nights, each against its own balanced band`}
       >
-        {marks.map((tone, i) => (
+        {nights.map((mark, i) => (
           <span
             key={i}
             className="h-4 min-w-[2px] flex-1 rounded-[1px]"
-            style={{ backgroundColor: MARK_COLOR[tone], opacity: tone === "blank" ? 1 : 0.9 }}
+            style={{ backgroundColor: nightColor(mark), opacity: nightOpacity(mark) }}
           />
         ))}
       </div>
-      <p className="text-[10px] text-[var(--faint)]">
-        <span className="inline-flex items-center gap-1">
-          <Dot c={MARK_COLOR.in} /> in band
+
+      <p className="-mt-1 text-[10px] text-[var(--faint)]">
+        <Swatch status="balanced" /> balanced
+        <span className="mx-1.5">
+          <Swatch status="suppressed" /> suppressed
         </span>
-        <span className="mx-1.5 inline-flex items-center gap-1">
-          <Dot c={MARK_COLOR.below} /> outside
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Dot c={MARK_COLOR.run} /> sustained dip
-        </span>
+        <Swatch status="elevated" /> elevated
+        {/* Only claimed when the window actually holds one. */}
+        {hasDip && (
+          <span className="ml-1.5">
+            · solid warning = {SUSTAINED_DIP_NIGHTS}+ nights suppressed
+          </span>
+        )}
       </p>
-    </MiniCard>
+    </div>
   );
 }
 
-function classify(hrv: number | null, low: number | null, high: number | null): MarkTone {
-  if (hrv === null) return "blank";
-  if (low === null || high === null) return "above";
-  if (hrv < low) return "below";
-  if (hrv > high) return "above";
-  return "in";
-}
-
-/** Promote runs of ≥threshold consecutive below-band marks to "run". */
-function promoteSustainedDips(marks: MarkTone[], threshold: number) {
-  let start = -1;
-  for (let i = 0; i <= marks.length; i++) {
-    if (i < marks.length && marks[i] === "below") {
-      if (start === -1) start = i;
-    } else {
-      if (start !== -1 && i - start >= threshold) {
-        for (let j = start; j < i; j++) marks[j] = "run";
-      }
-      start = -1;
-    }
-  }
-}
-
-function Dot({ c }: { c: string }) {
+/**
+ * A legend chip, painted by the same function that paints the rail — and at the
+ * COMMON weight (`sustained: false`), so the suppressed chip matches an ordinary
+ * low night rather than the solid one the note below explains.
+ */
+function Swatch({ status }: { status: NightMark["status"] }) {
+  const mark: NightMark = { status, hasReading: true, sustained: false };
   return (
-    <span aria-hidden="true" className="h-1.5 w-1.5 rounded-[1px]" style={{ backgroundColor: c }} />
+    <span
+      aria-hidden="true"
+      className="mr-1 inline-block h-1.5 w-1.5 rounded-[1px] align-baseline"
+      style={{ backgroundColor: nightColor(mark), opacity: nightOpacity(mark) }}
+    />
   );
 }

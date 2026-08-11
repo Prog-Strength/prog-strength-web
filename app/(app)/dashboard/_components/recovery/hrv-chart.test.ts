@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 import type { RecoveryDayPoint, RecoveryView } from "@/lib/dashboard";
-import { bandRuns, gaugeTickPct, prepareHrvChart, scaler } from "./hrv-chart";
+import {
+  bandRuns,
+  classifyNights,
+  gaugeTickPct,
+  prepareHrvChart,
+  scaler,
+  weekStatus,
+} from "./hrv-chart";
 
 /**
  * Fixtures are hand-authored here rather than imported from `./fixtures`: every
@@ -240,6 +247,79 @@ describe("prepareHrvChart — the single guard", () => {
     // Scalar band 76 / 100 from the fixture's hrv block.
     const prepared = prepareHrvChart(view({ days }));
     expect(prepared!.domain).toEqual([71, 105]);
+  });
+});
+
+describe("weekStatus — where the 7-day mean sits in today's band", () => {
+  test("inside the bounds is balanced; outside picks the side it left", () => {
+    expect(weekStatus(88, 76, 100)).toBe("balanced");
+    expect(weekStatus(75.9, 76, 100)).toBe("suppressed");
+    expect(weekStatus(100.1, 76, 100)).toBe("elevated");
+  });
+
+  test("the bounds themselves are inside the band, as the gauge draws them", () => {
+    expect(weekStatus(76, 76, 100)).toBe("balanced");
+    expect(weekStatus(100, 76, 100)).toBe("balanced");
+  });
+
+  test("no 7-day mean is no verdict — never a default of balanced", () => {
+    expect(weekStatus(null, 76, 100)).toBe("unknown");
+  });
+
+  test("agrees with the gauge tick's own arithmetic at the boundary", () => {
+    // The gauge prints `balancedLow` under its 25% mark, so a week that reads
+    // suppressed must put the tick left of it and a balanced one must not. The
+    // two are computed independently; this is what pins them together.
+    const [avg, low, high] = [88, 76, 100];
+    expect(gaugeTickPct(75.9, avg, high)!).toBeLessThan(25);
+    expect(weekStatus(75.9, low, high)).toBe("suppressed");
+    expect(gaugeTickPct(76.1, avg, high)!).toBeGreaterThan(25);
+    expect(weekStatus(76.1, low, high)).toBe("balanced");
+  });
+});
+
+describe("classifyNights — the one classification both views paint from", () => {
+  test("passes the server's own per-day status through, untouched", () => {
+    const nights = classifyNights([
+      day({ status: "balanced" }),
+      day({ status: "elevated" }),
+      unbanded(),
+    ]);
+    expect(nights.map((n) => n.status)).toEqual(["balanced", "elevated", "unknown"]);
+    expect(nights.every((n) => n.hasReading)).toBe(true);
+  });
+
+  test("never re-tests a reading against another day's band", () => {
+    // A night the payload calls balanced against ITS OWN band sits outside a
+    // later day's band. Re-comparing would report it suppressed; the whole
+    // agreement contract is that this does not happen.
+    const nights = classifyNights([day({ hrv: 78, balancedLow: 70, balancedHigh: 94 })]);
+    expect(nights[0].status).toBe("balanced");
+  });
+
+  test("a missing morning is an absence, not a status", () => {
+    const nights = classifyNights([day({ hrv: null, status: "unknown" })]);
+    expect(nights[0].hasReading).toBe(false);
+    expect(nights[0].sustained).toBe(false);
+  });
+
+  test("three consecutive suppressed nights all read as a sustained dip", () => {
+    const dip = day({ status: "suppressed", hrv: 60 });
+    const nights = classifyNights([day(), dip, dip, dip, day()]);
+    expect(nights.map((n) => n.sustained)).toEqual([false, true, true, true, false]);
+  });
+
+  test("two is not a run, and a gap does not extend one", () => {
+    const dip = day({ status: "suppressed", hrv: 60 });
+    const absent = day({ hrv: null, status: "unknown" });
+    const nights = classifyNights([dip, dip, absent, dip, dip]);
+    expect(nights.some((n) => n.sustained)).toBe(false);
+  });
+
+  test("a run at the very end of the window still counts", () => {
+    const dip = day({ status: "suppressed", hrv: 60 });
+    const nights = classifyNights([day(), dip, dip, dip]);
+    expect(nights[3].sustained).toBe(true);
   });
 });
 

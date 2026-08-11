@@ -21,7 +21,6 @@ export type TileId =
   | "recovery"
   | "hrv_balance"
   | "morning_vitals"
-  | "recovery_trend"
   | "recovery_log"
   | "streak"
   | "quote"
@@ -122,19 +121,13 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     id: "hrv_balance",
     title: "HRV Balance",
     href: "/recovery",
-    description: "Today's HRV against your own balanced range.",
+    description: "Your HRV against your own balanced range — swipe for the week's trend.",
   },
   {
     id: "morning_vitals",
     title: "Morning Vitals",
     href: "/recovery",
     description: "Score, resting HR, and HRV vs your 30-day averages.",
-  },
-  {
-    id: "recovery_trend",
-    title: "Recovery Trend",
-    href: "/recovery",
-    description: "Which way your HRV is heading this week.",
   },
   {
     id: "recovery_log",
@@ -161,6 +154,33 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
 ] as const;
 
 export const TILE_IDS: readonly TileId[] = TILE_CATALOG.map((t) => t.id);
+
+const TILE_ID_SET: ReadonlySet<string> = new Set(TILE_IDS);
+
+/**
+ * Tiles that no longer exist, and what took their place.
+ *
+ * `recovery_trend` was folded into `hrv_balance`, which became a two-view tile
+ * (see `recovery/hrv-tile.tsx`). The Go catalog drops retired ids on read, so a
+ * stored layout is repaired server-side eventually — but the two repos deploy
+ * independently, so this client repairs the layout it is handed rather than
+ * assuming the API has already been updated. A user who had the retired tile
+ * keeps its replacement in the same slot instead of silently losing it.
+ */
+const RETIRED_TILE_IDS: Readonly<Record<string, TileId>> = {
+  recovery_trend: "hrv_balance",
+};
+
+/**
+ * Resolve a stored id to a renderable one: retired ids become their
+ * replacement, unknown ids become null (dropped by the caller). Total, because
+ * the read path must never throw on a blob written by an older client.
+ */
+export function resolveTileId(id: string): TileId | null {
+  const replacement = RETIRED_TILE_IDS[id];
+  if (replacement) return replacement;
+  return TILE_ID_SET.has(id) ? (id as TileId) : null;
+}
 
 const CATALOG_BY_ID: Record<TileId, TileCatalogEntry> = Object.fromEntries(
   TILE_CATALOG.map((t) => [t.id, t]),

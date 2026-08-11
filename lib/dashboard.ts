@@ -46,6 +46,7 @@ import {
   formatPaceValue,
   type DistanceUnit,
 } from "@/lib/distance-unit-context";
+import { resolveTileId, type TileId } from "@/lib/dashboard-tiles";
 
 const METERS_PER_MILE = 1609.344;
 const METERS_PER_KM = 1000;
@@ -640,6 +641,31 @@ function adaptStreak(streak: DashboardStreak): StreakView {
 }
 
 /**
+ * Repair the stored layout on the way in: a RETIRED tile id becomes the tile
+ * that replaced it, an unknown one is dropped, and the whole-layout uniqueness
+ * invariant is re-established afterwards (retiring `recovery_trend` into
+ * `hrv_balance` can put two of the same tile in a layout that held both).
+ *
+ * The API normalizes on read too, and this is deliberately not trusting it to:
+ * the two repos deploy independently, so a web bundle can meet a summary from
+ * an API that still knows the old id. `TileCard`'s exhaustive switch would have
+ * no case for it.
+ */
+function adaptSections(sections: DashboardSection[] | undefined): DashboardSection[] {
+  if (!sections) return [];
+  const seen = new Set<TileId>();
+  return sections.map((s) => ({
+    ...s,
+    tile_ids: (s.tile_ids ?? []).flatMap((id) => {
+      const resolved = resolveTileId(id);
+      if (resolved === null || seen.has(resolved)) return [];
+      seen.add(resolved);
+      return [resolved];
+    }),
+  }));
+}
+
+/**
  * Convert the server's dashboard summary into the display view-model.
  * Pure: distances → the user's `distance_unit`; weights pass through.
  * A null summary (no payload) collapses every section to its empty
@@ -670,7 +696,7 @@ export function adaptDashboard(
   }
 
   return {
-    sections: summary.sections ?? [],
+    sections: adaptSections(summary.sections),
     running: summary.running
       ? { present: true, ...adaptRunning(summary.running, distanceUnit) }
       : { present: false },
