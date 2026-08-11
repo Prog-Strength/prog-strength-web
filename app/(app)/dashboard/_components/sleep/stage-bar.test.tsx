@@ -3,7 +3,7 @@
 import { render, screen } from "@testing-library/react";
 import { StageBar } from "./stage-bar";
 import { emptyNight, noStagesNight, scoredNight } from "./fixtures";
-import { STAGE_ORDER, formatSleepDuration, stageColor, stageMilli } from "./shared";
+import { STAGE_ORDER, stageColor } from "./shared";
 
 /** The rendered segments, in DOM order. */
 function segments(container: HTMLElement): HTMLElement[] {
@@ -14,6 +14,21 @@ function widthPct(el: HTMLElement): number {
   return parseFloat(el.style.width);
 }
 
+/**
+ * The scored fixture's stage minutes: 1h 32m deep, 3h 55m light, 1h 56m REM,
+ * 42m awake — 92, 235, 116 and 42 of 485 minutes. The percentages below are
+ * LITERALS computed from those numbers by hand, deliberately not recomputed
+ * from the fixture: a test that reruns the component's own formula compares it
+ * to itself, and would keep passing if the proportion base moved off "stages
+ * present" to `inBedMilli` — blessing the phantom gap the component forbids.
+ */
+const SCORED_PCT = {
+  slowWave: 18.9691, // 92 / 485
+  light: 48.4536, // 235 / 485
+  rem: 23.9175, // 116 / 485
+  awake: 8.6598, // 42 / 485
+};
+
 describe("StageBar", () => {
   it("stacks one segment per stage, deepest first", () => {
     const { container } = render(<StageBar night={scoredNight()} />);
@@ -21,13 +36,10 @@ describe("StageBar", () => {
   });
 
   it("segment widths are proportional to the night and sum to 100%", () => {
-    const night = scoredNight();
-    const { container } = render(<StageBar night={night} />);
+    const { container } = render(<StageBar night={scoredNight()} />);
     const els = segments(container);
-    const total = STAGE_ORDER.reduce((sum, s) => sum + (stageMilli(night, s) ?? 0), 0);
     els.forEach((el, i) => {
-      const ms = stageMilli(night, STAGE_ORDER[i]) as number;
-      expect(widthPct(el)).toBeCloseTo((ms / total) * 100, 5);
+      expect(widthPct(el)).toBeCloseTo(SCORED_PCT[STAGE_ORDER[i]], 3);
     });
     expect(els.reduce((sum, el) => sum + widthPct(el), 0)).toBeCloseTo(100, 5);
   });
@@ -40,16 +52,33 @@ describe("StageBar", () => {
     });
   });
 
-  it("carries stage name and duration for hover and focus", () => {
-    const night = scoredNight();
-    const { container } = render(<StageBar night={night} />);
-    const deep = segments(container)[0];
-    const label = `Deep ${formatSleepDuration(night.slowWaveSleepMilli)}`;
-    expect(deep).toHaveAttribute("title", label);
-    expect(deep).toHaveAttribute("aria-label", label);
-    // Reachable by keyboard, so the duration is not a mouse-only fact.
-    expect(deep).toHaveAttribute("tabindex", "0");
-    expect(screen.getByLabelText("Deep 1h 32m")).toBeInTheDocument();
+  it("summarises all four durations on the track, in one accessible label", () => {
+    // The trend-rail idiom: one `role="img"` with a summary on the container,
+    // plain spans for the marks. The durations stay readable to a screen
+    // reader without four segments announcing themselves separately.
+    const { container } = render(<StageBar night={scoredNight()} />);
+    expect(
+      screen.getByRole("img", {
+        name: "Sleep stages: Deep 1h 32m, Light 3h 55m, REM 1h 56m, Awake 42m",
+      }),
+    ).toBe(container.firstElementChild);
+  });
+
+  it("carries each stage's duration on hover, and spends no tab stop on it", () => {
+    const { container } = render(<StageBar night={scoredNight()} />);
+    const els = segments(container);
+    expect(els.map((el) => el.getAttribute("title"))).toEqual([
+      "Deep 1h 32m",
+      "Light 3h 55m",
+      "REM 1h 56m",
+      "Awake 42m",
+    ]);
+    // The whole tile is one link: a focusable segment is a tab stop where
+    // Enter does nothing, four times per tile.
+    for (const el of els) {
+      expect(el).not.toHaveAttribute("tabindex");
+      expect(el).not.toHaveAttribute("role");
+    }
   });
 
   it("a zero-duration stage renders no segment at all", () => {
@@ -60,15 +89,17 @@ describe("StageBar", () => {
   });
 
   it("a missing stage renders no segment and does not distort the others", () => {
-    const night = scoredNight({ remSleepMilli: null });
-    const { container } = render(<StageBar night={night} />);
+    const { container } = render(<StageBar night={scoredNight({ remSleepMilli: null })} />);
     const els = segments(container);
     expect(els).toHaveLength(3);
-    const total =
-      (night.slowWaveSleepMilli as number) +
-      (night.lightSleepMilli as number) +
-      (night.awakeMilli as number);
-    expect(widthPct(els[0])).toBeCloseTo(((night.slowWaveSleepMilli as number) / total) * 100, 5);
+    // Literals again, over the 92 + 235 + 42 = 369 minutes the night still
+    // has. Proportions are taken over the STAGES PRESENT, so the three widths
+    // fill the track — a base of `inBedMilli` would leave a phantom gap
+    // standing in for a field Whoop never sent.
+    expect(widthPct(els[0])).toBeCloseTo(24.9322, 3); // 92 / 369
+    expect(widthPct(els[1])).toBeCloseTo(63.6856, 3); // 235 / 369
+    expect(widthPct(els[2])).toBeCloseTo(11.3821, 3); // 42 / 369
+    expect(els.reduce((sum, el) => sum + widthPct(el), 0)).toBeCloseTo(100, 5);
   });
 
   it("a night with no stage data gets the bar's own empty treatment, not four NaN widths", () => {

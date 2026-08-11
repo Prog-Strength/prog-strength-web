@@ -90,6 +90,17 @@ export function formatSleepDuration(ms: number | null): string {
 }
 
 /**
+ * "89%" from one of WHOOP's scored percentages; "—" for null or non-finite.
+ * The non-finite rejection is the point: it is the same guard
+ * `formatSleepDuration` makes, and without it a NaN off the wire reaches
+ * `Math.round` and renders literally as "NaN%".
+ */
+export function formatSleepPercent(pct: number | null): string {
+  if (pct === null || !Number.isFinite(pct)) return "—";
+  return `${Math.round(pct)}%`;
+}
+
+/**
  * Time actually asleep = in bed − awake − no-data, or null when the pieces are
  * not all present. This is NOT a re-derivation of a server figure: WHOOP sends
  * no "total asleep" field, so it is the one arithmetic the tile must do.

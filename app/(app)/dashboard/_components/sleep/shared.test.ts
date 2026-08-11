@@ -4,6 +4,7 @@ import {
   STAGE_ORDER,
   asleepMilli,
   formatSleepDuration,
+  formatSleepPercent,
   sleepNeedMilli,
   stageColor,
   stageLabel,
@@ -90,6 +91,20 @@ describe("formatSleepDuration", () => {
     expect(formatSleepDuration(null)).toBe("—");
     expect(formatSleepDuration(Number.NaN)).toBe("—");
     expect(formatSleepDuration(-1)).toBe("—");
+  });
+});
+
+describe("formatSleepPercent", () => {
+  test("rounds to a whole percent", () => {
+    expect(formatSleepPercent(89.2)).toBe("89%");
+    expect(formatSleepPercent(89.5)).toBe("90%");
+    expect(formatSleepPercent(0)).toBe("0%");
+  });
+
+  test("null and non-finite read as an em dash, never NaN%", () => {
+    expect(formatSleepPercent(null)).toBe("—");
+    expect(formatSleepPercent(Number.NaN)).toBe("—");
+    expect(formatSleepPercent(Number.POSITIVE_INFINITY)).toBe("—");
   });
 });
 

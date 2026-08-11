@@ -20,6 +20,11 @@
  * Durations are MILLISECONDS, as stored and as the view model carries them —
  * the tile formats, nothing here pre-rounds. Test-only; never imported by
  * production code.
+ *
+ * The stages-sum-to-time-in-bed invariant above is a claim, so `fixtures.test.ts`
+ * pins it — for the same reason `recovery/fixtures.test.ts` exists. A fixture
+ * that breaks it describes a payload the API cannot emit, and the tile would
+ * render it as a plausible-looking bar rather than failing loudly.
  */
 
 import type { SleepNightView, SleepView } from "@/lib/dashboard";
@@ -121,19 +126,43 @@ export function noStagesNight(): SleepNightView {
   return { ...emptyNight(FIXTURE_TODAY), inBedMilli: 7 * HOUR, performancePct: 71.0 };
 }
 
+/**
+ * `scoredNight()` rescaled to a different time in bed, with its stage durations
+ * scaled WITH it so deep + light + REM + awake still sums EXACTLY to
+ * `inBedMilli`. Overriding `inBedMilli` alone would describe a payload the API
+ * cannot emit — the stage summary partitions time in bed, it is not four
+ * independent numbers beside it — and a bar drawn from such a night would look
+ * perfectly plausible while asserting an impossible state.
+ *
+ * Each stage rounds to a whole minute and AWAKE absorbs the rounding, which is
+ * what keeps the partition exact rather than approximately exact.
+ */
+function nightScaledTo(inBedMilli: number, over: Partial<SleepNightView> = {}): SleepNightView {
+  const base = scoredNight();
+  const ratio = inBedMilli / (base.inBedMilli as number);
+  const scale = (ms: number | null) => Math.round(((ms ?? 0) * ratio) / MIN) * MIN;
+  const slowWaveSleepMilli = scale(base.slowWaveSleepMilli);
+  const lightSleepMilli = scale(base.lightSleepMilli);
+  const remSleepMilli = scale(base.remSleepMilli);
+  return {
+    ...base,
+    inBedMilli,
+    slowWaveSleepMilli,
+    lightSleepMilli,
+    remSleepMilli,
+    awakeMilli: inBedMilli - slowWaveSleepMilli - lightSleepMilli - remSleepMilli,
+    ...over,
+  };
+}
+
 /** The default window: seven date-aligned nights with an interior gap. */
 export function nightsWindow(last: SleepNightView): SleepNightView[] {
   return WINDOW_DATES.map((date, i) => {
     if (i === WINDOW_DATES.length - 1) return { ...last, date };
     if (i === FIXTURE_GAP_INDEX) return emptyNight(date);
-    return {
-      ...scoredNight(),
-      date,
-      // Vary the night a little so a test that reads the window sees a series,
-      // not seven identical rows.
-      inBedMilli: 7 * HOUR + (30 + i * 5) * MIN,
-      performancePct: 80 + i,
-    };
+    // Vary the night a little so a test that reads the window sees a series,
+    // not seven identical rows.
+    return nightScaledTo(7 * HOUR + (30 + i * 5) * MIN, { date, performancePct: 80 + i });
   });
 }
 

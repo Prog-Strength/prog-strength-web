@@ -17,11 +17,13 @@
  *
  * The three states and their ORDER:
  *
- *   - CONNECTED BUT UNDER-SCOPED → the reconnect affordance, checked FIRST. An
- *     under-scoped connection is connected, so its section is present — it is
+ *   - CONNECTED BUT MISSING THE SLEEP SCOPE → the reconnect affordance, checked
+ *     FIRST. Such a connection is connected, so its section is present — it is
  *     simply empty forever until the user re-consents. Testing `present` first
  *     would render the ordinary empty state and leave the user waiting for data
- *     that is never coming.
+ *     that is never coming. The test is for THAT scope by name: a connection
+ *     missing some unrelated scope ingests sleep fine, and this branch must
+ *     never stand in front of a night the user actually has.
  *   - CONNECTED AND SCOPED, NO DATA YET → the tile's own empty state, the same
  *     calm muted CTA `connect-card.tsx` uses. Never an error.
  *   - NO CONNECTION → no tile. The section is absent only for a user with no
@@ -34,14 +36,16 @@ import { useEffect, useState } from "react";
 import type { DashboardData, SleepView } from "@/lib/dashboard";
 import { getWhoopConnection } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { missingSleepScope } from "@/lib/whoop";
 import { BigNum } from "../big-num";
 import { MiniCard, MiniCardEmpty } from "../mini-card";
-import { SETTINGS_INTEGRATIONS_HREF, SleepReconnectCard } from "./reconnect-card";
+import { SleepReconnectCard } from "./reconnect-card";
 import { StageBar } from "./stage-bar";
 import {
   STAGE_ORDER,
   asleepMilli,
   formatSleepDuration,
+  formatSleepPercent,
   sleepNeedMilli,
   stageColor,
   stageLabel,
@@ -50,17 +54,22 @@ import {
 const TITLE = "Sleep";
 
 export function SleepTile({ section, href }: { section: DashboardData["sleep"]; href: string }) {
-  const underScoped = useWhoopUnderScoped();
-  if (underScoped) return <SleepReconnectCard href={SETTINGS_INTEGRATIONS_HREF} />;
+  const sleepUnscoped = useSleepScopeMissing();
+  if (sleepUnscoped) return <SleepReconnectCard />;
   if (!section.present) return null;
   return <SleepCard section={section} href={href} />;
 }
 
 /**
- * Whether the Whoop connection is connected but missing a scope ingestion
- * needs. A REFINEMENT of `connected`, never a fourth status — the API keeps
- * capability off the lifecycle enum on purpose, so `error` is left to Settings,
- * which owns that copy.
+ * Whether the Whoop connection is connected but never consented to the SLEEP
+ * scope specifically (`missingSleepScope`, not "any missing scope" — a
+ * connection missing only, say, the workout scope ingests sleep perfectly, and
+ * asking the broader question would replace that user's real night with a
+ * prompt to enable tracking they already have).
+ *
+ * A REFINEMENT of `connected`, never a fourth status — the API keeps capability
+ * off the lifecycle enum on purpose, so `error` is left to Settings, which owns
+ * that copy.
  *
  * Defaults to false and stays false on a failed read, matching the Settings
  * row's own safe default: a failed connection read must never hide real data
@@ -68,8 +77,8 @@ export function SleepTile({ section, href }: { section: DashboardData["sleep"]; 
  * the tile rather than a skeleton — a night the user already has should not
  * wait on a second request to appear.
  */
-function useWhoopUnderScoped(): boolean {
-  const [underScoped, setUnderScoped] = useState(false);
+function useSleepScopeMissing(): boolean {
+  const [missing, setMissing] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -79,7 +88,7 @@ function useWhoopUnderScoped(): boolean {
       try {
         const conn = await getWhoopConnection(token);
         if (cancelled) return;
-        setUnderScoped(conn.status === "connected" && (conn.missing_scopes?.length ?? 0) > 0);
+        setMissing(missingSleepScope(conn));
       } catch {
         // Leave it false: see the note above.
       }
@@ -89,7 +98,7 @@ function useWhoopUnderScoped(): boolean {
     };
   }, []);
 
-  return underScoped;
+  return missing;
 }
 
 export function SleepCard({ section, href }: { section: SleepView; href: string }) {
@@ -116,7 +125,7 @@ export function SleepCard({ section, href }: { section: SleepView; href: string 
         />
         <div className="shrink-0 text-right">
           <div className="font-mono text-sm tabular-nums text-[var(--foreground)]">
-            {night.performancePct !== null ? `${Math.round(night.performancePct)}%` : "—"}
+            {formatSleepPercent(night.performancePct)}
           </div>
           <div className="text-[10px] text-[var(--muted)]">performance</div>
         </div>

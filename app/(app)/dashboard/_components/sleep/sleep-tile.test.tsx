@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 
 const getWhoopConnectionMock = vi.hoisted(() => vi.fn());
 
@@ -17,6 +17,20 @@ import { SleepCard, SleepTile } from "./sleep-tile";
 import { noDataView, partialNightView, scoredNightView } from "./fixtures";
 
 const HREF = "/recovery";
+
+/**
+ * Flush the connection read and the state update it schedules.
+ *
+ * Every assertion below that the reconnect prompt is ABSENT has to run AFTER
+ * the tile has decided, or it passes on the first paint — before the read
+ * resolves — and would keep passing however wrong the decision turns out to be.
+ * `waitFor(…toHaveBeenCalled())` is not enough: the call happens in the effect,
+ * one microtask ahead of the setState that acts on its answer.
+ */
+async function settleConnectionRead() {
+  await act(async () => {});
+  expect(getWhoopConnectionMock).toHaveBeenCalled();
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -54,10 +68,28 @@ describe("SleepCard", () => {
   it("a scored-but-partial night prints em dashes, never NaN", () => {
     const { container } = render(<SleepCard section={partialNightView()} href={HREF} />);
     // No awake reading → no asleep figure; a need with a hole → no need
-    // figure; no performance percentage either. Every one of them an em dash.
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    // figure; no performance percentage either. TWO figures degrade, and the
+    // test names which two: "something printed an em dash" would pass with the
+    // hero intact and the performance figure silently gone, or vice versa.
+    expect(screen.getAllByText("—")).toHaveLength(2);
+    expect(screen.getByText("asleep").previousElementSibling).toHaveTextContent("—");
+    expect(screen.getByText("performance").previousElementSibling).toHaveTextContent("—");
     expect(container.innerHTML).not.toContain("NaN");
     expect(screen.queryByText(/need/)).not.toBeInTheDocument();
+  });
+
+  it("a non-finite performance percentage degrades too, rather than printing NaN%", () => {
+    const view = scoredNightView();
+    const { container } = render(
+      <SleepCard
+        section={{ ...view, lastNight: { ...view.lastNight!, performancePct: Number.NaN } }}
+        href={HREF}
+      />,
+    );
+    expect(screen.getByText("performance").previousElementSibling).toHaveTextContent("—");
+    expect(container.innerHTML).not.toContain("NaN");
+    // The rest of the night is unaffected — one bad field, not a dead tile.
+    expect(screen.getByText("7h 23m")).toBeInTheDocument();
   });
 
   it("no night yet renders the tile's own empty state, not an error", () => {
@@ -71,7 +103,8 @@ describe("SleepCard", () => {
 describe("SleepTile — the three states, in order", () => {
   it("renders the card when the connection is connected and fully scoped", async () => {
     render(<SleepTile section={{ present: true, ...scoredNightView() }} href={HREF} />);
-    expect(await screen.findByText("7h 23m")).toBeInTheDocument();
+    await settleConnectionRead();
+    expect(screen.getByText("7h 23m")).toBeInTheDocument();
     expect(screen.queryByText(/Reconnect/)).not.toBeInTheDocument();
   });
 
@@ -92,6 +125,20 @@ describe("SleepTile — the three states, in order", () => {
     expect(screen.queryByText(/read:sleep/)).not.toBeInTheDocument();
   });
 
+  it("a connection missing an UNRELATED scope still shows the night it has", async () => {
+    // Sleep ingests fine for this user — only the workout path is skipped —
+    // so replacing a fully scored night with a prompt to enable sleep
+    // tracking they already have would be a lie the user cannot dismiss.
+    getWhoopConnectionMock.mockResolvedValue({
+      status: "connected",
+      missing_scopes: ["read:workout"],
+    });
+    render(<SleepTile section={{ present: true, ...scoredNightView() }} href={HREF} />);
+    await settleConnectionRead();
+    expect(screen.getByText("7h 23m")).toBeInTheDocument();
+    expect(screen.queryByText(/Reconnect/)).not.toBeInTheDocument();
+  });
+
   it("renders nothing at all when there is no connection", () => {
     getWhoopConnectionMock.mockResolvedValue({ status: "absent" });
     const { container } = render(<SleepTile section={{ present: false }} href={HREF} />);
@@ -101,7 +148,7 @@ describe("SleepTile — the three states, in order", () => {
   it("a failed connection read never hides real data behind a reconnect prompt", async () => {
     getWhoopConnectionMock.mockRejectedValue(new Error("boom"));
     render(<SleepTile section={{ present: true, ...scoredNightView() }} href={HREF} />);
-    await waitFor(() => expect(getWhoopConnectionMock).toHaveBeenCalled());
+    await settleConnectionRead();
     expect(screen.getByText("7h 23m")).toBeInTheDocument();
     expect(screen.queryByText(/Reconnect/)).not.toBeInTheDocument();
   });
@@ -118,7 +165,7 @@ describe("SleepTile — the three states, in order", () => {
     // and Settings owns that copy. Same ordering the Settings row pins.
     getWhoopConnectionMock.mockResolvedValue({ status: "error", missing_scopes: ["read:sleep"] });
     render(<SleepTile section={{ present: true, ...scoredNightView() }} href={HREF} />);
-    await waitFor(() => expect(getWhoopConnectionMock).toHaveBeenCalled());
+    await settleConnectionRead();
     expect(screen.queryByText(/Reconnect to enable sleep/)).not.toBeInTheDocument();
   });
 });

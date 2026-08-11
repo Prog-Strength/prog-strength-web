@@ -16,6 +16,13 @@
  * the bar's own empty track rather than four NaN widths.
  *
  * Colour is `shared.ts`'s ordinal ramp; this file holds no palette of its own.
+ *
+ * ACCESSIBILITY follows the sibling data graphics (`recovery/trend-rail.tsx`,
+ * `recovery/balance-band.tsx`): ONE `role="img"` with a summary label on the
+ * track, and plain spans for the marks. The whole tile is a link, so making
+ * every segment focusable would spend four tab stops on which Enter does
+ * nothing — the durations belong in the summary a screen reader already reads,
+ * not behind four stops. Hover keeps its per-segment `title`.
  */
 
 import type { SleepNightView } from "@/lib/dashboard";
@@ -31,10 +38,14 @@ import {
 const TRACK = "flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]";
 
 export function StageBar({ night, className }: { night: SleepNightView; className?: string }) {
-  const segments: { stage: SleepStage; ms: number }[] = [];
+  const segments: { stage: SleepStage; ms: number; label: string }[] = [];
   for (const stage of STAGE_ORDER) {
     const ms = stageMilli(night, stage);
-    if (ms !== null && Number.isFinite(ms) && ms > 0) segments.push({ stage, ms });
+    // The name is built once and used for both the pointer affordance (`title`)
+    // and the accessible one (the track's summary), so hover and screen reader
+    // report the same duration rather than drifting apart.
+    if (ms !== null && Number.isFinite(ms) && ms > 0)
+      segments.push({ stage, ms, label: `${stageLabel(stage)} ${formatSleepDuration(ms)}` });
   }
   const total = segments.reduce((sum, s) => sum + s.ms, 0);
 
@@ -49,26 +60,23 @@ export function StageBar({ night, className }: { night: SleepNightView; classNam
   }
 
   return (
-    <div className={`${TRACK} ${className ?? ""}`}>
-      {segments.map(({ stage, ms }) => {
-        // The name is built once and used for both the pointer affordance
-        // (`title`) and the accessible one (`aria-label`), so hover and focus
-        // report the same duration rather than drifting apart.
-        const label = `${stageLabel(stage)} ${formatSleepDuration(ms)}`;
-        return (
-          <span
-            key={stage}
-            data-stage={stage}
-            role="img"
-            aria-label={label}
-            title={label}
-            // Focusable so the per-stage duration is not a mouse-only fact.
-            tabIndex={0}
-            className="h-full focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent)]"
-            style={{ width: `${(ms / total) * 100}%`, backgroundColor: stageColor(stage) }}
-          />
-        );
-      })}
+    <div
+      className={`${TRACK} ${className ?? ""}`}
+      role="img"
+      aria-label={`Sleep stages: ${segments.map((s) => s.label).join(", ")}`}
+    >
+      {segments.map(({ stage, ms, label }) => (
+        <span
+          key={stage}
+          data-stage={stage}
+          // Hover keeps its per-stage duration; the reading of it lives in the
+          // track's one label above.
+          title={label}
+          aria-hidden="true"
+          className="h-full"
+          style={{ width: `${(ms / total) * 100}%`, backgroundColor: stageColor(stage) }}
+        />
+      ))}
     </div>
   );
 }

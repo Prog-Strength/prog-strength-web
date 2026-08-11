@@ -99,7 +99,7 @@ describe("WhoopConnectionRow", () => {
   // permanently missing sleep until the user re-consents. That is a capability
   // axis separate from `status` — these tests pin it as a refinement of
   // "connected", never a fourth status.
-  it("renders the sleep reconnect copy and Reconnect when a scope is missing", async () => {
+  it("renders the sleep reconnect copy and Reconnect when the sleep scope is missing", async () => {
     getWhoopConnectionMock.mockResolvedValue({
       status: "connected",
       connected_at: "2026-05-01T00:00:00Z",
@@ -107,10 +107,39 @@ describe("WhoopConnectionRow", () => {
     });
     render(<WhoopConnectionRow />);
     expect(await screen.findByRole("button", { name: "Reconnect" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+    // ALONGSIDE Disconnect, never instead of it: this connection works and is
+    // still syncing recovery, so revoking it has to stay possible.
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
     expect(screen.getByText(/sleep tracking/)).toBeInTheDocument();
     // Product terms only — `read:sleep` is not a user-facing noun.
     expect(screen.queryByText(/read:sleep/)).not.toBeInTheDocument();
+  });
+
+  it("still disconnects an under-scoped connection", async () => {
+    getWhoopConnectionMock.mockResolvedValueOnce({
+      status: "connected",
+      missing_scopes: ["read:sleep"],
+    });
+    getWhoopConnectionMock.mockResolvedValueOnce({ status: "absent" });
+    render(<WhoopConnectionRow />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(disconnectWhoopMock).toHaveBeenCalledWith("test-token"));
+    expect(await screen.findByRole("button", { name: "Connect Whoop" })).toBeInTheDocument();
+  });
+
+  it("prefers a truthful generic line when the missing scope is not sleep", async () => {
+    // Naming sleep here would be a wrong specific sentence: sleep is ingesting
+    // fine for this connection.
+    getWhoopConnectionMock.mockResolvedValue({
+      status: "connected",
+      missing_scopes: ["read:workout"],
+    });
+    render(<WhoopConnectionRow />);
+    expect(await screen.findByRole("button", { name: "Reconnect" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(screen.queryByText(/sleep tracking/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Reconnect to enable the rest/)).toBeInTheDocument();
+    expect(screen.queryByText(/read:workout/)).not.toBeInTheDocument();
   });
 
   it("keeps the connected copy and Disconnect when missing_scopes is empty", async () => {
