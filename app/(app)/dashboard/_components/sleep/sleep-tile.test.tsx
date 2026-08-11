@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 
 const getWhoopConnectionMock = vi.hoisted(() => vi.fn());
 
@@ -15,8 +15,29 @@ vi.mock("@/lib/auth", () => ({
 
 import { SleepCard, SleepTile } from "./sleep-tile";
 import { noDataView, partialNightView, scoredNightView } from "./fixtures";
+import type { SleepStage } from "./shared";
 
 const HREF = "/recovery";
+
+/**
+ * The scored fixture's legend row, stage by stage: 1h 32m deep, 3h 55m light,
+ * 1h 56m REM, 42m awake. LITERALS, deliberately not `formatSleepDuration` over
+ * the fixture — a test that reruns the component's own formatter compares it to
+ * itself and would keep passing if both stopped printing a duration at all.
+ */
+const STAGE_DURATIONS: [SleepStage, string, string][] = [
+  ["slowWave", "Deep", "1h 32m"],
+  ["light", "Light", "3h 55m"],
+  ["rem", "REM", "1h 56m"],
+  ["awake", "Awake", "42m"],
+];
+
+/** One stage's legend entry — the swatch, its word, and its duration. */
+function legendItem(container: HTMLElement, stage: SleepStage): HTMLElement {
+  const item = container.querySelector<HTMLElement>(`[data-stage-legend="${stage}"]`);
+  if (!item) throw new Error(`no legend entry for ${stage}`);
+  return item;
+}
 
 /**
  * Flush the connection read and the state update it schedules.
@@ -60,6 +81,31 @@ describe("SleepCard", () => {
     }
   });
 
+  it("prints every stage's duration in the legend, not behind a pointer", () => {
+    // The regression this pins: the bar's segments carry their durations in a
+    // `title`, which only a pointer ever sees. A keyboard-only sighted user has
+    // to be able to read the same four numbers WITHOUT hovering and without
+    // spending a tab stop inside the tile's link — so they are printed.
+    const { container } = render(<SleepCard section={scoredNightView()} href={HREF} />);
+    for (const [stage, word, duration] of STAGE_DURATIONS) {
+      const item = legendItem(container, stage);
+      expect(within(item).getByText(word)).toBeInTheDocument();
+      expect(within(item).getByText(duration)).toBeInTheDocument();
+    }
+    // No focusable segment or legend chip was added to get them there.
+    expect(container.querySelectorAll("[tabindex]")).toHaveLength(0);
+  });
+
+  it("the legend keeps a stage the night has no reading for, as an em dash", () => {
+    // A key whose entries come and go is a key nobody learns, and "Whoop sent
+    // no deep-sleep figure" is a different fact from "no deep sleep".
+    const { container } = render(<SleepCard section={partialNightView()} href={HREF} />);
+    expect(within(legendItem(container, "slowWave")).getByText("—")).toBeInTheDocument();
+    expect(within(legendItem(container, "awake")).getByText("—")).toBeInTheDocument();
+    expect(within(legendItem(container, "light")).getByText("4h 0m")).toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("NaN");
+  });
+
   it("links into the recovery page, the tile's interim deep link", () => {
     render(<SleepCard section={scoredNightView()} href={HREF} />);
     expect(screen.getByRole("link")).toHaveAttribute("href", HREF);
@@ -68,10 +114,11 @@ describe("SleepCard", () => {
   it("a scored-but-partial night prints em dashes, never NaN", () => {
     const { container } = render(<SleepCard section={partialNightView()} href={HREF} />);
     // No awake reading → no asleep figure; a need with a hole → no need
-    // figure; no performance percentage either. TWO figures degrade, and the
-    // test names which two: "something printed an em dash" would pass with the
-    // hero intact and the performance figure silently gone, or vice versa.
-    expect(screen.getAllByText("—")).toHaveLength(2);
+    // figure; no performance percentage either. FOUR figures degrade — those
+    // two, plus the two stages the legend still prints with no reading behind
+    // them — and the test names each: "something printed an em dash" would pass
+    // with the hero intact and the performance figure silently gone.
+    expect(screen.getAllByText("—")).toHaveLength(4);
     expect(screen.getByText("asleep").previousElementSibling).toHaveTextContent("—");
     expect(screen.getByText("performance").previousElementSibling).toHaveTextContent("—");
     expect(container.innerHTML).not.toContain("NaN");

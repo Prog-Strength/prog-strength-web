@@ -21,8 +21,13 @@
  * `recovery/balance-band.tsx`): ONE `role="img"` with a summary label on the
  * track, and plain spans for the marks. The whole tile is a link, so making
  * every segment focusable would spend four tab stops on which Enter does
- * nothing — the durations belong in the summary a screen reader already reads,
- * not behind four stops. Hover keeps its per-segment `title`.
+ * nothing.
+ *
+ * The per-segment `title` is therefore the POINTER affordance and nothing more
+ * — a `title` never reaches a keyboard-only sighted user. The durations proper
+ * are printed in the tile's legend (`sleep-tile.tsx`), which every user sees
+ * whatever they are driving; the track's summary label carries them for a
+ * screen reader. Nothing about a stage's duration is behind hover alone.
  */
 
 import type { SleepNightView } from "@/lib/dashboard";
@@ -69,8 +74,8 @@ export function StageBar({ night, className }: { night: SleepNightView; classNam
         <span
           key={stage}
           data-stage={stage}
-          // Hover keeps its per-stage duration; the reading of it lives in the
-          // track's one label above.
+          // Hover keeps its per-stage duration as a convenience; the readable
+          // copies live in the track's one label above and in the legend.
           title={label}
           aria-hidden="true"
           className="h-full"

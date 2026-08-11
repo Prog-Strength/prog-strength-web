@@ -7,7 +7,9 @@
  *      percentage as the qualifier. This is the figure the user asked for and
  *      no existing tile shows.
  *   2. WHAT KIND OF SLEEP WAS IT? — one stacked stage bar plus a compact legend
- *      (see `stage-bar.tsx` for why a part-to-whole mark is the right one).
+ *      that names AND times every stage (see `stage-bar.tsx` for why a
+ *      part-to-whole mark is the right one, and `Legend` below for why the
+ *      durations are printed rather than left on the bar's hover).
  *
  * Two components live here on purpose. `SleepCard` is pure and takes a
  * `SleepView`, so every rendering case is testable without a network. `SleepTile`
@@ -33,7 +35,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { DashboardData, SleepView } from "@/lib/dashboard";
+import type { DashboardData, SleepNightView, SleepView } from "@/lib/dashboard";
 import { getWhoopConnection } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { missingSleepScope } from "@/lib/whoop";
@@ -49,6 +51,7 @@ import {
   sleepNeedMilli,
   stageColor,
   stageLabel,
+  stageMilli,
 } from "./shared";
 
 const TITLE = "Sleep";
@@ -131,27 +134,50 @@ export function SleepCard({ section, href }: { section: SleepView; href: string 
         </div>
       </div>
       <StageBar night={night} />
-      <Legend />
+      <Legend night={night} />
     </MiniCard>
   );
 }
 
 /**
- * The ramp's key. All four stages always print, including one the night is
- * missing: this is a legend for the encoding, not a second copy of the data,
- * and a key whose entries appear and disappear is a key nobody learns.
+ * The ramp's key, and the night's stage durations.
+ *
+ * All four stages always print, including one the night is missing (which reads
+ * as an em dash): a key whose entries appear and disappear is a key nobody
+ * learns, and an absent stage is a fact worth showing rather than a row that
+ * silently vanishes.
+ *
+ * THE DURATIONS LIVE HERE, not only on the bar. The bar's segments carry a
+ * `title` for the pointer, but a `title` is a pointer affordance and nothing
+ * else — a keyboard-only sighted user never sees one. The alternative, making
+ * each segment focusable, spends four tab stops inside the tile's own link on
+ * which Enter does nothing. Printing the durations in the legend costs no tab
+ * stop, is visible to every user regardless of input device, and removes the
+ * hover/focus asymmetry the SOW's "durations on hover/focus" asks about rather
+ * than papering over it.
+ *
+ * Two columns rather than one wrapping row: four `Deep 1h 32m` items are wider
+ * than the tile at every grid breakpoint but the widest, so a single row would
+ * wrap 3-and-1 and read ragged. A 2×2 key wraps by construction, and the
+ * durations align in their two columns.
+ *
+ * `formatSleepDuration` is the bar's own formatter — a second copy is how the
+ * legend and the bar's tooltip start disagreeing about the same minute.
  */
-function Legend() {
+function Legend({ night }: { night: SleepNightView }) {
   return (
-    <div className="-mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[var(--faint)]">
+    <div className="-mb-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-[var(--faint)]">
       {STAGE_ORDER.map((stage) => (
-        <span key={stage} className="inline-flex items-center gap-1">
+        <span key={stage} data-stage-legend={stage} className="flex items-center gap-1">
           <span
             aria-hidden="true"
-            className="inline-block h-1.5 w-1.5 rounded-[1px]"
+            className="inline-block h-1.5 w-1.5 shrink-0 rounded-[1px]"
             style={{ backgroundColor: stageColor(stage) }}
           />
-          {stageLabel(stage)}
+          <span>{stageLabel(stage)}</span>
+          <span className="ml-auto font-mono tabular-nums text-[var(--muted)]">
+            {formatSleepDuration(stageMilli(night, stage))}
+          </span>
         </span>
       ))}
     </div>
