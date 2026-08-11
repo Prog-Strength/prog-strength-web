@@ -12,6 +12,7 @@ import { disconnectWhoop, getWhoopConnection, type WhoopConnection } from "@/lib
  * immediate, out-of-band actions (never governed by the profile draft/SaveBar).
  *
  * States:
+ *   - connected but under-scoped → what is missing, in product terms + Reconnect.
  *   - connected → "Connected." (+ connected-since date when present) + Disconnect.
  *   - error → an "attention" line + Reconnect (same OAuth navigation as Connect).
  *   - absent / revoked → recovery-sync copy + Connect Whoop.
@@ -84,14 +85,28 @@ export function WhoopConnectionRow() {
   const status = conn?.status;
   const connected = status === "connected";
   const errored = status === "error";
+  /**
+   * Connected, valid, and still syncing recovery — but missing a scope the
+   * user never consented to, so the paths needing it are skipped forever until
+   * they re-consent (a Whoop grant is fixed at consent; a token refresh
+   * re-sends the scope string but cannot WIDEN the grant).
+   *
+   * This is a REFINEMENT of `connected`, not a sibling status — the API
+   * deliberately keeps capability off the lifecycle enum, so every branch below
+   * must test it BEFORE `connected` or the ordinary connected copy wins and the
+   * affordance the user needs never appears.
+   */
+  const underScoped = connected && (conn?.missing_scopes?.length ?? 0) > 0;
 
   const statusCopy = loading
     ? "Checking connection…"
-    : connected
-      ? connectedCopy(conn?.connected_at)
-      : errored
-        ? "Your Whoop connection needs attention — reconnect to resume syncing."
-        : "Connect Whoop to sync your daily recovery and strain.";
+    : underScoped
+      ? "Reconnect to enable sleep tracking — your Whoop connection predates it."
+      : connected
+        ? connectedCopy(conn?.connected_at)
+        : errored
+          ? "Your Whoop connection needs attention — reconnect to resume syncing."
+          : "Connect Whoop to sync your daily recovery and strain.";
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -100,7 +115,7 @@ export function WhoopConnectionRow() {
         <p className="text-xs text-[var(--muted)]">{statusCopy}</p>
       </div>
       <div className="shrink-0">
-        {connected ? (
+        {connected && !underScoped ? (
           <button
             type="button"
             onClick={disconnect}
@@ -116,7 +131,7 @@ export function WhoopConnectionRow() {
             disabled={loading}
             className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-fg)] transition hover:opacity-80 disabled:opacity-50"
           >
-            {errored ? "Reconnect" : "Connect Whoop"}
+            {errored || underScoped ? "Reconnect" : "Connect Whoop"}
           </button>
         )}
       </div>
