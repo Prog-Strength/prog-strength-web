@@ -5,6 +5,7 @@ import type {
   DashboardRecoveryBaselineTrend,
   DashboardRecoveryHrv,
   DashboardRunning,
+  DashboardSleepNight,
   DashboardSummary,
   ResolvedProfile,
 } from "@/lib/api";
@@ -710,6 +711,146 @@ describe("adaptDashboard — recovery (Whoop)", () => {
       zScore: -0.53,
       status: "balanced",
     });
+  });
+});
+
+/** A night with every metric absent — the shape of a date in the window that
+ *  has no record at all. Overrides fill in the ones a case cares about. */
+function sleepNight(over: Partial<DashboardSleepNight> = {}): DashboardSleepNight {
+  return {
+    date: "2026-08-10",
+    in_bed_milli: null,
+    awake_milli: null,
+    no_data_milli: null,
+    light_sleep_milli: null,
+    slow_wave_sleep_milli: null,
+    rem_sleep_milli: null,
+    sleep_cycle_count: null,
+    disturbance_count: null,
+    need_baseline_milli: null,
+    need_from_sleep_debt_milli: null,
+    need_from_strain_milli: null,
+    need_from_nap_milli: null,
+    respiratory_rate: null,
+    performance_pct: null,
+    consistency_pct: null,
+    efficiency_pct: null,
+    ...over,
+  };
+}
+
+describe("adaptDashboard — sleep (Whoop)", () => {
+  it("marks an absent sleep section as not present (tile not in the layout)", () => {
+    const data = adaptDashboard(fullSummary, profile());
+    expect(data.sleep).toEqual({ present: false });
+  });
+
+  it("marks a null sleep section as not present (unconnected user)", () => {
+    const data = adaptDashboard({ ...fullSummary, sleep: null }, profile());
+    expect(data.sleep).toEqual({ present: false });
+  });
+
+  it("collapses a null summary's sleep to not present", () => {
+    expect(adaptDashboard(null, profile()).sleep).toEqual({ present: false });
+  });
+
+  it("renames last night's figures without converting or re-deriving them", () => {
+    const data = adaptDashboard(
+      {
+        ...fullSummary,
+        sleep: {
+          last_night: sleepNight({
+            date: "2026-08-11",
+            in_bed_milli: 27_720_000,
+            awake_milli: 1_800_000,
+            no_data_milli: 0,
+            light_sleep_milli: 12_600_000,
+            slow_wave_sleep_milli: 7_020_000,
+            rem_sleep_milli: 6_300_000,
+            sleep_cycle_count: 5,
+            disturbance_count: 9,
+            need_baseline_milli: 28_800_000,
+            need_from_sleep_debt_milli: 1_200_000,
+            need_from_strain_milli: 900_000,
+            need_from_nap_milli: -600_000,
+            respiratory_rate: 14.7,
+            performance_pct: 88,
+            consistency_pct: 74,
+            efficiency_pct: 93.5,
+          }),
+          nights: [],
+        },
+      },
+      profile(),
+    );
+    if (!data.sleep.present) throw new Error("sleep absent");
+
+    // Milliseconds stay milliseconds: the tile formats, the adapter does not.
+    expect(data.sleep.lastNight).toEqual({
+      date: "2026-08-11",
+      inBedMilli: 27_720_000,
+      awakeMilli: 1_800_000,
+      noDataMilli: 0,
+      lightSleepMilli: 12_600_000,
+      slowWaveSleepMilli: 7_020_000,
+      remSleepMilli: 6_300_000,
+      sleepCycleCount: 5,
+      disturbanceCount: 9,
+      needBaselineMilli: 28_800_000,
+      needFromSleepDebtMilli: 1_200_000,
+      needFromStrainMilli: 900_000,
+      // A nap DISCHARGES need, so this component is legitimately negative and
+      // must survive the adapter with its sign.
+      needFromNapMilli: -600_000,
+      respiratoryRate: 14.7,
+      performancePct: 88,
+      consistencyPct: 74,
+      efficiencyPct: 93.5,
+    });
+  });
+
+  it("keeps a null last_night null rather than promoting a night out of the window", () => {
+    const data = adaptDashboard(
+      {
+        ...fullSummary,
+        sleep: { last_night: null, nights: [sleepNight({ date: "2026-08-09" })] },
+      },
+      profile(),
+    );
+    if (!data.sleep.present) throw new Error("sleep absent");
+    expect(data.sleep.lastNight).toBeNull();
+    expect(data.sleep.nights).toHaveLength(1);
+  });
+
+  it("keeps the nights window oldest→newest with its gaps as null-metric entries", () => {
+    const data = adaptDashboard(
+      {
+        ...fullSummary,
+        sleep: {
+          last_night: null,
+          nights: [
+            sleepNight({ date: "2026-08-09", in_bed_milli: 25_200_000, performance_pct: 71 }),
+            // An interior gap: the date is present, its metrics are null. A
+            // night with no data and a night of zero sleep are different facts.
+            sleepNight({ date: "2026-08-10" }),
+            sleepNight({ date: "2026-08-11", in_bed_milli: 28_800_000, performance_pct: 90 }),
+          ],
+        },
+      },
+      profile(),
+    );
+    if (!data.sleep.present) throw new Error("sleep absent");
+
+    expect(data.sleep.nights.map((n) => n.date)).toEqual([
+      "2026-08-09",
+      "2026-08-10",
+      "2026-08-11",
+    ]);
+    expect(data.sleep.nights[1].inBedMilli).toBeNull();
+    expect(data.sleep.nights[1].performancePct).toBeNull();
+    // Never coerced to 0 — that would read as "slept nothing".
+    expect(data.sleep.nights[1].inBedMilli).not.toBe(0);
+    expect(data.sleep.nights[2].inBedMilli).toBe(28_800_000);
   });
 });
 

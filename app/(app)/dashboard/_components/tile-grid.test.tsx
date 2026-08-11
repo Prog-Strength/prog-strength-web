@@ -21,6 +21,7 @@ function fixture(): DashboardData {
     bloodPressure: { present: false },
     quote: { present: false },
     recovery: { present: false },
+    sleep: { present: false },
     streak: {
       weeks: 3,
       activeDaysThisWeek: 2,
