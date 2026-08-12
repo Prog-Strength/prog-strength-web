@@ -80,13 +80,22 @@ describe("rankOf", () => {
     expect(rankOf([47, 50, 50, 59], 49.6)).toBe(2);
   });
 
-  // The round-DOWN direction, and the case that actually discriminates: with no
-  // rounding at all, 49.4 counts both 49s below it and ranks 4th rather than
-  // 2nd — the card would print `49` and caption it `4th lowest`. (The 49.6 case
-  // above cannot catch that: no integer lies between 49.6 and 50.)
+  // The two directions of the rounding, over a strip holding the integer BELOW
+  // the float — the shape the case above cannot have, since no integer lies
+  // between 49.6 and 50. Between them they admit only `Math.round`, which is
+  // the rounding the card displays with:
+  //
+  //   49.4 kills `Math.ceil` and no rounding at all (both rank it 4th, so the
+  //   card would print `49` and caption it `4th lowest` past two 49s);
+  //   49.6 kills `Math.floor` and `Math.trunc` (both rank it 2nd, so the card
+  //   would print `50` and caption it `2nd lowest` ahead of two 49s).
   it("ranks a float that rounds down where its printed integer ranks", () => {
     expect(rankOf([47, 49, 49, 59], 49.4)).toBe(rankOf([47, 49, 49, 59], 49));
     expect(rankOf([47, 49, 49, 59], 49.4)).toBe(2);
+  });
+
+  it("ranks a float that rounds up above the values it passed", () => {
+    expect(rankOf([47, 49, 49, 59], 49.6)).toBe(4);
   });
 
   it("is null when there is no reading yet today", () => {
