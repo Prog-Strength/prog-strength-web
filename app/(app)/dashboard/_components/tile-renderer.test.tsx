@@ -52,6 +52,7 @@ describe("TileCard", () => {
     ["hrv_balance", "HRV Balance"],
     ["morning_vitals", "Morning Vitals"],
     ["recovery_log", "Recovery Log"],
+    ["resting_hr", "Resting HR"],
   ];
 
   it.each(FAMILY)("renders the %s card from the shared recovery section", (id, title) => {
