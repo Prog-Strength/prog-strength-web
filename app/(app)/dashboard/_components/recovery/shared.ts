@@ -183,6 +183,23 @@ export type RecoveryBand = "green" | "yellow" | "red" | "none";
  * introduces no statistics. Single-sourced here for the reason this file
  * already exists: three hand-rolled copies of a threshold switch is how `52`
  * ends up green on one tile and yellow on another.
+ *
+ * This is NOT the only `recoveryBand` in the repo. `lib/recovery.ts` already
+ * exports `RecoveryBand`, `recoveryBand` and `recoveryBandColor` at these same
+ * cut points, and the `/recovery` deep page this tile links into consumes them
+ * (`recovery-hero.tsx`, `recovery-log.tsx`). The two agree exactly today — same
+ * 67/33 boundaries, same `--success`/`--warning`/`--danger` tokens — so what
+ * splits them is vocabulary, not values: `lib/recovery.ts` names the bands after
+ * the tokens they paint and takes a non-null score, while this one names them
+ * after Whoop's own green/yellow/red, carries a fourth `"none"` member for a
+ * morning with no score, and pairs each band with a display word. Those last two
+ * are concepts `lib/recovery.ts` has no notion of, which is why this file did
+ * not simply import it.
+ *
+ * Reconciling the two is deliberately out of this SOW's scope. Picking a single
+ * owner for the vocabulary means changing `lib/recovery.ts`'s consumers, and the
+ * SOW's non-goals are explicit that there is no `/recovery` deep-page change in
+ * this work. It is a follow-up, and the owner's call which module wins.
  */
 export function recoveryBand(score: number | null): RecoveryBand {
   if (score === null) return "none";

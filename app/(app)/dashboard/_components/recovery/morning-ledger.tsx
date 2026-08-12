@@ -84,7 +84,7 @@ function railLabel(rail: RecoveryDayPoint[], avg: number | null): string {
   const window = `${rail.length} days of recovery score, ${readings} with readings`;
   return avg === null
     ? `${window}, with no 30-day average yet.`
-    : `${window}, against a 30-day average of ${Math.round(avg)}.`;
+    : `${window}, against a 30-day average of ${round(avg)}.`;
 }
 
 export function MorningLedgerCard({ section, href }: { section: RecoveryView; href: string }) {
@@ -173,6 +173,16 @@ function RailBar({ day }: { day: RecoveryDayPoint }) {
   // empty position in a rack, not a very short bar. Differing in KIND rather
   // than in height is what keeps a strap-off day from reading as a score of 2,
   // and it is what makes a sparse fortnight look intentional rather than broken.
+  //
+  // The ghost is deliberately near-invisible: `--surface-2` at 0.6 composites to
+  // #171a1f over the card's `--surface`, which is 1.03:1 — an absence rendering
+  // as very nearly empty space is the intended reading. Do NOT "fix" this with
+  // the argument that stepped the baseline tick up from `--border-strong` ten
+  // lines above; that argument does not carry here. The tick is a thin datum
+  // that must be found, while the ghost runs the FULL height of the rail, so
+  // giving it real contrast would make every absence the tallest, loudest mark
+  // on a chart where height means score — a missing morning would tower over a
+  // real 78 (31.2px of 40) and invert the encoding.
   if (score === null) {
     return (
       <div
