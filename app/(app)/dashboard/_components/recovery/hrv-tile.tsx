@@ -66,8 +66,8 @@ export function HrvTileCard({ section, href }: { section: RecoveryView; href: st
   const swiped = useRef(false);
 
   // The one guard for the whole tile. `null` means the baseline is not
-  // established yet — the honest n-of-floor progress state, with no pager,
-  // because there is nothing yet to page BETWEEN.
+  // established yet — the honest n-of-N progress state, with no pager, because
+  // there is nothing yet to page BETWEEN.
   const chart = prepareHrvChart(section);
   if (!chart) {
     return (
