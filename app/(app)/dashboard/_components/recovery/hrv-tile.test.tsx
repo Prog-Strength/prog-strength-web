@@ -100,30 +100,42 @@ describe("HrvTileCard", () => {
     expect(view(container, "balance").getAttribute("aria-hidden")).toBeNull();
   });
 
-  it("the two views never disagree about a night", () => {
-    // The pin for the whole merge: every night's chart dot and rail mark come
-    // from one classification, so they carry the same token and the same
-    // weight. A night the chart calls balanced cannot be a night the rail calls
-    // anything else.
+  it("the two views divide the subject: the week's pattern, and the nights", () => {
+    // The merge's contract, restated for the smoothed chart. The balance view
+    // plots the 7-DAY MEAN — one mark per drawn day, six of the 31 held back as
+    // lead-in for the first window — while the rail still marks every night. The
+    // two therefore answer different questions and cannot contradict each other
+    // about a night, because only one of them is about nights at all.
     const { container } = renderTile(risingView());
     const dots = Array.from(view(container, "balance").querySelectorAll("circle"));
     const marks = Array.from(view(container, "trend").querySelectorAll('[role="img"] > span'));
     const days = risingView().days!;
 
     expect(marks).toHaveLength(days.length);
-    let dot = 0;
-    days.forEach((day, i) => {
-      const mark = marks[i] as HTMLElement;
-      if (day.hrv === null) {
-        // No reading: no dot at all on the chart, a blank slot on the rail.
-        expect(mark.style.backgroundColor).toBe("var(--surface-2)");
-        return;
-      }
-      const circle = dots[dot++];
-      expect(mark.style.backgroundColor).toBe(circle.getAttribute("fill"));
-      expect(mark.style.opacity).toBe(circle.getAttribute("fill-opacity"));
-    });
-    expect(dot).toBe(dots.length);
+    expect(dots).toHaveLength(days.length - 6);
+    // The rail's blank slots are still the nights with no reading.
+    const blank = marks.filter(
+      (m) => (m as HTMLElement).style.backgroundColor === "var(--surface-2)",
+    );
+    expect(blank).toHaveLength(days.filter((d) => d.hrv === null).length);
+  });
+
+  it("one figure, three registers: the curve ends where the gauge points", () => {
+    // What the merge pins now. `short_avg` is printed at 28px, positioned by the
+    // gauge tick, and drawn as the curve's last mark — the same number in three
+    // places, so the colour of the tick and of the final dot are one value.
+    const { container } = renderTile(risingView());
+    const balance = view(container, "balance");
+    const dots = Array.from(balance.querySelectorAll("circle"));
+    const tick = balance.querySelector('[data-testid="gauge-tick"]');
+
+    expect(within(balance).getByText("93")).toBeInTheDocument(); // shortAvg 92.8
+    expect(dots.at(-1)!.getAttribute("fill")).toBe(
+      tick
+        ?.getAttribute("style")
+        ?.match(/background-color:\s*([^;]+)/)?.[1]
+        .trim(),
+    );
   });
 
   it("one verdict per question: last night's word and the week's colour", () => {

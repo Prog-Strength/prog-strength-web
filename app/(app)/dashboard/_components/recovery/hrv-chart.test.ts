@@ -4,7 +4,11 @@ import {
   bandRuns,
   classifyNights,
   gaugeTickPct,
+  MIN_ROLLING_NIGHTS,
   prepareHrvChart,
+  rollingAverages,
+  rollingRuns,
+  ROLLING_WINDOW_NIGHTS,
   scaler,
   weekStatus,
 } from "./hrv-chart";
@@ -41,6 +45,17 @@ function unbanded(over: Partial<RecoveryDayPoint> = {}): RecoveryDayPoint {
     status: "unknown",
     ...over,
   });
+}
+
+/**
+ * A dated run of days from a reading series, banded like `day()` unless told
+ * otherwise. Long enough series matter here: the rolling mean needs seven
+ * mornings behind it before it emits anything at all.
+ */
+function run(hrv: (number | null)[], over: Partial<RecoveryDayPoint> = {}): RecoveryDayPoint[] {
+  return hrv.map((v, i) =>
+    day({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, hrv: v, ...over }),
+  );
 }
 
 function view(over: Partial<RecoveryView> = {}): RecoveryView {
@@ -220,23 +235,69 @@ describe("prepareHrvChart — the single guard", () => {
     expect(prepared!.today.hrv).toBeNull();
   });
 
-  test("the domain spans marks outside the band at BOTH ends, with 5 ms headroom", () => {
-    const days = [
-      day({ date: "2026-07-30", hrv: 60, balancedLow: 72, balancedHigh: 104 }),
-      day({ date: "2026-07-31", hrv: 130, balancedLow: 71, balancedHigh: 105 }),
-      unbanded({ date: "2026-08-01", hrv: 90 }),
-    ];
-    const prepared = prepareHrvChart(view({ days }));
-    expect(prepared!.domain).toEqual([55, 135]);
+  test("a wild NIGHT does not stretch the domain — only the means are drawn", () => {
+    // Six ordinary 60 ms nights, then two of 130. Nothing plots 130: the two
+    // rolling means it lands in are 60 and 70, and a domain stretched to 135 for
+    // a reading no longer on the chart would squash the curve into a fifth of
+    // the box. The scalar bounds (76 / 100) hold the top; the 60 ms mean the
+    // bottom.
+    const days = run([60, 60, 60, 60, 60, 60, 60, 130, 130]);
+    const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: 90 } }));
+    expect(prepared!.rolling.map((p) => p?.avg)).toEqual([60, 70, 90]);
+    expect(prepared!.domain).toEqual([55, 105]);
   });
 
-  test("the domain follows the per-day band bounds when no mark is extreme", () => {
-    const days = [
-      day({ date: "2026-07-31", hrv: 88, balancedLow: 65, balancedHigh: 111 }),
-      day({ date: "2026-08-01", hrv: 90, balancedLow: 70, balancedHigh: 106 }),
-    ];
-    const prepared = prepareHrvChart(view({ days }));
-    expect(prepared!.domain).toEqual([60, 116]);
+  test("the domain follows the DRAWN days' bands, not the lead-in's", () => {
+    // The first six days are lead-in — never drawn — so the freakishly wide band
+    // they carry must not open the axis under a curve drawn beside a narrow one.
+    const days = run(Array(9).fill(90)).map((d, i) =>
+      i < 6 ? { ...d, balancedLow: 40, balancedHigh: 140 } : d,
+    );
+    const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: 90 } }));
+    expect(prepared!.domain).toEqual([71, 105]);
+  });
+
+  test("the series is the tail the rolling window reaches, and its dates align", () => {
+    const days = run([80, 82, 84, 86, 88, 90, 92, 94, 96, 98]);
+    const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: 95 } }));
+
+    // Ten days in, six of lead-in, four drawn — and `days` is untouched, because
+    // the trend rail still paints every night of it.
+    expect(prepared!.days).toHaveLength(10);
+    expect(prepared!.series).toHaveLength(days.length - (ROLLING_WINDOW_NIGHTS - 1));
+    expect(prepared!.rolling).toHaveLength(prepared!.series.length);
+    expect(prepared!.series[0].date).toBe(days[6].date);
+    expect(prepared!.series.at(-1)!.date).toBe(days.at(-1)!.date);
+  });
+
+  test("the curve ENDS on short_avg itself — never on a client re-average", () => {
+    // The last seven readings average 95, but the server says the 7-day mean is
+    // 88.4. The server wins, and the mark takes the WEEK's status with it, so
+    // the dot the eye lands on, the 28px headline and the gauge tick are one
+    // figure rather than three that ought to agree.
+    const days = run([80, 82, 84, 86, 88, 90, 92, 94, 96, 98]);
+    const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: 88.4 } }));
+
+    expect(prepared!.rolling.at(-1)).toEqual({ avg: 88.4, status: "balanced" });
+    expect(prepared!.rolling.at(-1)!.status).toBe(prepared!.week);
+    expect(prepared!.shortAvg).toBe(88.4);
+  });
+
+  test("no 7-day mean means no final mark, rather than one the server disowns", () => {
+    const days = run([80, 82, 84, 86, 88, 90, 92, 94, 96, 98]);
+    const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: null } }));
+    expect(prepared!.rolling.at(-1)).toBeNull();
+    // The earlier points are unaffected — only the endpoint is the server's.
+    expect(prepared!.rolling.filter((p) => p !== null)).toHaveLength(3);
+  });
+
+  test("a window too short for any mean draws nothing rather than throwing", () => {
+    // The three-day view every guard test uses. Its last day still carries the
+    // server's mean, so the series is exactly that one day.
+    const prepared = prepareHrvChart(view());
+    expect(prepared).not.toBeNull();
+    expect(prepared!.series).toHaveLength(1);
+    expect(prepared!.rolling.at(-1)!.avg).toBe(90.5);
   });
 
   test("the domain includes the scalar bounds even when no day carries a band", () => {
@@ -247,6 +308,103 @@ describe("prepareHrvChart — the single guard", () => {
     // Scalar band 76 / 100 from the fixture's hrv block.
     const prepared = prepareHrvChart(view({ days }));
     expect(prepared!.domain).toEqual([71, 105]);
+  });
+});
+
+describe("rollingAverages — the series the balance chart plots", () => {
+  test("the mean is the trailing seven nights INCLUDING this one", () => {
+    const avgs = rollingAverages(run([10, 20, 30, 40, 50, 60, 70, 80]));
+    // days[0..6] → 40, days[1..7] → 50. Arithmetic stated in whole numbers so
+    // the window's edges are readable off the expectation.
+    expect(avgs.map((p) => (p === null ? null : p.avg))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      40,
+      50,
+    ]);
+  });
+
+  test("the first six mornings have no mean, however many readings they hold", () => {
+    const avgs = rollingAverages(run(Array(ROLLING_WINDOW_NIGHTS).fill(90)));
+    // Their windows reach back into history the client was never sent, and a
+    // four-day mean drawn beside a seven-day one is a different statistic.
+    expect(avgs.slice(0, ROLLING_WINDOW_NIGHTS - 1).every((p) => p === null)).toBe(true);
+    expect(avgs.at(-1)!.avg).toBe(90);
+  });
+
+  test("a missing morning is one fewer sample, not a break in the curve", () => {
+    // THE REASON THE TILE PLOTS THIS AT ALL. The raw chart lost its final mark
+    // every morning until the webhook landed; the mean simply averages six.
+    const avgs = rollingAverages(run([84, 84, 84, 84, 84, 84, null]));
+    expect(avgs.at(-1)!.avg).toBe(84);
+  });
+
+  test("a window under the sample floor is a hole, not a mean of one night", () => {
+    const sparse = run([90, 90, 90, null, null, null, null]);
+    expect(rollingAverages(sparse).at(-1)).toBeNull();
+    // One more reading clears the floor and the mark returns.
+    expect(MIN_ROLLING_NIGHTS).toBe(4);
+    expect(rollingAverages(run([90, 90, 90, 90, null, null, null])).at(-1)!.avg).toBe(90);
+  });
+
+  test("each mean is judged against ITS OWN day's band", () => {
+    const days = run(Array(7).fill(60)).map((d, i) =>
+      // A band that has sunk far enough by the last morning to contain a week
+      // the earlier bands would have called suppressed.
+      i === 6 ? { ...d, balancedLow: 50, balancedHigh: 70 } : d,
+    );
+    expect(rollingAverages(days).at(-1)).toEqual({ avg: 60, status: "balanced" });
+  });
+
+  test("never inherits the raw night's verdict, which is a different question", () => {
+    // Every night is `suppressed` against its own band as a READING, yet the
+    // week's mean sits inside the band. Painting the mean with the night's
+    // verdict is how a smoothed chart contradicts its own smoothing.
+    const days = run([70, 106, 70, 106, 70, 106, 70], { status: "suppressed" });
+    expect(rollingAverages(days).at(-1)!.status).toBe("balanced");
+  });
+
+  test("a day with no band of its own yields a mean with no verdict", () => {
+    const avgs = rollingAverages(
+      run(Array(7).fill(90)).map((d) => ({ ...d, balancedLow: null, balancedHigh: null })),
+    );
+    expect(avgs.at(-1)).toEqual({ avg: 90, status: "unknown" });
+  });
+
+  test("a series shorter than the window yields nothing at all", () => {
+    expect(rollingAverages(run([90, 90, 90]))).toEqual([null, null, null]);
+    expect(rollingAverages([])).toEqual([]);
+  });
+});
+
+describe("rollingRuns", () => {
+  const p = (avg: number) => ({ avg, status: "balanced" as const });
+
+  test("an unbroken series is one run carrying every index", () => {
+    expect(rollingRuns([p(80), p(81), p(82)]).map((r) => r.map((x) => x.i))).toEqual([[0, 1, 2]]);
+  });
+
+  test("a hole splits the run and preserves the ORIGINAL indices", () => {
+    // The index is what keeps the polyline registered with the band beneath it.
+    const runs = rollingRuns([p(80), p(81), null, p(83), p(84)]);
+    expect(runs.map((r) => r.map((x) => x.i))).toEqual([
+      [0, 1],
+      [3, 4],
+    ]);
+  });
+
+  test("leading and trailing holes offset a run rather than emptying it", () => {
+    expect(rollingRuns([null, null, p(80)]).map((r) => r.map((x) => x.i))).toEqual([[2]]);
+    expect(rollingRuns([p(80), null, null]).map((r) => r.map((x) => x.i))).toEqual([[0]]);
+  });
+
+  test("a wholly empty series yields no runs", () => {
+    expect(rollingRuns([null, null])).toEqual([]);
+    expect(rollingRuns([])).toEqual([]);
   });
 });
 

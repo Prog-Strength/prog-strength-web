@@ -6,6 +6,7 @@ import { HrvBalanceView } from "./balance-band";
 import { prepareHrvChart } from "./hrv-chart";
 import {
   bandGapView,
+  DRIFT_HRV_SERIES,
   DRIFT_HRV_SERIES_GAPLESS,
   fallingView,
   noReadingDriftView,
@@ -43,6 +44,11 @@ function gaugeTick(container: HTMLElement): HTMLElement | null {
 
 function polygons(container: HTMLElement): SVGPolygonElement[] {
   return Array.from(container.querySelectorAll("polygon"));
+}
+
+/** The rolling-average curve — one per unbroken run of the series. */
+function polylines(container: HTMLElement): SVGPolylineElement[] {
+  return Array.from(container.querySelectorAll("polyline"));
 }
 
 /** Read one declaration off an element's inline style attribute. React writes
@@ -87,16 +93,26 @@ describe("HrvBalanceView", () => {
     expect(tag.textContent).toContain("4w");
   });
 
-  it("suppressed: the status dot and today's mark carry the SAME token", () => {
+  it("the final mark is the WEEK's verdict, and carries the gauge tick's token", () => {
     const { container } = renderView(suppressedDriftView());
-    // The dot is read off days[last], the same object the last mark is coloured
-    // from, so the two cannot disagree. Pin that, not the literal warning.
-    const dot = screen.getByText("Suppressed").previousElementSibling;
+    // The two registers answer different questions now: the dot is last night
+    // (`today.status`), the last mark is the seven-day mean the gauge tick is
+    // also about. In this fixture both read suppressed — what is pinned is that
+    // the MARK travels with the tick, not with the dot.
     const marks = circles(container);
     const today = marks[marks.length - 1];
-    expect(inlineStyle(dot, "background-color")).toBe("var(--warning)");
+    expect(
+      inlineStyle(screen.getByText("Suppressed").previousElementSibling, "background-color"),
+    ).toBe("var(--warning)");
     expect(today.getAttribute("fill")).toBe("var(--warning)");
-    expect(inlineStyle(dot, "background-color")).toBe(today.getAttribute("fill"));
+    expect(today.getAttribute("fill")).toBe(inlineStyle(gaugeTick(container), "background-color"));
+  });
+
+  it("the final mark is drawn at today's larger radius, on the box's right edge", () => {
+    const { container } = renderView(risingView());
+    const marks = circles(container);
+    const today = marks[marks.length - 1];
+    expect(Number(today.getAttribute("r"))).toBeGreaterThan(Number(marks[0].getAttribute("r")));
   });
 
   it("suppressed: the gauge tick sits below the balanced-low boundary, in warning", () => {
@@ -137,12 +153,12 @@ describe("HrvBalanceView", () => {
     expect(polygons(container)).toHaveLength(0);
   });
 
-  it("no reading yet, drifting band: the band holds and only today's mark is gone", () => {
-    // The SOW's pass/fail criterion for the whole idiom: at 7am the word reads
-    // "No reading yet", the 28px figure still prints the 7-day average, the
-    // gauge still has its tick — and the chart simply has no FINAL mark. The
-    // band underneath it is untouched, because a missing reading moves no
-    // baseline.
+  it("no reading yet, drifting band: the chart keeps its final mark at 7am", () => {
+    // At 7am the word reads "No reading yet", the 28px figure still prints the
+    // 7-day average, the gauge still has its tick — and now the chart keeps its
+    // final mark too, because that mark IS the 7-day average and a mean over a
+    // window that includes today does not require it. On the raw-nightly chart
+    // this state cost the curve its endpoint every single morning.
     const { container } = renderView(noReadingDriftView());
     expect(screen.getByText("No reading yet")).toBeInTheDocument();
     expect(screen.getByText("93")).toBeInTheDocument(); // shortAvg 92.8, rounded
@@ -150,23 +166,27 @@ describe("HrvBalanceView", () => {
     expect(container.textContent).not.toContain("—");
     expect(polygons(container)).toHaveLength(1);
 
-    // Same view with this morning's reading present: exactly one more mark.
+    // Same view with this morning's reading present: the SAME marks.
     const withReading = renderView(risingView());
-    expect(circles(container)).toHaveLength(circles(withReading.container).length - 1);
+    expect(circles(container)).toHaveLength(circles(withReading.container).length);
   });
 
   it("partial band: one polygon that visibly starts part-way across", () => {
-    const { container } = renderView(partialBandView());
+    // A twelve-day unbanded prefix, six of which are the lead-in the chart never
+    // draws — so six unbanded days remain inside the drawn window and the
+    // polygon's leftmost point is well right of the left inset rather than
+    // hugging it.
+    const { container } = renderView(partialBandView(undefined, 12));
     const bands = polygons(container);
     expect(bands).toHaveLength(1);
-    // The five oldest days carry no band, so the polygon's leftmost point is
-    // well right of the left inset rather than hugging it.
     expect(Math.min(...pointXs(bands[0]))).toBeGreaterThan(R_MAX + 30);
   });
 
   it("partial band: the unbanded days still render marks, at 0.45 opacity", () => {
-    const { container } = renderView(partialBandView());
+    const { container } = renderView(partialBandView(undefined, 12));
     const faint = circles(container).filter((c) => c.getAttribute("fill-opacity") === "0.45");
+    // A mean over a day with no band of its own has no verdict to carry, so it
+    // is drawn in muted at reduced weight rather than coloured or dropped.
     expect(faint.length).toBeGreaterThanOrEqual(5);
     // Its baseline drift cannot be computed from a part-banded window.
     expect(screen.getByText("drift not yet known")).toBeInTheDocument();
@@ -181,20 +201,40 @@ describe("HrvBalanceView", () => {
     expect(polygons(whole.container)).toHaveLength(1);
   });
 
-  it("one mark per night that has a reading, and no mark for one that does not", () => {
+  it("one mark per drawn day, and an interior gap costs none of them", () => {
     const section = risingView();
-    const readings = section.days!.filter((d) => d.hrv !== null).length;
+    // 31 charted days, six of which are lead-in for the first seven-night mean.
+    const drawn = section.days!.length - 6;
 
     const gapped = renderView(section);
     const gaplessMarks = renderView(
       risingView(DRIFT_HRV_SERIES_GAPLESS),
     ).container.querySelectorAll("circle").length;
 
-    expect(circles(gapped.container)).toHaveLength(readings);
-    // The band comes from the baseline walk, not from the readings, so filling
-    // the interior gap buys exactly one mark and changes no polygon.
-    expect(gaplessMarks).toBe(readings + 1);
+    expect(circles(gapped.container)).toHaveLength(drawn);
+    // The missing night is absorbed — it is one fewer sample in seven windows,
+    // not a hole in the series — so filling it changes neither mark nor polygon.
+    // On the raw-nightly chart it cost exactly one mark.
+    expect(gaplessMarks).toBe(drawn);
     expect(polygons(gapped.container)).toHaveLength(1);
+  });
+
+  it("the curve is one polyline under the marks, and it breaks over a real hole", () => {
+    const whole = renderView(risingView());
+    const wholeMarks = circles(whole.container).length;
+    expect(polylines(whole.container)).toHaveLength(1);
+    // Drawn under the dots, so no mark is half-covered by its own connector.
+    expect(whole.container.querySelector("polyline, circle")?.tagName).toBe("polyline");
+    whole.unmount();
+
+    // A week off the strap: seven consecutive nights missing, so the windows
+    // that sit over the middle of it fall under the four-reading floor. The
+    // curve must break there rather than draw a chord across a week the athlete
+    // has no data for.
+    const strapOff = DRIFT_HRV_SERIES.map((v, i) => (i >= 10 && i <= 16 ? null : v));
+    const { container } = renderView(risingView(strapOff));
+    expect(polylines(container)).toHaveLength(2);
+    expect(circles(container).length).toBeLessThan(wholeMarks);
   });
 
   it("no circle is ever scaled: viewBox equals the rendered pixel size", () => {
