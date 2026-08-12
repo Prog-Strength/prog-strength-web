@@ -151,6 +151,26 @@ function isoDate(offset: number): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+/**
+ * `anchor` (YYYY-MM-DD) minus `back` days, as YYYY-MM-DD, from local date parts.
+ *
+ * Shared by the two ANCHORED generations, (3) and (4): a series that ends on a
+ * named "today" and counts backwards is the same arithmetic whichever today it
+ * is, and the reason those generations do not share a day BUILDER — a modulus
+ * sawtooth cannot state a shape — says nothing about date arithmetic.
+ *
+ * `isoDate` above stays separate on purpose. It steps FORWARD from a fixed
+ * start rather than backward from an anchor, which is a genuinely different
+ * thing, and folding the two together would only disguise that.
+ */
+function isoBefore(anchor: string, back: number): string {
+  const [y, m, d] = anchor.split("-").map(Number);
+  const date = new Date(y, m - 1, d - back);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${mm}-${dd}`;
+}
+
 /** Round to `dp` decimals, normalising `-0` so fixture figures compare cleanly. */
 function round(value: number, dp: number): number {
   const f = 10 ** dp;
@@ -653,15 +673,6 @@ export function legacyView(): RecoveryView {
  */
 export const RECOVERY_LOG_TODAY = "2026-08-11";
 
-/** `RECOVERY_LOG_TODAY` minus `back` days, as YYYY-MM-DD, from local date parts. */
-function logIsoDate(back: number): string {
-  const [y, m, d] = RECOVERY_LOG_TODAY.split("-").map(Number);
-  const date = new Date(y, m - 1, d - back);
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${mm}-${dd}`;
-}
-
 /**
  * A date-aligned day series taking EXPLICIT recovery scores, oldest→newest and
  * ending on `RECOVERY_LOG_TODAY`, so a test can state the band sequence it is
@@ -682,7 +693,7 @@ function logIsoDate(back: number): string {
 export function bandedDays(scores: (number | null)[]): RecoveryDayPoint[] {
   const last = scores.length - 1;
   return scores.map((score, i) => ({
-    date: logIsoDate(last - i),
+    date: isoBefore(RECOVERY_LOG_TODAY, last - i),
     hrv: score === null ? null : 80 + (i % 11),
     restingHr: score === null ? null : 49 + (i % 6),
     recoveryScore: score,
@@ -825,15 +836,6 @@ export function partialMorningView(): RecoveryView {
  */
 export const RESTING_HR_TODAY = "2026-08-12";
 
-/** `RESTING_HR_TODAY` minus `back` days, as YYYY-MM-DD, from local date parts. */
-function restingIsoDate(back: number): string {
-  const [y, m, d] = RESTING_HR_TODAY.split("-").map(Number);
-  const date = new Date(y, m - 1, d - back);
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${mm}-${dd}`;
-}
-
 /**
  * A date-aligned 31-day window taking EXPLICIT resting heart rates,
  * oldest→newest and ending on `RESTING_HR_TODAY`.
@@ -851,7 +853,7 @@ function restingIsoDate(back: number): string {
 export function restingDays(restingHr: (number | null)[]): RecoveryDayPoint[] {
   const last = restingHr.length - 1;
   return restingHr.map((v, i) => ({
-    date: restingIsoDate(last - i),
+    date: isoBefore(RESTING_HR_TODAY, last - i),
     hrv: v === null ? null : 80 + (i % 11),
     restingHr: v,
     recoveryScore: v === null ? null : 48 + (i % 30),
@@ -882,52 +884,63 @@ const RESTING_HISTORY: number[] = [
  * `49.6 bpm` has failed before it is compared, and a card that ranks it apart
  * from the 50 beside it has failed just as badly.
  */
-const RESTING_TAIL: (number | null)[] = [51, null, 54, 57, 59, 47, 49.6, 50];
+const RESTING_TAIL: ReadonlyArray<number | null> = [51, null, 54, 57, 59, 47, 49.6, 50];
 
 /**
  * Assemble a resting-HR view around a day series, DERIVING `restingHrAvg` and
  * `restingHrDays` from the thirty pre-today mornings so the two cannot disagree
  * with the series the strip is drawn from — the invariant `fixtures.test.ts`
- * pins. `calibrating` forces the average null while leaving the count honest,
- * which is the one state where the server has a sample but no mean.
+ * pins.
  *
- * Every non-RHR figure is the same athlete as the log fixtures — the baseline
- * spread from `logBaseline()`, the HRV blocks `logView`'s own — rather than a
- * second set invented here: this tile reads none of them, and invented HRV
- * figures are fixture fiction with no reader.
+ * THE AVERAGE IS NULL FOR TWO UNRELATED REASONS and both are load-bearing.
+ * `calibrating` is a modelled SERVER state: the sample is too small to average,
+ * so the API states the count and withholds the mean — which is why the count
+ * stays honest rather than going null with it. An empty `pre` is arithmetic:
+ * there is no mean of no readings, which is why `noMorningsView` reaches the
+ * same null WITHOUT passing the flag. Do not fold the second test into the
+ * first — `sum / 0` is `NaN`, `NaN` typechecks as the `number` this field
+ * accepts, and the card would print it.
+ *
+ * Built ON `logView` rather than beside it. Every non-RHR figure is the same
+ * athlete as the log fixtures, and spreading that view's result is what makes
+ * the claim true BY CONSTRUCTION instead of by a comment sitting over a second
+ * hand-copied set of HRV blocks — a copy that goes silently stale the day
+ * `logView` is edited. Only `spark` and the two RHR baseline figures are
+ * overridden; this tile reads none of the rest.
  */
-function restingView(days: RecoveryDayPoint[], calibrating = false): RecoveryView {
+function restingView(
+  days: RecoveryDayPoint[],
+  { calibrating = false }: { calibrating?: boolean } = {},
+): RecoveryView {
   const pre = days
     .slice(0, 30)
     .map((d) => d.restingHr)
     .filter((v): v is number => v !== null);
-  const last = days[days.length - 1];
+  const base = logView(days);
   return {
-    restingToday: last.restingHr,
-    recoveryScore: last.recoveryScore,
-    hrvToday: last.hrv,
+    ...base,
     // Legacy and gap-omitting — the strip must never draw from this.
     spark: [51, 54, 57, 59, 47, 50],
-    days,
     baseline: {
-      ...logBaseline(),
+      ...base.baseline!,
       restingHrAvg:
         calibrating || pre.length === 0
           ? null
           : round(pre.reduce((a, b) => a + b, 0) / pre.length, 1),
       restingHrDays: pre.length,
     },
-    hrv: {
-      status: "unknown",
-      balancedLow: 68.1,
-      balancedHigh: 108.3,
-      zScore: null,
-      trend: "steady",
-      shortAvg: 86.7,
-    },
-    baselineTrend: { direction: "steady", deltaMs: 1.2, fromAvg: 87.0, overDays: 28 },
   };
 }
+
+/*
+ * NAMING, so the next reader does not have to infer the rule. `restingHrView`
+ * is the default and is named for the payload field the tile is about. The
+ * other six prefix `resting` only where generation 1 or 3 already owns the bare
+ * name — `calibratingView`, `sparseView` and `noReadingView` are all taken —
+ * which is why `creepingUpView`, `flatMonthView` and `noMorningsView` do not.
+ * `resting-rank.test.tsx` imports all seven, so a rename here is a two-file
+ * change, not a one-file one.
+ */
 
 /**
  * **default** — an ordinary week with one bump, and the state the tile is
@@ -1003,16 +1016,30 @@ export function restingSparseView(): RecoveryView {
  * `hrvDays` is deliberately left at the shared 27. The counts are separate
  * samples on the wire and a tile that borrows the wrong one is the exact bug
  * the recovery_log SOW had to correct in its mockup.
+ *
+ * That argument covers `restingHrDays !== hrvDays`. It does NOT cover the
+ * inherited `hrvAvg: 88.2` over `hrvDays: 27`, which no longer describes the
+ * window beneath it: `restingDays` nulls the HRV wherever the resting HR is
+ * null, so this series carries ten HRV mornings, not 27. That is knowingly out
+ * of scope rather than overlooked — nothing on this card reads either field,
+ * and generation 1's `calibratingView` is where a fully emittable calibrating
+ * payload lives. Anything that starts reading them must state them here.
  */
 export function restingCalibratingView(): RecoveryView {
   const series = [...RESTING_HISTORY, ...RESTING_TAIL].map((v, i) => (i < 20 ? null : v));
-  return restingView(restingDays(series), true);
+  return restingView(restingDays(series), { calibrating: true });
 }
 
 /**
  * **no mornings at all** — `days` present and every `restingHr` null. There is
  * no distribution to rank within and no `n` to divide by, so the card renders a
  * one-line muted body rather than a zero-width strip.
+ *
+ * `restingHrAvg` goes null here through the empty-sample guard rather than
+ * through `calibrating`: there is no mean of no readings, and the flag models a
+ * different state. As in `restingCalibratingView`, the inherited `hrvAvg` /
+ * `hrvDays` describe a month this window does not show — knowingly out of
+ * scope, for the same reason: nothing on this card reads them.
  */
 export function noMorningsView(): RecoveryView {
   return restingView(restingDays(Array.from({ length: 31 }, () => null)));

@@ -23,6 +23,21 @@
  * `legacyView` is deliberately EXCLUDED from the table: it is the
  * pre-derived-blocks payload and has no `days` and no `hrv`, so the invariant
  * does not apply to it. Please do not "helpfully" add it.
+ *
+ * The file's third remit is the resting-HR generation's own invariant: each of
+ * those views states a `restingHrAvg` that is the true MEAN of its own thirty
+ * pre-today readings, over a `restingHrDays` that is the count behind it. The
+ * tile positions an average tick against the strip's own values, so a view
+ * whose stated baseline is not the mean of the series beneath it would render a
+ * plausible card asserting a payload the API cannot emit. `restingView` derives
+ * both figures today, which is precisely why they are pinned here too — the
+ * `driftView` argument above, applied to a different generation.
+ *
+ * Those seven views are absent from `VIEWS` as well, for the reason the log
+ * views are: `restingDays` leaves every per-day band field null, so their last
+ * day has no bounds, no z and no status to agree with the scalar `hrv` block,
+ * and the last-day invariant does not apply to them any more than it does to
+ * `legacyView`. Please do not "helpfully" add them either.
  */
 
 import { describe, expect, it } from "vitest";
@@ -47,6 +62,7 @@ import {
   recoveryLogView,
   RESTING_HR_TODAY,
   restingCalibratingView,
+  restingDays,
   restingHrView,
   restingNoReadingView,
   restingSparseView,
@@ -320,47 +336,97 @@ describe("the resting-HR fixtures", () => {
     noMorningsView: noMorningsView(),
   };
 
-  it("each carries a full 31-day date-aligned window ending on RESTING_HR_TODAY", () => {
-    for (const [name, view] of Object.entries(views)) {
-      expect(view.days, name).toHaveLength(31);
-      expect(view.days![30].date, name).toBe(RESTING_HR_TODAY);
+  /**
+   * The two views that state NO mean, and the two unrelated reasons for it:
+   * `restingCalibratingView` models a server that has a sample but will not
+   * average it yet, and `noMorningsView` has nothing to average at all. Named
+   * here rather than inferred from the payload, so that a view which quietly
+   * stopped stating its mean would fail rather than be waved through.
+   */
+  const NO_MEAN = new Set(["restingCalibratingView", "noMorningsView"]);
+
+  // `restingDays` is exported and has no production consumer, so its three
+  // documented promises are pinned here — the same three `bandedDays` pins
+  // above, and for the same reason: a generator that hand-authors a series is a
+  // thing the tile should not have to discover.
+  it("steps restingDays' dates one day back from RESTING_HR_TODAY, oldest first", () => {
+    const days = restingDays([52, 51, 50]);
+    expect(days.map((d) => d.date)).toEqual(["2026-08-10", "2026-08-11", RESTING_HR_TODAY]);
+  });
+
+  it("keeps a null resting HR as a fully absent morning", () => {
+    const [day] = restingDays([null]);
+    expect(day.restingHr).toBeNull();
+    expect(day.recoveryScore).toBeNull();
+    expect(day.hrv).toBeNull();
+  });
+
+  it("leaves every per-day band field unset — this tile reads none of them", () => {
+    for (const day of restingDays([52, null, 50])) {
+      expect(day.baselineAvg).toBeNull();
+      expect(day.balancedLow).toBeNull();
+      expect(day.balancedHigh).toBeNull();
+      expect(day.zScore).toBeNull();
+      expect(day.status).toBe("unknown");
     }
   });
+
+  it.each(Object.entries(views))(
+    "%s carries a full 31-day window ending on RESTING_HR_TODAY",
+    (_name, view) => {
+      expect(view.days).toHaveLength(31);
+      expect(view.days![0].date).toBe("2026-07-13");
+      expect(view.days![30].date).toBe(RESTING_HR_TODAY);
+    },
+  );
 
   // The property most likely to rot when a series is edited: the tile positions
   // the average tick against the strip's own values, so a fixture whose stated
   // baseline is not the mean of its own history would render a plausible card
   // asserting an impossible payload.
-  it("restingHrAvg is the true mean of its own thirty pre-today readings", () => {
-    for (const [name, view] of Object.entries(views)) {
+  it.each(Object.entries(views))(
+    "%s states restingHrAvg as the true mean of its own thirty pre-today readings",
+    (name, view) => {
+      // Branching on the view rather than on the value under test, and asserting
+      // the null rather than skipping it. A mean taken over an empty sample is
+      // `NaN`, `NaN` typechecks as the `number` this field accepts, and
+      // `expect(NaN).toBe(NaN)` PASSES — so a bare `continue` here would let
+      // `noMorningsView` ship `restingHrAvg: NaN` to the card with a green suite.
+      if (NO_MEAN.has(name)) {
+        expect(view.baseline!.restingHrAvg).toBeNull();
+        return;
+      }
       const pre = view
         .days!.slice(0, 30)
         .map((d) => d.restingHr)
         .filter((v): v is number => v !== null);
-      if (view.baseline!.restingHrAvg === null) continue; // calibrating: no mean to state
       const mean = round(pre.reduce((a, b) => a + b, 0) / pre.length, 1);
-      expect(view.baseline!.restingHrAvg, name).toBe(mean);
-    }
-  });
+      expect(view.baseline!.restingHrAvg).toBe(mean);
+    },
+  );
 
-  it("restingHrDays is the count behind that mean", () => {
-    for (const [name, view] of Object.entries(views)) {
+  it.each(Object.entries(views))(
+    "%s counts restingHrDays as the readings behind that mean",
+    (_name, view) => {
       const readings = view.days!.slice(0, 30).filter((d) => d.restingHr !== null).length;
-      expect(view.baseline!.restingHrDays, name).toBe(readings);
-    }
-  });
+      expect(view.baseline!.restingHrDays).toBe(readings);
+    },
+  );
 
-  it("restingToday agrees with the last day, so hero and rank cannot disagree", () => {
-    for (const [name, view] of Object.entries(views)) {
-      expect(view.restingToday, name).toBe(view.days![30].restingHr);
-    }
-  });
+  it.each(Object.entries(views))(
+    "%s agrees restingToday with the last day, so hero and rank cannot disagree",
+    (_name, view) => {
+      expect(view.restingToday).toBe(view.days![30].restingHr);
+    },
+  );
 
   // The DX put 49.6 on the 11th on purpose: a card that prints `49.6 bpm` has
   // failed before it is compared, and a card that RANKS it apart from a 50 has
   // failed just as badly.
   it("the default view carries the DX's float on the 11th", () => {
-    expect(restingHrView().days![29].restingHr).toBe(49.6);
+    const eleventh = restingHrView().days![29];
+    expect(eleventh.date).toBe("2026-08-11");
+    expect(eleventh.restingHr).toBe(49.6);
   });
 
   it("the calibrating view has no average and nine mornings behind it", () => {
