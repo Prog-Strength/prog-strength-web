@@ -1,6 +1,6 @@
 /**
- * Test fixtures for the recovery tile family. Two generations live here, and
- * they differ only in how much of a day's own band they claim to know:
+ * Test fixtures for the recovery tile family. Three generations live here, and
+ * the first two differ only in how much of a day's own band they claim to know:
  *
  * 1. `makeDays` + the four original views (suppressed / balanced / calibrating /
  *    no-reading-yet) — a full 31-day date-aligned window with an interior
@@ -15,6 +15,10 @@
  *    the numbers so the band moves the way the fixture claims", which is what
  *    the generator does. It is arithmetic over a stated straight line, not a
  *    reimplementation of the server's rolling baseline.
+ * 3. `bandedDays` + the log views — explicit per-day recovery scores, anchored
+ *    on `RECOVERY_LOG_TODAY` (2026-08-11) rather than `FIXTURE_TODAY`, because
+ *    `makeDays`' `48 + (i % 30)` sawtooth never produces a red morning. Per-day
+ *    bands are null as in (1).
  *
  * The original four keep their day series byte-for-byte — the other recovery
  * tiles' tests read them — and gain only a `baselineTrend` block, which the new
@@ -611,4 +615,179 @@ export function suppressedDriftView(hrv: (number | null)[] = HRV_SERIES): Recove
 /** A legacy payload with no derived blocks — exercises the top-of-card guard. */
 export function legacyView(): RecoveryView {
   return { restingToday: 51, recoveryScore: 58, spark: [53, 52, 51] };
+}
+
+/**
+ * The recovery-log fixtures' "today" — 2026-08-11, a TUESDAY, and the DX's own
+ * headline date. These views are anchored here rather than on `FIXTURE_TODAY`
+ * (2026-08-01, a Saturday) because the log's story is told in weekday labels:
+ * a bad Saturday and Sunday, a rebound Monday, and no reading yet today. On a
+ * Saturday "today" the tests would assert on the wrong weekend.
+ */
+export const RECOVERY_LOG_TODAY = "2026-08-11";
+
+/** `RECOVERY_LOG_TODAY` minus `back` days, as YYYY-MM-DD, from local date parts. */
+function logIsoDate(back: number): string {
+  const [y, m, d] = RECOVERY_LOG_TODAY.split("-").map(Number);
+  const date = new Date(y, m - 1, d - back);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * A date-aligned day series taking EXPLICIT recovery scores, oldest→newest and
+ * ending on `RECOVERY_LOG_TODAY`, so a test can state the band sequence it is
+ * asserting on rather than reading it out of a modulus. `makeDays`'s
+ * `48 + (i % 30)` sawtooth never produces a red morning, which is precisely the
+ * state the recovery log exists to make legible.
+ *
+ * The "band" in the name is the COLOUR band a recovery score falls in —
+ * `recoveryBand` in `shared.ts`, red / yellow / green — and NOT the HRV balance
+ * band that `bandFrom`, `bandGapAt` and `partialBandView` above are about. This
+ * generator leaves every per-day balance field null / "unknown", exactly as
+ * `makeDays` does and for the same reason: a day's own trailing band cannot be
+ * known without recomputing it, and this tile reads none of them anyway.
+ *
+ * A null score is a fully absent morning — no resting HR, no HRV — which is
+ * what a strap-off day looks like on the wire.
+ */
+export function bandedDays(scores: (number | null)[]): RecoveryDayPoint[] {
+  const last = scores.length - 1;
+  return scores.map((score, i) => ({
+    date: logIsoDate(last - i),
+    hrv: score === null ? null : 80 + (i % 11),
+    restingHr: score === null ? null : 49 + (i % 6),
+    recoveryScore: score,
+    baselineAvg: null,
+    balancedLow: null,
+    balancedHigh: null,
+    zScore: null,
+    status: "unknown",
+  }));
+}
+
+/**
+ * The 23 days of history behind the DX fixture's eight hand-authored mornings.
+ * An unbroken run — no nulls, hence `number[]` — which is what makes the sparse
+ * view's "a week ago there IS history" assertion hold.
+ */
+const LOG_HISTORY: number[] = [
+  62, 58, 71, 49, 55, 64, 70, 44, 59, 66, 53, 61, 74, 47, 57, 63, 51, 68, 60, 45, 56, 72, 54,
+];
+
+/**
+ * The DX's eight hand-authored mornings — the three READINGS verbatim. The DX
+ * gives each of them a band and a status too; those are dropped on purpose, for
+ * the reason `bandedDays` states — this tile reads none of them.
+ *
+ * The deliberately ugly floats (`112.44031`, `83.242966`, `96.10188`) are real
+ * Whoop values and they are here on purpose: a tile that wraps on them has
+ * failed before it is compared.
+ *
+ * Read as: Sunday's 29 is the story. A red morning, resting HR six beats above
+ * a 53 baseline, HRV ordinary — the classic under-recovered-but-not-sick
+ * signature — and Saturday's 35 says it was two days, not one. Monday's 52 with
+ * a 47 bpm resting HR is the rebound, and today has not landed yet.
+ */
+const LOG_TAIL: ReadonlyArray<Pick<RecoveryDayPoint, "restingHr" | "recoveryScore" | "hrv">> = [
+  { restingHr: 61, recoveryScore: 41, hrv: 61.0 },
+  { restingHr: 51, recoveryScore: 78, hrv: 112.44031 },
+  { restingHr: null, recoveryScore: null, hrv: null }, // strap off
+  { restingHr: 54, recoveryScore: 66, hrv: 90.5127 },
+  { restingHr: 57, recoveryScore: 35, hrv: 83.242966 }, // Sat
+  { restingHr: 59, recoveryScore: 29, hrv: 77.39185 }, // Sun — the story
+  { restingHr: 47, recoveryScore: 52, hrv: 96.10188 }, // Mon — the rebound
+  { restingHr: null, recoveryScore: null, hrv: null }, // today, 7am
+];
+
+/** The baseline behind the log fixtures — the DX's own figures. */
+function logBaseline(): RecoveryBaselineView {
+  return {
+    windowDays: 30,
+    restingHrAvg: 53.4,
+    restingHrDays: 28,
+    hrvAvg: 88.2,
+    hrvStdDev: 20.1,
+    hrvDays: 27,
+    recoveryScoreAvg: 57.6,
+    recoveryScoreDays: 28,
+  };
+}
+
+/**
+ * Assemble a log view around a day series, deriving the scalar today-figures
+ * from its last day so the two cannot disagree.
+ */
+function logView(days: RecoveryDayPoint[]): RecoveryView {
+  const last = days[days.length - 1];
+  return {
+    restingToday: last.restingHr,
+    recoveryScore: last.recoveryScore,
+    hrvToday: last.hrv,
+    // Legacy and gap-omitting — the rail must never draw from this.
+    spark: [61, 51, 54, 57, 59, 47],
+    days,
+    baseline: logBaseline(),
+    hrv: {
+      status: "unknown",
+      balancedLow: 68.1,
+      balancedHigh: 108.3,
+      zScore: null,
+      trend: "steady",
+      shortAvg: 86.7,
+    },
+    baselineTrend: { direction: "steady", deltaMs: 1.2, fromAvg: 87.0, overDays: 28 },
+  };
+}
+
+/**
+ * The DX's default fixture and the recovery log's headline state: 31 days
+ * ending in a red weekend (35, 29), a rebound Monday (52), and no reading yet
+ * today. This is what the tile looks like most mornings — nothing broken, no
+ * empty state, no calibrating gate — and it is what the redesign is judged on.
+ */
+export function recoveryLogView(): RecoveryView {
+  const scored = bandedDays([...LOG_HISTORY, ...LOG_TAIL.map((m) => m.recoveryScore)]);
+  // The generator supplies the last eight days' DATES and null bands; their three
+  // readings are then replaced wholesale by the DX's own, which is why the scores
+  // are stated once, here, and not duplicated into LOG_TAIL's own literals.
+  const days = scored.map((day, i) =>
+    i < LOG_HISTORY.length ? day : { ...day, ...LOG_TAIL[i - LOG_HISTORY.length] },
+  );
+  return logView(days);
+}
+
+/**
+ * Three readings in the last eight days — travel, or the strap on the charger.
+ * **This is the fixture the idiom was selected on.** The three most recent
+ * calendar days are all empty, so the detail register is in its worst state,
+ * while the rail still shows a week of readings behind them: the tile has to
+ * look intentional here rather than broken.
+ */
+export function sparseView(): RecoveryView {
+  return logView(bandedDays([...LOG_HISTORY, 58, null, 41, null, 63, null, null, null]));
+}
+
+/**
+ * A morning with a resting HR and an HRV but NO recovery score — the three
+ * readings are independently nullable and Whoop does produce this state. The
+ * row must print `—` for the score and NO band word, rather than the words
+ * "No reading" beside two perfectly good figures.
+ *
+ * The scalar `hrv` block is deliberately left in its no-reading state — a null
+ * z and `status: "unknown"` beside live bounds — even though this morning now
+ * HAS an HRV. This fixture is about the recovery score's absence, not about
+ * HRV, and the tile reads `days[]` only; inventing a z-score here would be
+ * fixture fiction of exactly the kind `makeDays` refuses.
+ */
+export function partialMorningView(): RecoveryView {
+  const days = [...recoveryLogView().days!];
+  days[days.length - 1] = {
+    ...days[days.length - 1],
+    restingHr: 54,
+    recoveryScore: null,
+    hrv: 90.5127,
+  };
+  return logView(days);
 }

@@ -13,6 +13,13 @@
  * is itself moving — which is a different question from "was last night normal"
  * and carries its own glyphs and its own color mapping. Same single-sourcing
  * argument: the drift tag reads identically wherever it is printed.
+ *
+ * The remit now also covers WHOOP'S RECOVERY-BAND VOCABULARY and one display
+ * formatter, so the recovery log's bands and figures are single-sourced too.
+ * The recovery SCORE is the one deliberate exception to the no-danger-red rule
+ * above: a sub-33 score reads as `--danger` because that is Whoop's own red in
+ * Whoop's own app. The rule still holds for HRV — a `suppressed` morning is
+ * warning, never danger.
  */
 
 import type {
@@ -163,4 +170,91 @@ export function weekday(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return "—";
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short" });
+}
+
+/** A recovery score's band — a third of Whoop's 0–100 scale, or `none` when there is no score. */
+export type RecoveryBand = "green" | "yellow" | "red" | "none";
+
+/**
+ * Which third of Whoop's published 0–100 recovery scale a score falls in, at
+ * Whoop's own published cut points (67 and 33). This is a LABELLING, not a
+ * recomputation: the house rule forbids re-deriving a server figure — an
+ * average, a band bound, a z-score — and naming a third of a fixed scale
+ * introduces no statistics. Single-sourced here for the reason this file
+ * already exists: three hand-rolled copies of a threshold switch is how `52`
+ * ends up green on one tile and yellow on another.
+ *
+ * This is NOT the only `recoveryBand` in the repo. `lib/recovery.ts` already
+ * exports `RecoveryBand`, `recoveryBand` and `recoveryBandColor` at these same
+ * cut points, and the `/recovery` deep page this tile links into consumes them
+ * (`recovery-hero.tsx`, `recovery-log.tsx`). The two agree exactly today — same
+ * 67/33 boundaries, same `--success`/`--warning`/`--danger` tokens — so what
+ * splits them is vocabulary, not values: `lib/recovery.ts` names the bands after
+ * the tokens they paint and takes a non-null score, while this one names them
+ * after Whoop's own green/yellow/red, carries a fourth `"none"` member for a
+ * morning with no score, and pairs each band with a display word. Those last two
+ * are concepts `lib/recovery.ts` has no notion of, which is why this file did
+ * not simply import it.
+ *
+ * Reconciling the two is deliberately out of this SOW's scope. Picking a single
+ * owner for the vocabulary means changing `lib/recovery.ts`'s consumers, and the
+ * SOW's non-goals are explicit that there is no `/recovery` deep-page change in
+ * this work. It is a follow-up, and the owner's call which module wins.
+ */
+export function recoveryBand(score: number | null): RecoveryBand {
+  if (score === null) return "none";
+  if (score >= 67) return "green";
+  if (score <= 33) return "red";
+  return "yellow";
+}
+
+/**
+ * The word Whoop trained every one of its users to read beside the score, plus
+ * the house word for an absence — which mirrors `statusWord`'s "No reading yet"
+ * rather than borrowing any vocabulary from Whoop.
+ */
+export function recoveryBandWord(band: RecoveryBand): string {
+  switch (band) {
+    case "green":
+      return "Recovered";
+    case "yellow":
+      return "Adequate";
+    case "red":
+      return "Low";
+    default:
+      return "No reading";
+  }
+}
+
+/**
+ * Re-toned to v0.4, never Whoop's saturated traffic light. Red really is
+ * `--danger`, and the recovery SCORE is the one place in this family that is
+ * allowed: this file's contract that a suppressed HRV morning reads `--warning`
+ * ("information, not an emergency") still holds for HRV, but a sub-33 recovery
+ * score is Whoop's own red shown in Whoop's own app, and softening it means the
+ * log disagrees with the device the number came from. Text and mark weight
+ * only — a red word or a red bar, never a red row.
+ */
+export function recoveryBandColor(band: RecoveryBand): string {
+  switch (band) {
+    case "green":
+      return "var(--success)";
+    case "yellow":
+      return "var(--warning)";
+    case "red":
+      return "var(--danger)";
+    default:
+      return "var(--muted)";
+  }
+}
+
+/**
+ * A server figure rounded for display, or `—`. Never re-derived, only rounded.
+ *
+ * The recovery log's figures go through this one formatter. `hrv` is a
+ * raw Whoop RMSSD float (`96.10188`) and `recoveryScore` is a nullable float on
+ * the wire, so printing either raw is what breaks a row onto two lines.
+ */
+export function round(v: number | null): string {
+  return v === null ? "—" : String(Math.round(v));
 }

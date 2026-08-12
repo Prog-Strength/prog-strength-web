@@ -134,7 +134,7 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     id: "recovery_log",
     title: "Recovery Log",
     href: "/recovery",
-    description: "Your last few mornings as dated readings.",
+    description: "Two weeks of recovery score — your last three mornings in full.",
   },
   {
     id: "sleep",
