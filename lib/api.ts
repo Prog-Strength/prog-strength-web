@@ -4098,6 +4098,65 @@ export async function getCalendarConnection(token: string): Promise<CalendarConn
   return unwrap<CalendarConnection>(resp, { status: "absent" });
 }
 
+/** One event on the calendar tile. Timestamps are RFC3339 UTC. */
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  all_day: boolean;
+  /** "prog_strength" marks an event Prog Strength itself wrote. */
+  source: "prog_strength" | "google";
+  link?: { kind: "planned_workout" | "activity"; id: string };
+};
+
+/**
+ * One local calendar date. `days` from the API is DENSE — every date in the
+ * requested window appears, with an empty `events` array for a free day — so
+ * a client never has to distinguish "no events" from "day missing".
+ */
+export type CalendarDay = {
+  date: string;
+  /** How many events the server's per-day cap cut. Usually 0, never silent. */
+  truncated: number;
+  events: CalendarEvent[];
+};
+
+/** The closed degradation set, mirroring the weather tile's vocabulary. */
+export type CalendarEventsStatus =
+  | "ok"
+  | "not_connected"
+  | "reconnect_needed"
+  | "disabled"
+  | "unavailable";
+
+export type CalendarEventsResponse = {
+  status: CalendarEventsStatus;
+  days?: CalendarDay[];
+};
+
+/**
+ * GET /me/calendar/events. One request covers Today, Tomorrow, the week strip,
+ * and the expand panel. The window is sent as a required IANA timezone plus
+ * start_date/end_date and converted server-side — the client never builds a
+ * UTC instant, because a week is 167 or 169 hours twice a year.
+ */
+export async function getCalendarEvents(
+  token: string,
+  timezone: string,
+  startDate: string,
+  endDate: string,
+): Promise<CalendarEventsResponse | null> {
+  const params = new URLSearchParams();
+  params.set("timezone", timezone);
+  params.set("start_date", startDate);
+  params.set("end_date", endDate);
+  const resp = await fetch(`${config.apiUrl}/me/calendar/events?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return unwrap<CalendarEventsResponse | null>(resp, null);
+}
+
 /** DELETE /me/calendar/connection. Revokes the Google connection. */
 export async function disconnectCalendar(token: string): Promise<void> {
   const resp = await fetch(`${config.apiUrl}/me/calendar/connection`, {
