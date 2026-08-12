@@ -7,6 +7,10 @@ import {
   hrvStatusColor,
   nightColor,
   nightOpacity,
+  recoveryBand,
+  recoveryBandColor,
+  recoveryBandWord,
+  round,
   signed,
   signedUnit,
   statusWord,
@@ -193,5 +197,78 @@ describe("nightColor / nightOpacity — one paint for both views of the tile", (
   test("ordinary nights are full strength", () => {
     expect(nightOpacity(night({ status: "balanced" }))).toBe(1);
     expect(nightOpacity(night({ status: "elevated" }))).toBe(1);
+  });
+});
+
+describe("recoveryBand — Whoop's published cut points, single-sourced", () => {
+  test("green at and above 67", () => {
+    expect(recoveryBand(100)).toBe("green");
+    expect(recoveryBand(67)).toBe("green");
+  });
+
+  test("yellow from 34 to 66 — the boundaries are the whole point of this function", () => {
+    expect(recoveryBand(66)).toBe("yellow");
+    expect(recoveryBand(34)).toBe("yellow");
+  });
+
+  test("red at and below 33", () => {
+    expect(recoveryBand(33)).toBe("red");
+    expect(recoveryBand(0)).toBe("red");
+  });
+
+  test("no score is no band, never a red zero", () => {
+    expect(recoveryBand(null)).toBe("none");
+  });
+});
+
+describe("recoveryBandWord", () => {
+  test("Whoop's words for a score, and the house word for an absence", () => {
+    expect(recoveryBandWord("green")).toBe("Recovered");
+    expect(recoveryBandWord("yellow")).toBe("Adequate");
+    expect(recoveryBandWord("red")).toBe("Low");
+    expect(recoveryBandWord("none")).toBe("No reading");
+  });
+});
+
+describe("recoveryBandColor — the one deliberate exception to the no-danger-red contract", () => {
+  test("red is --danger and must not be 'fixed' to warning", () => {
+    expect(recoveryBandColor("red")).toBe("var(--danger)");
+  });
+
+  test("green is --success and yellow is --warning", () => {
+    expect(recoveryBandColor("green")).toBe("var(--success)");
+    expect(recoveryBandColor("yellow")).toBe("var(--warning)");
+  });
+
+  test("no band takes muted ink, so an absence is never a colour", () => {
+    expect(recoveryBandColor("none")).toBe("var(--muted)");
+  });
+
+  test("every band is a token, never a raw hex", () => {
+    for (const band of ["green", "yellow", "red", "none"] as const) {
+      expect(recoveryBandColor(band)).toMatch(/^var\(--[a-z-]+\)$/);
+    }
+  });
+
+  test("no band borrows the accent — this family paints no HRV status", () => {
+    for (const band of ["green", "yellow", "red", "none"] as const) {
+      expect(recoveryBandColor(band)).not.toBe("var(--accent)");
+    }
+  });
+});
+
+describe("round — a server figure rounded for display, never re-derived", () => {
+  test("the Whoop RMSSD float that wraps the shipped row becomes an integer", () => {
+    expect(round(96.10188)).toBe("96");
+    expect(round(112.44031)).toBe("112");
+  });
+
+  test("a non-integral recovery score rounds too — it is a float on the wire", () => {
+    expect(round(52.4)).toBe("52");
+    expect(round(52.6)).toBe("53");
+  });
+
+  test("absent is an em dash, not a zero", () => {
+    expect(round(null)).toBe("—");
   });
 });
