@@ -31,17 +31,25 @@ import {
   bandedDays,
   bandGapView,
   calibratingView,
+  creepingUpView,
   DRIFT_GAP_INDEX,
   DRIFT_HRV_SERIES,
   DRIFT_HRV_SERIES_GAPLESS,
   driftingDays,
   fallingView,
+  flatMonthView,
+  noMorningsView,
   noReadingDriftView,
   noReadingView,
   partialBandView,
   partialMorningView,
   RECOVERY_LOG_TODAY,
   recoveryLogView,
+  RESTING_HR_TODAY,
+  restingCalibratingView,
+  restingHrView,
+  restingNoReadingView,
+  restingSparseView,
   risingView,
   sparseView,
   steadyDriftView,
@@ -298,5 +306,82 @@ describe("the score-bearing fixtures", () => {
     expect(today.recoveryScore).toBeNull();
     expect(today.restingHr).toBe(54);
     expect(today.hrv).toBe(90.5127);
+  });
+});
+
+describe("the resting-HR fixtures", () => {
+  const views = {
+    restingHrView: restingHrView(),
+    creepingUpView: creepingUpView(),
+    flatMonthView: flatMonthView(),
+    restingNoReadingView: restingNoReadingView(),
+    restingSparseView: restingSparseView(),
+    restingCalibratingView: restingCalibratingView(),
+    noMorningsView: noMorningsView(),
+  };
+
+  it("each carries a full 31-day date-aligned window ending on RESTING_HR_TODAY", () => {
+    for (const [name, view] of Object.entries(views)) {
+      expect(view.days, name).toHaveLength(31);
+      expect(view.days![30].date, name).toBe(RESTING_HR_TODAY);
+    }
+  });
+
+  // The property most likely to rot when a series is edited: the tile positions
+  // the average tick against the strip's own values, so a fixture whose stated
+  // baseline is not the mean of its own history would render a plausible card
+  // asserting an impossible payload.
+  it("restingHrAvg is the true mean of its own thirty pre-today readings", () => {
+    for (const [name, view] of Object.entries(views)) {
+      const pre = view
+        .days!.slice(0, 30)
+        .map((d) => d.restingHr)
+        .filter((v): v is number => v !== null);
+      if (view.baseline!.restingHrAvg === null) continue; // calibrating: no mean to state
+      const mean = round(pre.reduce((a, b) => a + b, 0) / pre.length, 1);
+      expect(view.baseline!.restingHrAvg, name).toBe(mean);
+    }
+  });
+
+  it("restingHrDays is the count behind that mean", () => {
+    for (const [name, view] of Object.entries(views)) {
+      const readings = view.days!.slice(0, 30).filter((d) => d.restingHr !== null).length;
+      expect(view.baseline!.restingHrDays, name).toBe(readings);
+    }
+  });
+
+  it("restingToday agrees with the last day, so hero and rank cannot disagree", () => {
+    for (const [name, view] of Object.entries(views)) {
+      expect(view.restingToday, name).toBe(view.days![30].restingHr);
+    }
+  });
+
+  // The DX put 49.6 on the 11th on purpose: a card that prints `49.6 bpm` has
+  // failed before it is compared, and a card that RANKS it apart from a 50 has
+  // failed just as badly.
+  it("the default view carries the DX's float on the 11th", () => {
+    expect(restingHrView().days![29].restingHr).toBe(49.6);
+  });
+
+  it("the calibrating view has no average and nine mornings behind it", () => {
+    const view = restingCalibratingView();
+    expect(view.baseline!.restingHrAvg).toBeNull();
+    expect(view.baseline!.restingHrDays).toBe(9);
+    // Gating on hrvDays instead is the exact bug the recovery_log SOW had to
+    // correct, so the two counts are deliberately different here.
+    expect(view.baseline!.hrvDays).not.toBe(9);
+  });
+
+  it("the sparse view has three readings in its last eight mornings", () => {
+    const last8 = restingSparseView()
+      .days!.slice(-8)
+      .filter((d) => d.restingHr !== null);
+    expect(last8).toHaveLength(3);
+  });
+
+  it("the no-mornings view has a window but not one reading in it", () => {
+    const view = noMorningsView();
+    expect(view.days).toHaveLength(31);
+    expect(view.days!.every((d) => d.restingHr === null)).toBe(true);
   });
 });
