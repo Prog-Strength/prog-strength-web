@@ -20,6 +20,10 @@
  * above: a sub-33 score reads as `--danger` because that is Whoop's own red in
  * Whoop's own app. The rule still holds for HRV — a `suppressed` morning is
  * warning, never danger.
+ *
+ * The remit now also covers THE CALIBRATION FLOOR and one rank formatter, so
+ * every tile in the family agrees on how many mornings "calibrating" lasts
+ * rather than each keeping its own copy of the server's threshold.
  */
 
 import type {
@@ -257,4 +261,34 @@ export function recoveryBandColor(band: RecoveryBand): string {
  */
 export function round(v: number | null): string {
   return v === null ? "—" : String(Math.round(v));
+}
+
+/**
+ * How many mornings the server needs behind a metric before it emits an average
+ * (`internal/recoverytrend`'s `MinBaselineDays`). A client-side copy of a server
+ * constant, single-sourced here because it was already written out three times
+ * across this family and a fourth copy is how the four tiles start disagreeing
+ * about what "calibrating" means.
+ *
+ * It is deliberately per-METRIC on the server: `restingHrDays`, `hrvDays` and
+ * `recoveryScoreDays` are separate samples measured against this same 14, so a
+ * tile gates on the count for the metric it actually draws — never on another's.
+ */
+export const MIN_BASELINE_DAYS = 14;
+
+/** 1 → "1st", 4 → "4th", 11 → "11th". For the rank caption. */
+export function ordinal(n: number): string {
+  const tens = n % 100;
+  // 11th, 12th, 13th are the exceptions the last digit alone gets wrong.
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
 }

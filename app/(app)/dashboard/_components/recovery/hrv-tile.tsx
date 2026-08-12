@@ -43,6 +43,7 @@ import type { RecoveryView } from "@/lib/dashboard";
 import { MiniCard, MINI_CARD_HOVER, MINI_CARD_PANEL, MiniCardTitle } from "../mini-card";
 import { HrvBalanceView } from "./balance-band";
 import { prepareHrvChart, type HrvChart } from "./hrv-chart";
+import { MIN_BASELINE_DAYS } from "./shared";
 import { RecoveryTrendView } from "./trend-rail";
 
 /** The catalog title, and the first view's — the tile opens on HRV Balance. */
@@ -183,12 +184,14 @@ function Calibrating({ nights }: { nights: number }) {
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
         <div
           className="h-full rounded-full bg-[var(--accent)]"
-          style={{ width: `${Math.min(100, (nights / 14) * 100)}%` }}
+          style={{ width: `${Math.min(100, (nights / MIN_BASELINE_DAYS) * 100)}%` }}
         />
       </div>
       <p className="text-[11px] text-[var(--faint)]">
-        <span className="font-mono tabular-nums text-[var(--muted)]">{nights} of 14</span> nights ·
-        your normal range appears once Whoop knows your spread
+        <span className="font-mono tabular-nums text-[var(--muted)]">
+          {nights} of {MIN_BASELINE_DAYS}
+        </span>{" "}
+        nights · your normal range appears once Whoop knows your spread
       </p>
     </div>
   );

@@ -5,8 +5,10 @@ import {
   driftGlyph,
   driftTag,
   hrvStatusColor,
+  MIN_BASELINE_DAYS,
   nightColor,
   nightOpacity,
+  ordinal,
   recoveryBand,
   recoveryBandColor,
   recoveryBandWord,
@@ -270,5 +272,36 @@ describe("round — a server figure rounded for display, never re-derived", () =
 
   test("absent is an em dash, not a zero", () => {
     expect(round(null)).toBe("—");
+  });
+});
+
+describe("MIN_BASELINE_DAYS", () => {
+  test("is the server's MinBaselineDays", () => {
+    expect(MIN_BASELINE_DAYS).toBe(14);
+  });
+});
+
+describe("ordinal", () => {
+  test("suffixes the ordinary cases", () => {
+    expect(ordinal(1)).toBe("1st");
+    expect(ordinal(2)).toBe("2nd");
+    expect(ordinal(3)).toBe("3rd");
+    expect(ordinal(4)).toBe("4th");
+    expect(ordinal(30)).toBe("30th");
+  });
+
+  // The teens are the whole reason this is a function and not a lookup on the
+  // last digit: 11/12/13 take "th" even though 1/2/3 do not.
+  test("gives the teens 'th'", () => {
+    expect(ordinal(11)).toBe("11th");
+    expect(ordinal(12)).toBe("12th");
+    expect(ordinal(13)).toBe("13th");
+  });
+
+  test("resumes the pattern above the teens", () => {
+    expect(ordinal(21)).toBe("21st");
+    expect(ordinal(22)).toBe("22nd");
+    expect(ordinal(23)).toBe("23rd");
+    expect(ordinal(111)).toBe("111th");
   });
 });
