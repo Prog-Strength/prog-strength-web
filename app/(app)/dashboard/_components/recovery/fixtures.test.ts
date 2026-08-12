@@ -28,6 +28,7 @@
 import { describe, expect, it } from "vitest";
 import {
   balancedView,
+  bandedDays,
   bandGapView,
   calibratingView,
   DRIFT_GAP_INDEX,
@@ -38,7 +39,11 @@ import {
   noReadingDriftView,
   noReadingView,
   partialBandView,
+  partialMorningView,
+  RECOVERY_LOG_TODAY,
+  recoveryLogView,
   risingView,
+  sparseView,
   steadyDriftView,
   suppressedDriftView,
   suppressedView,
@@ -206,5 +211,92 @@ describe("the drift views", () => {
 
   it("gives every view a baselineTrend, which the chart guard requires", () => {
     for (const [, build] of VIEWS) expect(build().baselineTrend).toBeDefined();
+  });
+});
+
+/**
+ * The score-bearing fixtures, added for the recovery-log rail. They exist
+ * because `makeDays` derives its score as `48 + (i % 30)` and therefore never
+ * produces a red morning — the one thing the log's headline fixture is about.
+ * Pinned here for the same reason `driftingDays` is: a generator that
+ * hand-authors a series is a thing the tile should not have to discover.
+ *
+ * These three views are deliberately ABSENT from the `VIEWS` table above: their
+ * per-day bands are null by construction, so the "last day agrees with the
+ * scalar blocks" invariant does not apply to them any more than it does to
+ * `legacyView`. Please do not "helpfully" add them.
+ */
+describe("the score-bearing fixtures", () => {
+  it("dates a banded series so its last day is the log fixtures' today", () => {
+    const days = bandedDays([61, 52, 44]);
+    expect(days.map((d) => d.date)).toEqual(["2026-08-09", "2026-08-10", RECOVERY_LOG_TODAY]);
+  });
+
+  it("keeps a null score as a fully absent morning", () => {
+    const [day] = bandedDays([null]);
+    expect(day.recoveryScore).toBeNull();
+    expect(day.restingHr).toBeNull();
+    expect(day.hrv).toBeNull();
+  });
+
+  it("leaves every per-day band field unset — the log reads none of them", () => {
+    for (const day of bandedDays([61, null, 44])) {
+      expect(day.baselineAvg).toBeNull();
+      expect(day.balancedLow).toBeNull();
+      expect(day.balancedHigh).toBeNull();
+      expect(day.zScore).toBeNull();
+      expect(day.status).toBe("unknown");
+    }
+  });
+
+  it("tells the DX's story: a red weekend, a rebound Monday, no reading yet today", () => {
+    const days = recoveryLogView().days!;
+    expect(days).toHaveLength(31);
+    expect(days.slice(-4).map((d) => d.recoveryScore)).toEqual([35, 29, 52, null]);
+    expect(days.slice(-4).map((d) => d.date)).toEqual([
+      "2026-08-08",
+      "2026-08-09",
+      "2026-08-10",
+      "2026-08-11",
+    ]);
+    expect(days.slice(-4).map((d) => d.restingHr)).toEqual([57, 59, 47, null]);
+    expect(days[0].date).toBe("2026-07-12");
+  });
+
+  it("carries the deliberately ugly Whoop floats verbatim — they are the wrap", () => {
+    const days = recoveryLogView().days!;
+    expect(days.slice(-5).map((d) => d.hrv)).toEqual([
+      90.5127,
+      83.242966,
+      77.39185,
+      96.10188,
+      null,
+    ]);
+  });
+
+  it("puts exactly two ghost slots in the log fixture's fortnight", () => {
+    // The strap-off day and this morning, which has not landed yet. The rail's
+    // own test computes this from the payload; pinned here so a fixture tweak
+    // that quietly removes the gap is caught in the file that caused it.
+    const window = recoveryLogView().days!.slice(-14);
+    expect(window.filter((d) => d.recoveryScore === null)).toHaveLength(2);
+    expect(window.filter((d) => d.recoveryScore !== null)).toHaveLength(12);
+  });
+
+  it("gives the sparse view three readings in its last eight days", () => {
+    const days = sparseView().days!;
+    expect(days.slice(-8).filter((d) => d.recoveryScore !== null)).toHaveLength(3);
+    // The three most recent calendar days are all empty — the detail register's
+    // worst state, and the one the idiom was selected on.
+    expect(days.slice(-3).every((d) => d.recoveryScore === null)).toBe(true);
+    // A week ago there IS history, so the rail is visibly not an empty tile.
+    expect(days.slice(-14, -8).every((d) => d.recoveryScore !== null)).toBe(true);
+  });
+
+  it("gives the partial morning a resting HR and an HRV but no score", () => {
+    const today = partialMorningView().days!.at(-1)!;
+    expect(today.recoveryScore).toBeNull();
+    expect(today.restingHr).toBe(54);
+    expect(today.hrv).toBe(90.5127);
   });
 });
