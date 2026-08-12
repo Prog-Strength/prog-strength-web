@@ -25,24 +25,27 @@ function text(el: Element): string {
 }
 
 /**
- * The same, but joining each direct child's text with a space. `textContent`
- * concatenates adjacent spans with nothing between them, so a row rendering
- * `<span>Tue</span><span>50 bpm</span>` reads "Tue50 bpm" — which is a fact
- * about jsdom, not about the card, and asserting on it would be asserting on
- * the markup rather than on what the user reads.
+ * A line read as its FIELDS in DOM order, following `morning-ledger.test.tsx`'s
+ * `fields`. `textContent` runs the parts together (`Tue50 bpm`) because the gap
+ * between them is flex, not text, and an ARRAY is the stronger assertion
+ * anyway: a flattened string cannot tell one element reading `Today 50 bpm`
+ * from a label and a figure in two, so only the array pins each row's reading
+ * order.
+ *
+ * Over `childNodes` rather than `children`, unlike the sibling: this card's
+ * hero is a bare text node (`50`) beside its unit span, and element children
+ * alone would drop the very figure under test.
  */
-function parts(el: Element): string {
+function fields(el: Element): string[] {
   return Array.from(el.childNodes)
-    .map((n) => (n.textContent ?? "").trim())
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ");
+    .map((n) => (n.textContent ?? "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
 }
 
 describe("RestingRankCard — default", () => {
   it("prints today's bpm as the hero, with its unit", () => {
     const { container } = draw(restingHrView());
-    expect(parts(screen.getByTestId("rhr-hero"))).toBe("50 bpm");
+    expect(fields(screen.getByTestId("rhr-hero"))).toEqual(["50", "bpm"]);
     expect(container.querySelector("a")).toHaveAttribute("href", HREF);
   });
 
@@ -77,7 +80,7 @@ describe("RestingRankCard — default", () => {
   it("renders 49.6 as 50 and never prints the float", () => {
     const { container } = draw(restingHrView());
     expect(text(container)).not.toContain("49.6");
-    expect(parts(screen.getAllByTestId("rhr-recent-row")[1])).toBe("Tue 50 bpm");
+    expect(fields(screen.getAllByTestId("rhr-recent-row")[1])).toEqual(["Tue", "50 bpm"]);
   });
 
   // Adjacency, not preference: recovery_log prints the same three mornings
@@ -86,8 +89,8 @@ describe("RestingRankCard — default", () => {
     draw(restingHrView());
     const rows = screen.getAllByTestId("rhr-recent-row");
     expect(rows).toHaveLength(3);
-    expect(parts(rows[0])).toBe("Today 50 bpm");
-    expect(parts(rows[2])).toBe("Mon 47 bpm");
+    expect(fields(rows[0])).toEqual(["Today", "50 bpm"]);
+    expect(fields(rows[2])).toEqual(["Mon", "47 bpm"]);
   });
 
   // POLARITY PIN. Reversing the sort to descending inverts the card's only
@@ -129,8 +132,49 @@ describe("RestingRankCard — creeping-up", () => {
   // A rank alone cannot say "and it has been climbing". The rows can.
   it("shows the climb in the recent rows", () => {
     draw(creepingUpView());
-    const rows = screen.getAllByTestId("rhr-recent-row").map(parts);
-    expect(rows).toEqual(["Today 58 bpm", "Tue 57 bpm", "Mon 56 bpm"]);
+    const rows = screen.getAllByTestId("rhr-recent-row").map(fields);
+    expect(rows).toEqual([
+      ["Today", "58 bpm"],
+      ["Tue", "57 bpm"],
+      ["Mon", "56 bpm"],
+    ]);
+  });
+});
+
+describe("RestingRankCard — today's label over its tick", () => {
+  // The hero repeated at 9px over today's own tick, and the component's only
+  // consumer of `labelAnchor`.
+  it("repeats today's rounded value, and says it only once to a screen reader", () => {
+    draw(restingHrView());
+    const label = screen.getByTestId("rhr-today-label");
+    expect(text(label)).toBe("50");
+    // A visual repeat of the hero two lines above, which the strip's own
+    // sentence also states — read aloud it would be a bare "50" between them.
+    expect(label).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("centres over its own tick mid-strip", () => {
+    draw(restingHrView());
+    // 4th of 29 is 12.07% along, comfortably inside both edges.
+    expect(screen.getByTestId("rhr-today-label")).toHaveStyle({
+      transform: "translateX(-50%)",
+    });
+  });
+
+  // ANCHOR SWITCH, not a clamp: creeping-up's 30th of 30 sits at 98.3%, where a
+  // centred label would hang off the panel. Clamping the position instead would
+  // drag the figure away from the tick it names.
+  it("anchors to the right edge when today is the highest morning", () => {
+    draw(creepingUpView());
+    expect(screen.getByTestId("rhr-today-label")).toHaveStyle({
+      left: "100%",
+      transform: "translateX(-100%)",
+    });
+  });
+
+  it("is absent when there is no reading yet today", () => {
+    draw(restingNoReadingView());
+    expect(screen.queryByTestId("rhr-today-label")).toBeNull();
   });
 });
 
@@ -160,8 +204,8 @@ describe("RestingRankCard — the colour gate", () => {
     });
   });
 
-  // isAbove is defined on the PRINTED delta: a difference the card does not
-  // print is a difference the card does not colour.
+  // isAbove is defined on the ROUNDED departure, and here today IS the average:
+  // a departure of zero is not a direction, so the card spends nothing on it.
   it("spends no colour when today is exactly the average", () => {
     const { container } = draw(flatMonthView());
     expect(container.innerHTML).not.toContain("var(--warning)");
@@ -181,7 +225,7 @@ describe("RestingRankCard — flat-month", () => {
 describe("RestingRankCard — no reading yet today", () => {
   it("prints an em-dash hero and says so, rather than promoting yesterday", () => {
     draw(restingNoReadingView());
-    expect(parts(screen.getByTestId("rhr-hero"))).toBe("— bpm");
+    expect(fields(screen.getByTestId("rhr-hero"))).toEqual(["—", "bpm"]);
     expect(text(screen.getByTestId("rhr-caption"))).toBe("No reading yet today");
     expect(screen.queryByTestId("rhr-tick-today")).toBeNull();
   });
@@ -194,7 +238,7 @@ describe("RestingRankCard — no reading yet today", () => {
 
   it("prints yesterday's value only in the recent-rows register", () => {
     const { container } = draw(restingNoReadingView());
-    expect(parts(screen.getAllByTestId("rhr-recent-row")[1])).toBe("Tue 50 bpm");
+    expect(fields(screen.getAllByTestId("rhr-recent-row")[1])).toEqual(["Tue", "50 bpm"]);
     for (const row of screen.getAllByTestId("rhr-recent-row")) row.remove();
     expect(text(container)).not.toContain("50");
   });
@@ -208,8 +252,12 @@ describe("RestingRankCard — sparse", () => {
 
   it("reads a strap-off morning as a gap, in words", () => {
     draw(restingSparseView());
-    const rows = screen.getAllByTestId("rhr-recent-row").map(parts);
-    expect(rows).toEqual(["Today 50 bpm", "Tue no reading", "Mon no reading"]);
+    const rows = screen.getAllByTestId("rhr-recent-row").map(fields);
+    expect(rows).toEqual([
+      ["Today", "50 bpm"],
+      ["Tue", "no reading"],
+      ["Mon", "no reading"],
+    ]);
   });
 });
 
@@ -236,14 +284,26 @@ describe("RestingRankCard — calibrating", () => {
     expect(text(screen.getByTestId("rhr-caption"))).toContain("no avg yet, 9 of 14 mornings");
   });
 
-  // jsdom has no layout, so the reserved class IS the assertion.
+  // jsdom has no layout, so the invariant is asserted structurally: the second
+  // line is an ELEMENT that exists in every state, empty when it has nothing to
+  // say. Making that `<p>` conditional is the defect this catches, and it is
+  // the one that costs the calibrating card 13px of height the settled one has.
   it("reserves the caption's second line so the card cannot change height", () => {
     const { unmount } = draw(restingCalibratingView());
-    const calibrating = screen.getByTestId("rhr-caption").className;
+    const calibrating = screen.getByTestId("rhr-caption").querySelectorAll("p");
+    expect(calibrating).toHaveLength(2);
+    expect(text(calibrating[1])).toBe("no avg yet, 9 of 14 mornings");
     unmount();
+
     draw(restingHrView());
-    expect(screen.getByTestId("rhr-caption").className).toBe(calibrating);
-    expect(calibrating).toContain("min-h-[28px]");
+    const settled = screen.getByTestId("rhr-caption");
+    const lines = settled.querySelectorAll("p");
+    expect(lines).toHaveLength(2);
+    expect(text(lines[1])).toBe("");
+    // The class assertion earns its place separately: an empty block box is
+    // zero-high on its own, so the floor is what turns the reserved element
+    // into reserved SPACE.
+    expect(settled.className).toContain("min-h-[28px]");
   });
 });
 
