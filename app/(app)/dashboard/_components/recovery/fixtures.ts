@@ -264,7 +264,16 @@ type DriftViewOptions = {
   /** The emitted SD. Set it to the generator's `halfWidth` unless a fixture is
    *  specifically about the two disagreeing. */
   hrvStdDev: number;
-  /** The 7-day mean, which is what the tile heroes. */
+  /**
+   * The 7-day mean, which is what the tile heroes.
+   *
+   * STATED, not derived from `hrv` — and worth knowing before reading a rendered
+   * chart. The balance view's curve is the rolling mean of the series and
+   * terminates on this figure, so in a fixture where the two disagree the last
+   * mark visibly steps off the curve. That is fixture fiction, not tile
+   * behaviour: on the wire `short_avg` IS the mean of the last seven days of
+   * `days`, and the curve runs smoothly into it.
+   */
   shortAvg: number | null;
   /** `RecoveryHrvView.trend` — the recent mean against its window, NOT the
    *  baseline's own drift. The two may legitimately point opposite ways. */
@@ -516,10 +525,16 @@ export function steadyDriftView(hrv: (number | null)[] = DRIFT_HRV_SERIES): Reco
 
 /**
  * `risingView` with 40 nights of history behind only part of the window: the
- * five oldest charted days have too few readings in their own trailing windows
- * to carry a band, so they arrive with `baselineAvg: null` and
+ * `bandFrom` oldest charted days have too few readings in their own trailing
+ * windows to carry a band, so they arrive with `baselineAvg: null` and
  * `status: "unknown"`. The polygon must start part-way across and the earliest
  * marks must still render, uncoloured — nothing may look clipped.
+ *
+ * `bandFrom` is a parameter because the balance chart draws only the days its
+ * seven-night rolling window reaches, which is `days[6:]`: a prefix shorter than
+ * that is entirely inside the lead-in the chart never draws, so a test about
+ * unbanded MARKS has to push the prefix past it. The default of 5 stays where it
+ * was for the tests about the POLYGON, which the lead-in does not hide.
  *
  * The drift is `unknown`, and that is forced rather than chosen: the engine
  * differences today's baseline against the baseline `overDays` ago, which for a
@@ -528,9 +543,12 @@ export function steadyDriftView(hrv: (number | null)[] = DRIFT_HRV_SERIES): Reco
  * across cannot support a four-week drift verdict. This therefore doubles as
  * the fixture that exercises the tile's `drift not yet known` branch.
  */
-export function partialBandView(hrv: (number | null)[] = DRIFT_HRV_SERIES): RecoveryView {
+export function partialBandView(
+  hrv: (number | null)[] = DRIFT_HRV_SERIES,
+  bandFrom = 5,
+): RecoveryView {
   return driftView({
-    days: driftingDays({ hrv, fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6, bandFrom: 5 }),
+    days: driftingDays({ hrv, fromAvg: 84.8, toAvg: 91.2, halfWidth: 12.6, bandFrom }),
     hrvStdDev: 12.6,
     shortAvg: 92.8,
     trend: "rising",
@@ -595,7 +613,7 @@ export function noReadingDriftView(hrv: (number | null)[] = DRIFT_HRV_SERIES): R
  * z −1.37, well under the band.
  *
  * `shortAvg` is 77.0, which puts the gauge tick in the LOWER QUARTER of the
- * bar: `gaugeTickPct` reads the half-width off the emitted bounds
+ * bar: `gaugePct` reads the half-width off the emitted bounds
  * (103.8 − 91.2 = 12.6), so the tick lands at
  * `((((77.0 − 91.2) / 12.6) + 2) / 4) × 100 = 21.8%` — below the 25% mark that
  * carries the `balancedLow` label. Defaults to `HRV_SERIES`, whose last
