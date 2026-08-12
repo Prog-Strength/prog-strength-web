@@ -66,8 +66,8 @@ export function HrvTileCard({ section, href }: { section: RecoveryView; href: st
   const swiped = useRef(false);
 
   // The one guard for the whole tile. `null` means the baseline is not
-  // established yet — the honest n-of-14 progress state, with no pager, because
-  // there is nothing yet to page BETWEEN.
+  // established yet — the honest n-of-floor progress state, with no pager,
+  // because there is nothing yet to page BETWEEN.
   const chart = prepareHrvChart(section);
   if (!chart) {
     return (
@@ -176,7 +176,7 @@ export function HrvTileCard({ section, href }: { section: RecoveryView; href: st
   );
 }
 
-/** New-user state — no band to draw yet. Honest progress toward 14 nights. */
+/** New-user state — no band to draw yet. Honest progress toward the calibration floor. */
 function Calibrating({ nights }: { nights: number }) {
   return (
     <div className="flex flex-col gap-2 py-1">
