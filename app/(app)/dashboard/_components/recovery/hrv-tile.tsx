@@ -43,6 +43,7 @@ import type { RecoveryView } from "@/lib/dashboard";
 import { MiniCard, MINI_CARD_HOVER, MINI_CARD_PANEL, MiniCardTitle } from "../mini-card";
 import { HrvBalanceView } from "./balance-band";
 import { prepareHrvChart, type HrvChart } from "./hrv-chart";
+import { MIN_BASELINE_DAYS } from "./shared";
 import { RecoveryTrendView } from "./trend-rail";
 
 /** The catalog title, and the first view's — the tile opens on HRV Balance. */
@@ -65,7 +66,7 @@ export function HrvTileCard({ section, href }: { section: RecoveryView; href: st
   const swiped = useRef(false);
 
   // The one guard for the whole tile. `null` means the baseline is not
-  // established yet — the honest n-of-14 progress state, with no pager, because
+  // established yet — the honest n-of-N progress state, with no pager, because
   // there is nothing yet to page BETWEEN.
   const chart = prepareHrvChart(section);
   if (!chart) {
@@ -175,7 +176,7 @@ export function HrvTileCard({ section, href }: { section: RecoveryView; href: st
   );
 }
 
-/** New-user state — no band to draw yet. Honest progress toward 14 nights. */
+/** New-user state — no band to draw yet. Honest progress toward the calibration floor. */
 function Calibrating({ nights }: { nights: number }) {
   return (
     <div className="flex flex-col gap-2 py-1">
@@ -183,12 +184,14 @@ function Calibrating({ nights }: { nights: number }) {
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
         <div
           className="h-full rounded-full bg-[var(--accent)]"
-          style={{ width: `${Math.min(100, (nights / 14) * 100)}%` }}
+          style={{ width: `${Math.min(100, (nights / MIN_BASELINE_DAYS) * 100)}%` }}
         />
       </div>
       <p className="text-[11px] text-[var(--faint)]">
-        <span className="font-mono tabular-nums text-[var(--muted)]">{nights} of 14</span> nights ·
-        your normal range appears once Whoop knows your spread
+        <span className="font-mono tabular-nums text-[var(--muted)]">
+          {nights} of {MIN_BASELINE_DAYS}
+        </span>{" "}
+        nights · your normal range appears once Whoop knows your spread
       </p>
     </div>
   );

@@ -39,7 +39,14 @@
 
 import type { RecoveryDayPoint, RecoveryView } from "@/lib/dashboard";
 import { MiniCard } from "../mini-card";
-import { recoveryBand, recoveryBandColor, recoveryBandWord, round, weekday } from "./shared";
+import {
+  MIN_BASELINE_DAYS,
+  recoveryBand,
+  recoveryBandColor,
+  recoveryBandWord,
+  round,
+  weekday,
+} from "./shared";
 
 const TITLE = "Recovery Log";
 /** Days on the rail, and mornings in the detail register. */
@@ -47,12 +54,6 @@ const RAIL_DAYS = 14;
 const DETAIL_ROWS = 3;
 /** The rail's height in px. `railY` maps a 0–100 score onto it. */
 const RAIL_H = 40;
-/**
- * How many scored mornings the server needs before it will emit an average.
- * The real value is the API's `min_baseline_days`; this is a client-side copy,
- * as the same 14 already is on the HRV tile and the readiness verdict.
- */
-const MIN_BASELINE_DAYS = 14;
 
 /**
  * Score (0–100) → bar height in px. The baseline TICK uses this same map, and

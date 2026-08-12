@@ -20,6 +20,13 @@
  * above: a sub-33 score reads as `--danger` because that is Whoop's own red in
  * Whoop's own app. The rule still holds for HRV — a `suppressed` morning is
  * warning, never danger.
+ *
+ * The remit now also covers THE CALIBRATION FLOOR and one rank formatter. The
+ * floor is DECLARED here so a tile that gates on it imports the threshold
+ * instead of re-typing it. It is not yet the family's only copy —
+ * `readiness-verdict.tsx` still prints its own in prose — so read this as the
+ * place new work takes the number from, not as a claim that every tile already
+ * does. Folding that last copy in is a follow-up.
  */
 
 import type {
@@ -257,4 +264,43 @@ export function recoveryBandColor(band: RecoveryBand): string {
  */
 export function round(v: number | null): string {
   return v === null ? "—" : String(Math.round(v));
+}
+
+/**
+ * How many mornings the server needs behind a metric before it emits an average.
+ *
+ * Not a server CONSTANT, which is why the wire name matters here: it is
+ * `recoverytrend.Config`'s `MinBaselineDays`, filled from `min_baseline_days` in
+ * the `[recovery]` block of the API's `config.toml`, where it reads 14 today.
+ * An operator can retune it, so this is a default to re-check against the API —
+ * not a law — and a reader who has only ever seen the number `14` would not know
+ * that.
+ *
+ * Declared here so a tile that gates on the floor imports it rather than typing
+ * `14` out again, which is how tiles start disagreeing about what "calibrating"
+ * means. This is not yet the family's only copy —
+ * `readiness-verdict.tsx` renders `of 14 nights` in prose — and folding that one
+ * in is a follow-up this SOW did not scope.
+ *
+ * It is deliberately per-METRIC on the server: `restingHrDays`, `hrvDays` and
+ * `recoveryScoreDays` are separate samples measured against this same value, so
+ * a tile gates on the count for the metric it actually draws — never another's.
+ */
+export const MIN_BASELINE_DAYS = 14;
+
+/** 1 → "1st", 4 → "4th", 11 → "11th". For the rank caption. */
+export function ordinal(n: number): string {
+  const lastTwo = n % 100;
+  // 11th, 12th, 13th are the exceptions the last digit alone gets wrong.
+  if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
 }

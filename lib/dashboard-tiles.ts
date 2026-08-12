@@ -22,6 +22,7 @@ export type TileId =
   | "hrv_balance"
   | "morning_vitals"
   | "recovery_log"
+  | "resting_hr"
   | "sleep"
   | "streak"
   | "quote"
@@ -135,6 +136,12 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     title: "Recovery Log",
     href: "/recovery",
     description: "Two weeks of recovery score — your last three mornings in full.",
+  },
+  {
+    id: "resting_hr",
+    title: "Resting HR",
+    href: "/recovery",
+    description: "Where this morning's resting heart rate ranks in your own month.",
   },
   {
     id: "sleep",

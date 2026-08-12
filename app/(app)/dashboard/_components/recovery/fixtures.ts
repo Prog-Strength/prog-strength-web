@@ -1,5 +1,5 @@
 /**
- * Test fixtures for the recovery tile family. Three generations live here, and
+ * Test fixtures for the recovery tile family. Four generations live here, and
  * the first two differ only in how much of a day's own band they claim to know:
  *
  * 1. `makeDays` + the four original views (suppressed / balanced / calibrating /
@@ -19,6 +19,15 @@
  *    on `RECOVERY_LOG_TODAY` (2026-08-11) rather than `FIXTURE_TODAY`, because
  *    `makeDays`' `48 + (i % 30)` sawtooth never produces a red morning. Per-day
  *    bands are null as in (1).
+ * 4. `restingDays` + the resting-HR views — a window taking an EXPLICIT resting
+ *    heart-rate series, anchored on `RESTING_HR_TODAY` (2026-08-12, a
+ *    Wednesday, so the recent rows read Today / Tue / Mon), built to the DX's
+ *    own numbers so the tile and the DX preview cannot disagree. Each view's
+ *    `restingHrAvg` is DERIVED as the true mean of its own thirty pre-today
+ *    readings, because the tile positions the average tick against the strip's
+ *    own values and a stated-but-wrong baseline would render a plausible card
+ *    asserting an impossible payload. Per-day HRV band fields are null as in
+ *    (1) and (3) — this tile reads none of them.
  *
  * The original four keep their day series byte-for-byte — the other recovery
  * tiles' tests read them — and gain only a `baselineTrend` block, which the new
@@ -140,6 +149,26 @@ function isoDate(offset: number): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * `anchor` (YYYY-MM-DD) minus `back` days, as YYYY-MM-DD, from local date parts.
+ *
+ * Shared by the two ANCHORED generations, (3) and (4): a series that ends on a
+ * named "today" and counts backwards is the same arithmetic whichever today it
+ * is, and the reason those generations do not share a day BUILDER — a modulus
+ * sawtooth cannot state a shape — says nothing about date arithmetic.
+ *
+ * `isoDate` above stays separate on purpose. It steps FORWARD from a fixed
+ * start rather than backward from an anchor, which is a genuinely different
+ * thing, and folding the two together would only disguise that.
+ */
+function isoBefore(anchor: string, back: number): string {
+  const [y, m, d] = anchor.split("-").map(Number);
+  const date = new Date(y, m - 1, d - back);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${mm}-${dd}`;
 }
 
 /** Round to `dp` decimals, normalising `-0` so fixture figures compare cleanly. */
@@ -644,15 +673,6 @@ export function legacyView(): RecoveryView {
  */
 export const RECOVERY_LOG_TODAY = "2026-08-11";
 
-/** `RECOVERY_LOG_TODAY` minus `back` days, as YYYY-MM-DD, from local date parts. */
-function logIsoDate(back: number): string {
-  const [y, m, d] = RECOVERY_LOG_TODAY.split("-").map(Number);
-  const date = new Date(y, m - 1, d - back);
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${mm}-${dd}`;
-}
-
 /**
  * A date-aligned day series taking EXPLICIT recovery scores, oldest→newest and
  * ending on `RECOVERY_LOG_TODAY`, so a test can state the band sequence it is
@@ -673,7 +693,7 @@ function logIsoDate(back: number): string {
 export function bandedDays(scores: (number | null)[]): RecoveryDayPoint[] {
   const last = scores.length - 1;
   return scores.map((score, i) => ({
-    date: logIsoDate(last - i),
+    date: isoBefore(RECOVERY_LOG_TODAY, last - i),
     hrv: score === null ? null : 80 + (i % 11),
     restingHr: score === null ? null : 49 + (i % 6),
     recoveryScore: score,
@@ -808,4 +828,219 @@ export function partialMorningView(): RecoveryView {
     hrv: 90.5127,
   };
   return logView(days);
+}
+
+/**
+ * The resting-HR fixtures' "today" — 2026-08-12, a WEDNESDAY and the DX's own
+ * headline date, so the tile's three recent rows read `Today / Tue / Mon`.
+ */
+export const RESTING_HR_TODAY = "2026-08-12";
+
+/**
+ * A date-aligned 31-day window taking EXPLICIT resting heart rates,
+ * oldest→newest and ending on `RESTING_HR_TODAY`.
+ *
+ * Explicit rather than generated because the resting-HR tile's whole subject is
+ * the SHAPE of a month — flat, climbing, sparse — and a modulus sawtooth cannot
+ * state any of them. `makeDays`' `49 + (i % 6)` is a fine filler for a tile that
+ * reads resting HR incidentally and useless for the tile that ranks it.
+ *
+ * A null resting HR is a fully absent morning (no score, no HRV), which is what
+ * a strap-off day looks like on the wire. Per-day HRV band fields are left
+ * null / "unknown" for the reason `bandedDays` states: a day's own trailing
+ * band cannot be known without recomputing it, and this tile reads none of them.
+ */
+export function restingDays(restingHr: (number | null)[]): RecoveryDayPoint[] {
+  const last = restingHr.length - 1;
+  return restingHr.map((v, i) => ({
+    date: isoBefore(RESTING_HR_TODAY, last - i),
+    hrv: v === null ? null : 80 + (i % 11),
+    restingHr: v,
+    recoveryScore: v === null ? null : 48 + (i % 30),
+    baselineAvg: null,
+    balancedLow: null,
+    balancedHigh: null,
+    zScore: null,
+    status: "unknown",
+  }));
+}
+
+/**
+ * The 23 mornings of history behind the DX's own eight recent ones. Hand-
+ * authored rather than generated so the default view's baseline lands on the
+ * DX's 53.4 and its extremes on the DX's 47 / 59.
+ */
+const RESTING_HISTORY: number[] = [
+  55, 54, 52, 57, 51, 56, 53, 48, 55, 58, 50, 54, 57, 52, 49, 56, 51, 55, 53, 54, 56, 52, 53,
+];
+
+/**
+ * The DX's eight recent mornings, verbatim. Sunday's 59 is six beats over the
+ * average and Monday's 47 is the rebound; today's 50 is unremarkable, which is
+ * the point — this is what the tile looks like most days and it should read
+ * calm.
+ *
+ * `49.6` on the 11th is the DX's deliberate float. A card that prints
+ * `49.6 bpm` has failed before it is compared, and a card that ranks it apart
+ * from the 50 beside it has failed just as badly.
+ */
+const RESTING_TAIL: ReadonlyArray<number | null> = [51, null, 54, 57, 59, 47, 49.6, 50];
+
+/**
+ * Assemble a resting-HR view around a day series, DERIVING `restingHrAvg` and
+ * `restingHrDays` from the thirty pre-today mornings so the two cannot disagree
+ * with the series the strip is drawn from — the invariant `fixtures.test.ts`
+ * pins.
+ *
+ * THE AVERAGE IS NULL FOR TWO UNRELATED REASONS and both are load-bearing.
+ * `calibrating` is a modelled SERVER state: the sample is too small to average,
+ * so the API states the count and withholds the mean — which is why the count
+ * stays honest rather than going null with it. An empty `pre` is arithmetic:
+ * there is no mean of no readings, which is why `noMorningsView` reaches the
+ * same null WITHOUT passing the flag. Do not fold the second test into the
+ * first — `sum / 0` is `NaN`, `NaN` typechecks as the `number` this field
+ * accepts, and the card would print it.
+ *
+ * Built ON `logView` rather than beside it. Every non-RHR figure is the same
+ * athlete as the log fixtures, and spreading that view's result is what makes
+ * the claim true BY CONSTRUCTION instead of by a comment sitting over a second
+ * hand-copied set of HRV blocks — a copy that goes silently stale the day
+ * `logView` is edited. Only `spark` and the two RHR baseline figures are
+ * overridden; this tile reads none of the rest.
+ */
+function restingView(
+  days: RecoveryDayPoint[],
+  { calibrating = false }: { calibrating?: boolean } = {},
+): RecoveryView {
+  const pre = days
+    .slice(0, 30)
+    .map((d) => d.restingHr)
+    .filter((v): v is number => v !== null);
+  const base = logView(days);
+  return {
+    ...base,
+    // Legacy and gap-omitting — the strip must never draw from this.
+    spark: [51, 54, 57, 59, 47, 50],
+    baseline: {
+      ...base.baseline!,
+      restingHrAvg:
+        calibrating || pre.length === 0
+          ? null
+          : round(pre.reduce((a, b) => a + b, 0) / pre.length, 1),
+      restingHrDays: pre.length,
+    },
+  };
+}
+
+/*
+ * NAMING, so the next reader does not have to infer the rule. `restingHrView`
+ * is the default and is named for the payload field the tile is about. The
+ * other six prefix `resting` only where generation 1 or 3 already owns the bare
+ * name — `calibratingView`, `sparseView` and `noReadingView` are all taken —
+ * which is why `creepingUpView`, `flatMonthView` and `noMorningsView` do not.
+ * `resting-rank.test.tsx` imports all seven, so a rename here is a two-file
+ * change, not a one-file one.
+ */
+
+/**
+ * **default** — an ordinary week with one bump, and the state the tile is
+ * judged calm on. Baseline 53.4 over 29 mornings, today 50, extremes 47 and 59.
+ * Today ranks 4th lowest of 29 and the card spends NO colour: 50 against a 53.4
+ * average rounds to −3, and colour is licensed only upward.
+ */
+export function restingHrView(): RecoveryView {
+  return restingView(restingDays([...RESTING_HISTORY, ...RESTING_TAIL]));
+}
+
+/**
+ * **creeping-up** — the fixture the tile exists for. Twenty-seven mornings flat
+ * around 48 (47–50, mean 48.3), then 54 / 56 / 57 / 58, and the 30-day average
+ * still reads 49 because the climb has not yet dragged it. Today's 58 is the
+ * HIGHEST tick: hard against the right end, well right of the dashed average
+ * tick, warm, and captioned `30th lowest of your last 30`. The recent rows
+ * beneath — 58 / 57 / 56 — supply the "and it has been climbing" that a rank
+ * alone cannot.
+ */
+export function creepingUpView(): RecoveryView {
+  const flat = [
+    48, 47, 49, 48, 50, 47, 48, 49, 48, 47, 49, 48, 48, 50, 47, 49, 48, 48, 49, 47, 50, 48, 49, 48,
+    47, 49, 48,
+  ];
+  return restingView(restingDays([...flat, 54, 56, 57, 58]));
+}
+
+/**
+ * **flat-month** — 48–50 for the whole window, and the variant's structural
+ * advantage. There is no axis to auto-scale, so the endpoints read `48 lowest`
+ * / `50 highest` and two beats of range are instantly readable as *nothing is
+ * happening*. Today's 49 is exactly the average, so no colour is spent.
+ */
+export function flatMonthView(): RecoveryView {
+  const month = [
+    49, 48, 50, 48, 50, 49, 48, 50, 48, 50, 49, 48, 50, 48, 50, 49, 48, 50, 48, 50, 49, 48, 50, 48,
+    50, 49, 48, 50, 49, 49,
+  ];
+  return restingView(restingDays([...month, 49]));
+}
+
+/**
+ * **no-reading-yet** — 7am, before the morning webhook lands. The default month
+ * with today's reading missing and NOTHING else changed: the baseline stands,
+ * the strip and its average tick still draw from the remaining mornings, and
+ * yesterday is never promoted into today — the recent rows carry it explicitly
+ * one register below, which is where it belongs.
+ */
+export function restingNoReadingView(): RecoveryView {
+  return restingView(restingDays([...RESTING_HISTORY, ...RESTING_TAIL.slice(0, 7), null]));
+}
+
+/**
+ * **sparse** — three readings in the last eight days, plus one older gap:
+ * travel, or the strap on the charger. `n` drops to 24, so the caption must say
+ * `of your last 24` rather than claiming thirty, the tick pitch widens
+ * accordingly, and two of the three recent rows print `no reading`. Gaps must
+ * read as gaps.
+ */
+export function restingSparseView(): RecoveryView {
+  const history = RESTING_HISTORY.map((v, i) => (i === 10 ? null : v));
+  return restingView(restingDays([...history, null, 52, null, null, 48, null, null, 50]));
+}
+
+/**
+ * **calibrating** — `restingHrAvg: null`, `restingHrDays: 9`, and the state this
+ * variant was partly selected on: a rank needs no baseline, only a
+ * distribution, so the STRIP RENDERS INTACT. No average tick, no average label,
+ * no colour, and the caption's reserved second line reads
+ * `no avg yet, 9 of 14 mornings`.
+ *
+ * `hrvDays` is deliberately left at the shared 27. The counts are separate
+ * samples on the wire and a tile that borrows the wrong one is the exact bug
+ * the recovery_log SOW had to correct in its mockup.
+ *
+ * That argument covers `restingHrDays !== hrvDays`. It does NOT cover the
+ * inherited `hrvAvg: 88.2` over `hrvDays: 27`, which no longer describes the
+ * window beneath it: `restingDays` nulls the HRV wherever the resting HR is
+ * null, so this series carries ten HRV mornings, not 27. That is knowingly out
+ * of scope rather than overlooked — nothing on this card reads either field,
+ * and generation 1's `calibratingView` is where a fully emittable calibrating
+ * payload lives. Anything that starts reading them must state them here.
+ */
+export function restingCalibratingView(): RecoveryView {
+  const series = [...RESTING_HISTORY, ...RESTING_TAIL].map((v, i) => (i < 20 ? null : v));
+  return restingView(restingDays(series), { calibrating: true });
+}
+
+/**
+ * **no mornings at all** — `days` present and every `restingHr` null. There is
+ * no distribution to rank within and no `n` to divide by, so the card renders a
+ * one-line muted body rather than a zero-width strip.
+ *
+ * `restingHrAvg` goes null here through the empty-sample guard rather than
+ * through `calibrating`: there is no mean of no readings, and the flag models a
+ * different state. As in `restingCalibratingView`, the inherited `hrvAvg` /
+ * `hrvDays` describe a month this window does not show — knowingly out of
+ * scope, for the same reason: nothing on this card reads them.
+ */
+export function noMorningsView(): RecoveryView {
+  return restingView(restingDays(Array.from({ length: 31 }, () => null)));
 }

@@ -14,14 +14,20 @@
  * are otherwise unchanged. They are re-exported so `page.tsx` (pre-W6) can keep
  * importing them.
  *
- * The recovery FAMILY — recovery, hrv_balance, morning_vitals, recovery_log —
- * are the tiles whose section can be "enabled but not present" (the user added
- * the tile but hasn't connected Whoop). All four read the one shared `recovery`
- * section; when enabled-but-absent each family id renders its own titled
- * `RecoveryConnectCard` connect CTA. The other cards each own their
- * `!section.present` empty state internally. The family was five: the
- * `recovery_trend` tile is retired, folded into `hrv_balance` as its second
- * swipeable view (see `recovery/hrv-tile.tsx`).
+ * The recovery FAMILY — recovery, hrv_balance, morning_vitals, recovery_log,
+ * resting_hr — are the tiles whose section can be "enabled but not present"
+ * (the user added the tile but hasn't connected Whoop). All five read the one
+ * shared `recovery` section; when enabled-but-absent each family id renders its
+ * own titled `RecoveryConnectCard` connect CTA. The other cards each own their
+ * `!section.present` empty state internally. Having a case here is not being on
+ * anyone's dashboard: like every sibling except `recovery`, `resting_hr` ships
+ * tray-only. What a user actually starts with is the API's `defaultLayout`
+ * (`internal/dashboard/layout_resolve.go`) — a server-owned list nothing in
+ * this repo mirrors, so read the rollout there rather than inferring it from
+ * this catalog; `TestSummary_DefaultLayoutHasNoRestingHRTile` is what pins this
+ * tile's absence from it. One more id was in this family once — `recovery_trend`
+ * is retired, folded into `hrv_balance` as its second swipeable view (see
+ * `recovery/hrv-tile.tsx`).
  *
  * The running FAMILY — running, running_log, running_effort,
  * running_vertical — is the same pattern applied to running: four tiles
@@ -63,6 +69,7 @@ import { ReadinessVerdictCard } from "./recovery/readiness-verdict";
 import { HrvTileCard } from "./recovery/hrv-tile";
 import { MorningVitalsCard } from "./recovery/three-dial-vitals";
 import { MorningLedgerCard } from "./recovery/morning-ledger";
+import { RestingRankCard } from "./recovery/resting-rank";
 import { SleepTile } from "./sleep/sleep-tile";
 import { LoadRampCard } from "./running/load-ramp";
 import { WeekLogCard } from "./running/week-log";
@@ -359,6 +366,12 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
         <MorningLedgerCard section={data.recovery} href={href} />
       ) : (
         <RecoveryConnectCard title="Recovery Log" href={href} />
+      );
+    case "resting_hr":
+      return data.recovery.present ? (
+        <RestingRankCard section={data.recovery} href={href} />
+      ) : (
+        <RecoveryConnectCard title="Resting HR" href={href} />
       );
     case "sleep":
       // Three states, and the order is the point — which is why the branching
