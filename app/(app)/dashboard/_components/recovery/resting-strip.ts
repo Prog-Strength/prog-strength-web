@@ -42,8 +42,14 @@ export const STRIP_WINDOW = 30;
  * not a heart rate of zero, and the caller's `n` (this array's length) reports
  * how many mornings are actually behind the rank. On a sparse month that is
  * visibly not thirty, and saying so is the honest caption.
+ *
+ * `window` defaults to `STRIP_WINDOW` because every call site passes exactly
+ * that; it stays a parameter so a promotion to `/recovery` can widen it. The
+ * default is also the safer shape: `slice(-window)` with a computed `0` returns
+ * the WHOLE array rather than none of it, so a caller that let a zero through
+ * would silently disable the trim instead of emptying the strip.
  */
-export function sortedMornings(days: RecoveryDayPoint[], window: number): number[] {
+export function sortedMornings(days: RecoveryDayPoint[], window: number = STRIP_WINDOW): number[] {
   return days
     .slice(-window)
     .map((d) => d.restingHr)
@@ -66,8 +72,25 @@ export function rankOf(sorted: number[], today: number | null): number | null {
   return sorted.filter((v) => v < t).length + 1;
 }
 
-/** Tick centres, evenly spaced by rank. */
-export const tickPct = (i: number, n: number): number => ((i + 0.5) / n) * 100;
+/**
+ * Tick centres, evenly spaced by rank: tick `i` of `n` owns the slice from
+ * `i / n` to `(i + 1) / n` and sits in the MIDDLE of it.
+ *
+ * Half of a matched pair with `avgInsertPct`, and the halves must stay
+ * different. A morning IS one of the athlete's readings, so it gets a tick
+ * centre; the average is not, so it gets a boundary between two of them. That
+ * offset of half a slice is the whole visual distinction between *a morning*
+ * and *the mean of thirty*, and collapsing the two formulas into one would sit
+ * the dash on top of a tick and claim membership the average does not have.
+ *
+ * `n >= 1` is the caller's obligation — `n === 0` yields `Infinity`, and there
+ * are no ticks to place on an empty strip anyway. Unlike `avgInsertPct` there
+ * is no useful total version of this: a tick index with no strip to sit in is a
+ * caller bug, not a state.
+ */
+export function tickPct(i: number, n: number): number {
+  return ((i + 0.5) / n) * 100;
+}
 
 /**
  * Where the 30-day average inserts. Deliberately at the BOUNDARY between two
@@ -76,19 +99,41 @@ export const tickPct = (i: number, n: number): number => ((i + 0.5) / n) * 100;
  * Computed against the raw average, not a rounded one: the tick is a position,
  * and 53.4 genuinely sits above every 53.
  *
+ * The comparison is STRICTLY `<`, so an average equal to a run of values lands
+ * at the START of that run rather than after it — and that is the correct end
+ * of the run, not merely the current one. It is the case that ships: both
+ * `creepingUpView` and `flatMonthView` average exactly 49 over a strip full of
+ * 49s. On flat-month, `<` puts the dash immediately LEFT of today's own tick,
+ * where *today is the average* reads at a glance; `<=` would throw it to the
+ * far side of eight identical mornings, and on creeping-up it would move the
+ * dash 23 points right and cost the `highest` endpoint its label.
+ *
  * The average's own window (30 days trailing, EXCLUDING today) is not the same
  * set as the strip's thirty (including today, excluding the oldest). That is
  * not a defect and must not be "fixed" by re-averaging the strip's values,
  * which is the forbidden operation. The tick claims a position, not membership
  * — and the dash the caller draws it with is what says so.
  *
- * Callers guard `sorted.length > 0` before the strip renders at all, so the
- * division is safe by construction.
+ * An empty strip returns null rather than dividing by zero. The function
+ * already speaks `null` for *nothing to place*, so being total costs one clause
+ * — and the alternative fails INVISIBLY: a NaN percentage reaches the DOM as
+ * `left: "NaN%"`, an invalid declaration the CSSOM drops silently, leaving the
+ * dash at its static fallback position on a card that still looks plausible.
  */
 export function avgInsertPct(sorted: number[], avg: number | null): number | null {
-  if (avg === null) return null;
+  if (avg === null || sorted.length === 0) return null;
   return (sorted.filter((v) => v < avg).length / sorted.length) * 100;
 }
+
+/**
+ * Where a CENTRED label stops fitting: past these, anchoring switches to the
+ * card edge. 6% is the half-width assumed for the only label routed through
+ * `labelAnchor` — today's, a bare two- or three-digit bpm figure — so a tick
+ * inside 6% of either end is one whose centred label would overhang the panel.
+ * A wider label, or a much narrower strip, is what would retune this pair.
+ */
+export const LABEL_EDGE_MIN_PCT = 6;
+export const LABEL_EDGE_MAX_PCT = 94;
 
 /**
  * left / centre / right anchoring, so a label near an edge stays on the card
@@ -100,11 +145,23 @@ export function avgInsertPct(sorted: number[], avg: number | null): number | nul
  * it over the tick and inside the card at the same time.
  */
 export function labelAnchor(pct: number): { left: string; transform: string } {
-  if (pct < 6) return { left: "0%", transform: "none" };
-  if (pct > 94) return { left: "100%", transform: "translateX(-100%)" };
+  if (pct < LABEL_EDGE_MIN_PCT) return { left: "0%", transform: "none" };
+  if (pct > LABEL_EDGE_MAX_PCT) return { left: "100%", transform: "translateX(-100%)" };
   return { left: `${pct}%`, transform: "translateX(-50%)" };
 }
 
+/**
+ * Where the AVG label is allowed to stop. A wider bound than
+ * `LABEL_EDGE_*_PCT` because this label is wider — it carries the word `avg`
+ * beside its figure — and because it is the one label with neighbours to clear.
+ *
+ * The two pairs cannot fight, and that is by construction rather than by luck:
+ * `[18, 82]` sits strictly inside `(6, 94)`, so a clamped avg label is always
+ * within the range `labelAnchor` would CENTRE. That is why the caller renders
+ * it centred outright instead of re-anchoring it — the avg label is only ever
+ * nudged, and it keeps the same symmetric relationship to its dash at every
+ * position the strip can produce.
+ */
 export const AVG_LABEL_MIN_PCT = 18;
 export const AVG_LABEL_MAX_PCT = 82;
 /** Clearance either side of the avg label before an endpoint label is dropped. */

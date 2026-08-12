@@ -28,9 +28,17 @@ function days(values: (number | null)[]): RecoveryDayPoint[] {
 }
 
 describe("sortedMornings", () => {
-  // CORRECTION 1. This test must FAIL against the mockup's raw-float formula.
+  // CORRECTION 1, pinned in BOTH directions. The card displays with
+  // `Math.round`, so any other rounding here desynchronises the strip's order
+  // from the figures printed over it. 49.6 fails against the raw float and
+  // against floor/trunc; 49.4 fails against the raw float and against ceil.
+  // Together they admit only `Math.round`.
   it("rounds before sorting, so two mornings the card both prints as 50 sort as one value", () => {
     expect(sortedMornings(days([49.6, 50]), STRIP_WINDOW)).toEqual([50, 50]);
+  });
+
+  it("rounds down below the half, so a 49.4 sorts as the 49 the card prints", () => {
+    expect(sortedMornings(days([49.4, 50]), STRIP_WINDOW)).toEqual([49, 50]);
   });
 
   it("sorts ascending", () => {
@@ -72,6 +80,15 @@ describe("rankOf", () => {
     expect(rankOf([47, 50, 50, 59], 49.6)).toBe(2);
   });
 
+  // The round-DOWN direction, and the case that actually discriminates: with no
+  // rounding at all, 49.4 counts both 49s below it and ranks 4th rather than
+  // 2nd — the card would print `49` and caption it `4th lowest`. (The 49.6 case
+  // above cannot catch that: no integer lies between 49.6 and 50.)
+  it("ranks a float that rounds down where its printed integer ranks", () => {
+    expect(rankOf([47, 49, 49, 59], 49.4)).toBe(rankOf([47, 49, 49, 59], 49));
+    expect(rankOf([47, 49, 49, 59], 49.4)).toBe(2);
+  });
+
   it("is null when there is no reading yet today", () => {
     expect(rankOf([47, 48, 49], null)).toBeNull();
   });
@@ -96,8 +113,27 @@ describe("avgInsertPct", () => {
     expect(avgInsertPct([53, 53, 54, 54], 53.4)).toBe(50);
   });
 
+  // The tie case, which is the one that SHIPS: `creepingUpView` and
+  // `flatMonthView` both average exactly 49 over a strip containing 49s. The
+  // comparison is strictly `<`, so the dash lands at the START of the run — a
+  // `<=` here would move creeping-up's average tick from 53.3% to 76.7% and
+  // silently drop its `highest` label, with every other test still green.
+  it("places an average equal to a run of values at the start of that run", () => {
+    expect(avgInsertPct([48, 49, 49, 50], 49)).toBe(25);
+  });
+
   it("is null when there is no average yet", () => {
     expect(avgInsertPct([47, 48], null)).toBeNull();
+  });
+
+  // An empty strip is a shipped shape (`noMorningsView` is 31 nulls), and the
+  // average comes from a DIFFERENT window than the strip, so the caller may not
+  // assume an empty strip implies a null average. Getting it wrong fails
+  // invisibly: a NaN percentage reaches the DOM as `left: "NaN%"`, which the
+  // CSSOM drops silently, leaving a plausible card with the dash in the wrong
+  // place.
+  it("is null for an empty strip rather than dividing by zero", () => {
+    expect(avgInsertPct([], 49)).toBeNull();
   });
 });
 
