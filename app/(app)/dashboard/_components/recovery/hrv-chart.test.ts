@@ -3,13 +3,15 @@ import type { RecoveryDayPoint, RecoveryView } from "@/lib/dashboard";
 import {
   bandRuns,
   classifyNights,
-  gaugeTickPct,
+  gaugePct,
   MIN_ROLLING_NIGHTS,
   prepareHrvChart,
   rollingAverages,
   rollingRuns,
   ROLLING_WINDOW_NIGHTS,
   scaler,
+  weekBand,
+  WEEK_BAND_DIVISOR,
   weekStatus,
 } from "./hrv-chart";
 
@@ -92,20 +94,43 @@ function view(over: Partial<RecoveryView> = {}): RecoveryView {
   };
 }
 
-describe("gaugeTickPct — the bounds-derived scale", () => {
+describe("weekBand — the nightly band narrowed for a mean", () => {
+  test("keeps the centre and divides the half-width by √7", () => {
+    const [low, high] = weekBand(76, 100);
+    expect((low + high) / 2).toBeCloseTo(88, 10);
+    expect(high - low).toBeCloseTo(24 / WEEK_BAND_DIVISOR, 10);
+    // The band a mean is judged against is well inside the one a night is.
+    expect(low).toBeGreaterThan(76);
+    expect(high).toBeLessThan(100);
+  });
+
+  test("reads the centre off the BOUNDS, not off a baseline it was not given", () => {
+    // An asymmetric band narrows about its own midpoint rather than about a
+    // figure this function has no access to, so a day with a null `baselineAvg`
+    // and live bounds still narrows correctly.
+    const [low, high] = weekBand(80, 120);
+    expect((low + high) / 2).toBeCloseTo(100, 10);
+  });
+
+  test("a degenerate band stays degenerate rather than inverting", () => {
+    expect(weekBand(90, 90)).toEqual([90, 90]);
+  });
+});
+
+describe("gaugePct — the bounds-derived scale", () => {
   // THE REGRESSION TEST FOR THE CORRECTION. The band's half-width is 20 ms while
   // the raw SD is 5 ms, because the server emits hrv_avg ± balanced_z ×
   // max(sd, min_std_dev_ms) and the client never receives balanced_z or the
   // floor. The mockup's (shortAvg − hrvAvg) / hrvStdDev formula fails this:
   // it reads −4 and +4 half-widths instead of −1 and +1, so the clamp pins it
-  // to 0 and 100 where the printed bound labels sit at 25 and 75.
-  test("the printed bounds land exactly on 25% and 75%, whatever the SD is", () => {
+  // to 0 and 100 where the NIGHTLY bounds sit at 25 and 75.
+  test("the nightly bounds land exactly on 25% and 75%, whatever the SD is", () => {
     const hrvAvg = 88;
     const balancedHigh = 108; // half-width 20, not the notional hrvStdDev of 5
     const balancedLow = 68;
 
-    expect(gaugeTickPct(balancedLow, hrvAvg, balancedHigh)).toBe(25);
-    expect(gaugeTickPct(balancedHigh, hrvAvg, balancedHigh)).toBe(75);
+    expect(gaugePct(balancedLow, hrvAvg, balancedHigh)).toBe(25);
+    expect(gaugePct(balancedHigh, hrvAvg, balancedHigh)).toBe(75);
 
     // Spelled out: scaling by the raw SD would put the same two averages here.
     const bySd = (v: number) => Math.min(100, Math.max(0, (((v - hrvAvg) / 5 + 2) / 4) * 100));
@@ -114,24 +139,35 @@ describe("gaugeTickPct — the bounds-derived scale", () => {
   });
 
   test("the baseline mean itself sits dead centre", () => {
-    expect(gaugeTickPct(88, 88, 108)).toBe(50);
+    expect(gaugePct(88, 88, 108)).toBe(50);
   });
 
   test("clamps to 0 below −2 half-widths and to 100 above +2", () => {
     // ±2 half-widths from 88 with a half-width of 20 is 48 and 128.
-    expect(gaugeTickPct(48, 88, 108)).toBe(0);
-    expect(gaugeTickPct(128, 88, 108)).toBe(100);
-    expect(gaugeTickPct(10, 88, 108)).toBe(0);
-    expect(gaugeTickPct(400, 88, 108)).toBe(100);
+    expect(gaugePct(48, 88, 108)).toBe(0);
+    expect(gaugePct(128, 88, 108)).toBe(100);
+    expect(gaugePct(10, 88, 108)).toBe(0);
+    expect(gaugePct(400, 88, 108)).toBe(100);
   });
 
-  test("null when there is no 7-day mean", () => {
-    expect(gaugeTickPct(null, 88, 108)).toBeNull();
+  test("null when there is no value to place", () => {
+    expect(gaugePct(null, 88, 108)).toBeNull();
+  });
+
+  test("the WEEK bounds land inside the nightly ones, which is the whole point", () => {
+    // The gauge's coloured zones start and end here rather than at 25 / 75: the
+    // scale stays nightly so a bad week keeps its magnitude, and only the
+    // thresholds move inward to where a MEAN's band actually falls.
+    const [weekLow, weekHigh] = weekBand(68, 108);
+    expect(gaugePct(weekLow, 88, 108)!).toBeGreaterThan(25);
+    expect(gaugePct(weekHigh, 88, 108)!).toBeLessThan(75);
+    // Still centred, so the green zone is symmetric about the baseline mean.
+    expect(gaugePct(weekLow, 88, 108)! + gaugePct(weekHigh, 88, 108)!).toBeCloseTo(100, 10);
   });
 
   test("null for a degenerate or inverted band rather than dividing by zero", () => {
-    expect(gaugeTickPct(90, 88, 88)).toBeNull();
-    expect(gaugeTickPct(90, 88, 80)).toBeNull();
+    expect(gaugePct(90, 88, 88)).toBeNull();
+    expect(gaugePct(90, 88, 80)).toBeNull();
   });
 });
 
@@ -244,7 +280,11 @@ describe("prepareHrvChart — the single guard", () => {
     const days = run([60, 60, 60, 60, 60, 60, 60, 130, 130]);
     const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: 90 } }));
     expect(prepared!.rolling.map((p) => p?.avg)).toEqual([60, 70, 90]);
-    expect(prepared!.domain).toEqual([55, 105]);
+    // Low end is the 60 ms mean less 5 ms headroom; the top is the week band's
+    // upper bound, not the 130 ms night and not the 100 ms nightly bound.
+    expect(prepared!.domain[0]).toBe(55);
+    expect(prepared!.domain[1]).toBeCloseTo(prepared!.weekHigh + 5, 10);
+    expect(prepared!.domain[1]).toBeLessThan(100);
   });
 
   test("the domain follows the DRAWN days' bands, not the lead-in's", () => {
@@ -254,7 +294,8 @@ describe("prepareHrvChart — the single guard", () => {
       i < 6 ? { ...d, balancedLow: 40, balancedHigh: 140 } : d,
     );
     const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: 90 } }));
-    expect(prepared!.domain).toEqual([71, 105]);
+    expect(prepared!.domain[0]).toBeCloseTo(prepared!.weekLow - 5, 10);
+    expect(prepared!.domain[1]).toBeCloseTo(prepared!.weekHigh + 5, 10);
   });
 
   test("the series is the tail the rolling window reaches, and its dates align", () => {
@@ -300,14 +341,33 @@ describe("prepareHrvChart — the single guard", () => {
     expect(prepared!.rolling.at(-1)!.avg).toBe(90.5);
   });
 
-  test("the domain includes the scalar bounds even when no day carries a band", () => {
+  test("the domain includes today's week band even when no day carries one", () => {
     const days = [
       unbanded({ date: "2026-07-31", hrv: 88 }),
       unbanded({ date: "2026-08-01", hrv: 90 }),
     ];
-    // Scalar band 76 / 100 from the fixture's hrv block.
+    // Scalar band 76 / 100 from the fixture's hrv block, narrowed.
     const prepared = prepareHrvChart(view({ days }));
-    expect(prepared!.domain).toEqual([71, 105]);
+    expect([prepared!.weekLow, prepared!.weekHigh]).toEqual(weekBand(76, 100));
+    expect(prepared!.domain[0]).toBeCloseTo(prepared!.weekLow - 5, 10);
+    expect(prepared!.domain[1]).toBeCloseTo(prepared!.weekHigh + 5, 10);
+  });
+
+  test("every week-scale register is judged against the SAME narrowed band", () => {
+    // The pin for the tightening: `week`, the marks' statuses and the bounds the
+    // gauge prints all come from `weekLow`/`weekHigh`. A `shortAvg` between the
+    // week band and the nightly one must read suppressed — under the old nightly
+    // threshold it read balanced, and the ribbon it sits outside of would have
+    // been drawing the opposite story.
+    const days = run(Array(9).fill(80));
+    const prepared = prepareHrvChart(view({ days, hrv: { ...view().hrv!, shortAvg: 80 } }));
+
+    expect(prepared!.weekLow).toBeGreaterThan(80); // inside the nightly low of 76
+    expect(prepared!.week).toBe("suppressed");
+    expect(prepared!.rolling.at(-1)!.status).toBe("suppressed");
+    expect(prepared!.rolling.every((p) => p!.status === "suppressed")).toBe(true);
+    // The nightly band is still carried — the gauge's SCALE is built from it.
+    expect([prepared!.balancedLow, prepared!.balancedHigh]).toEqual([76, 100]);
   });
 });
 
@@ -424,15 +484,19 @@ describe("weekStatus — where the 7-day mean sits in today's band", () => {
     expect(weekStatus(null, 76, 100)).toBe("unknown");
   });
 
-  test("agrees with the gauge tick's own arithmetic at the boundary", () => {
-    // The gauge prints `balancedLow` under its 25% mark, so a week that reads
-    // suppressed must put the tick left of it and a balanced one must not. The
-    // two are computed independently; this is what pins them together.
-    const [avg, low, high] = [88, 76, 100];
-    expect(gaugeTickPct(75.9, avg, high)!).toBeLessThan(25);
-    expect(weekStatus(75.9, low, high)).toBe("suppressed");
-    expect(gaugeTickPct(76.1, avg, high)!).toBeGreaterThan(25);
-    expect(weekStatus(76.1, low, high)).toBe("balanced");
+  test("agrees with the gauge's zone boundary, wherever that boundary now sits", () => {
+    // The green zone starts where `weekLow` maps to, so a week that reads
+    // suppressed must put the tick left of that boundary and a balanced one must
+    // not. The two are computed independently; this is what pins them together —
+    // and it is why the boundary is derived rather than left at 25%.
+    const [avg, nightHigh] = [88, 100];
+    const [weekLow, weekHigh] = weekBand(76, 100);
+    const boundary = gaugePct(weekLow, avg, nightHigh)!;
+
+    expect(gaugePct(weekLow - 0.1, avg, nightHigh)!).toBeLessThan(boundary);
+    expect(weekStatus(weekLow - 0.1, weekLow, weekHigh)).toBe("suppressed");
+    expect(gaugePct(weekLow + 0.1, avg, nightHigh)!).toBeGreaterThan(boundary);
+    expect(weekStatus(weekLow + 0.1, weekLow, weekHigh)).toBe("balanced");
   });
 });
 

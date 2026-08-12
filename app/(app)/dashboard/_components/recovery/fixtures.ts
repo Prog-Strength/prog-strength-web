@@ -613,7 +613,7 @@ export function noReadingDriftView(hrv: (number | null)[] = DRIFT_HRV_SERIES): R
  * z −1.37, well under the band.
  *
  * `shortAvg` is 77.0, which puts the gauge tick in the LOWER QUARTER of the
- * bar: `gaugeTickPct` reads the half-width off the emitted bounds
+ * bar: `gaugePct` reads the half-width off the emitted bounds
  * (103.8 − 91.2 = 12.6), so the tick lands at
  * `((((77.0 − 91.2) / 12.6) + 2) / 4) × 100 = 21.8%` — below the 25% mark that
  * carries the `balancedLow` label. Defaults to `HRV_SERIES`, whose last
