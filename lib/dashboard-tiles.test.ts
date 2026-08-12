@@ -92,25 +92,39 @@ describe("dashboard tile catalog", () => {
     expect(TILE_CATALOG.length).toBe(Object.keys(ALL_TILE_IDS).length);
   });
 
+  // The five tiles that share the one `recovery` section, in catalog order.
+  const RECOVERY_FAMILY: readonly TileId[] = [
+    "recovery",
+    "hrv_balance",
+    "morning_vitals",
+    "recovery_log",
+    "resting_hr",
+  ];
+
   test("the five recovery-family tiles have distinct titles and descriptions", () => {
-    const family = ["recovery", "hrv_balance", "morning_vitals", "recovery_log", "resting_hr"];
-    const titles = new Set(family.map((id) => tileEntry(id as TileId).title));
-    const descriptions = new Set(family.map((id) => tileEntry(id as TileId).description));
-    expect(titles.size).toBe(5);
-    expect(descriptions.size).toBe(5);
-    for (const id of family) {
-      expect(tileEntry(id as TileId).href).toBe("/recovery");
+    const titles = RECOVERY_FAMILY.map((id) => tileEntry(id).title);
+    const descriptions = RECOVERY_FAMILY.map((id) => tileEntry(id).description);
+    // Deduped-vs-raw rather than `size === 5`: a duplicate then fails with both
+    // lists printed, naming the offending entry instead of "expected 4 to be 5".
+    expect([...new Set(titles)]).toEqual(titles);
+    expect([...new Set(descriptions)]).toEqual(descriptions);
+    for (const id of RECOVERY_FAMILY) {
+      expect(tileEntry(id).href).toBe("/recovery");
     }
     // The rewritten recovery entry no longer describes the retired card.
     expect(tileEntry("recovery").description).not.toContain("resting HR");
   });
 
+  // Weaker than the exact-order test above and cannot fail alone — that test
+  // pins all 21 ids, so nothing can break this run without breaking that array
+  // first. It is kept as documentation of WHY resting_hr sits between
+  // recovery_log and sleep: catalog order IS the add-tile tray order, so the
+  // family staying contiguous is the whole reason for the position.
   test("the recovery family is a contiguous run ending in resting_hr, before sleep", () => {
     const ids = TILE_CATALOG.map((t) => t.id);
-    const family = ["recovery", "hrv_balance", "morning_vitals", "recovery_log", "resting_hr"];
     const at = ids.indexOf("recovery");
-    expect(ids.slice(at, at + family.length)).toEqual(family);
-    expect(ids[at + family.length]).toBe("sleep");
+    expect(ids.slice(at, at + RECOVERY_FAMILY.length)).toEqual(RECOVERY_FAMILY);
+    expect(ids[at + RECOVERY_FAMILY.length]).toBe("sleep");
   });
 
   test("the resting_hr title is stored in sentence-plus-initialism case", () => {

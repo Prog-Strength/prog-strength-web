@@ -19,12 +19,15 @@
  * (the user added the tile but hasn't connected Whoop). All five read the one
  * shared `recovery` section; when enabled-but-absent each family id renders its
  * own titled `RecoveryConnectCard` connect CTA. The other cards each own their
- * `!section.present` empty state internally. `resting_hr` is the newest of the
- * five and, like `sleep`, ships tray-only: it is in the catalog so the add-tile
- * tray offers it, but the API leaves it out of the default layout, so nobody's
- * dashboard grows a card they did not ask for. One more id was in this family
- * once — `recovery_trend` is retired, folded into `hrv_balance` as its second
- * swipeable view (see `recovery/hrv-tile.tsx`).
+ * `!section.present` empty state internally. Having a case here is not being on
+ * anyone's dashboard: like every sibling except `recovery`, `resting_hr` ships
+ * tray-only. What a user actually starts with is the API's `defaultLayout`
+ * (`internal/dashboard/layout_resolve.go`) — a server-owned list nothing in
+ * this repo mirrors, so read the rollout there rather than inferring it from
+ * this catalog; `TestSummary_DefaultLayoutHasNoRestingHRTile` is what pins this
+ * tile's absence from it. One more id was in this family once — `recovery_trend`
+ * is retired, folded into `hrv_balance` as its second swipeable view (see
+ * `recovery/hrv-tile.tsx`).
  *
  * The running FAMILY — running, running_log, running_effort,
  * running_vertical — is the same pattern applied to running: four tiles
