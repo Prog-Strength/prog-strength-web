@@ -4132,6 +4132,18 @@ export type CalendarEventsStatus =
 
 export type CalendarEventsResponse = {
   status: CalendarEventsStatus;
+  /**
+   * The IANA zone the server bucketed `days` in, and the zone every `start` /
+   * `end` must be FORMATTED on — the calendar's own, so the tile prints the
+   * clock Google Calendar prints.
+   *
+   * Not the browser's zone, and not interchangeable with it. Google renders
+   * its grid in the calendar's zone; a reader in Pacific whose calendar is set
+   * to Eastern saw a 4:45 PM flight as 1:45 PM for exactly as long as this
+   * field did not exist. Optional because an older API build omits it, in
+   * which case the browser's zone is the honest fallback.
+   */
+  timezone?: string;
   days?: CalendarDay[];
 };
 

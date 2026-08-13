@@ -23,12 +23,13 @@
 import { useEffect, useRef } from "react";
 import type { CalendarDay } from "@/lib/api";
 import { EventRow } from "./event-row";
-import { formatDayHeading, localDateKey } from "./shared";
+import { formatDayHeading, zonedDateKey } from "./shared";
 
 export function CalendarWeekModal({
   days,
   initialDate,
   now,
+  timeZone,
   onClose,
 }: {
   /** The whole window the tile holds — dense, one entry per date. */
@@ -46,11 +47,17 @@ export function CalendarWeekModal({
    * `--foreground`, which is a failure with no symptom to notice.
    */
   now: Date;
+  /**
+   * The CALENDAR's zone, from the events payload. Every clock and day key on
+   * this tile is read on it so the tile prints what Google Calendar prints —
+   * the reader's own zone is a different question and not this one.
+   */
+  timeZone: string;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const initialRef = useRef<HTMLElement | null>(null);
-  const todayKey = localDateKey(now);
+  const todayKey = zonedDateKey(now, timeZone);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -126,7 +133,7 @@ export function CalendarWeekModal({
                 ) : (
                   <ul className="flex flex-col">
                     {day.events.map((event) => (
-                      <EventRow key={event.id} event={event} allDayLabel />
+                      <EventRow timeZone={timeZone} key={event.id} event={event} allDayLabel />
                     ))}
                   </ul>
                 )}

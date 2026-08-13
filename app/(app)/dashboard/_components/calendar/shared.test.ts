@@ -7,9 +7,12 @@ import {
   localDateKey,
   nextUpcoming,
   requestWindow,
+  addDaysToKey,
+  fetchWindow,
   stripHeights,
   visibleEvents,
   weekColumns,
+  zonedDateKey,
 } from "./shared";
 
 /**
@@ -20,9 +23,11 @@ import {
  * late-evening local instant lands on the NEXT UTC date. Every other test here
  * builds and compares local dates, so the pin does not change their meaning.
  */
+/** The zone this file pins, named so the calls below read as deliberate. */
+const TZ = "America/New_York";
 const realTZ = process.env.TZ;
 beforeAll(() => {
-  process.env.TZ = "America/New_York";
+  process.env.TZ = TZ;
 });
 afterAll(() => {
   process.env.TZ = realTZ;
@@ -177,7 +182,7 @@ describe("localDateKey", () => {
 describe("requestWindow", () => {
   it("is the Monday-to-Sunday union with today and tomorrow", () => {
     // Wednesday 2026-08-12.
-    expect(requestWindow(new Date(2026, 7, 12, 9, 0))).toEqual({
+    expect(requestWindow(new Date(2026, 7, 12, 9, 0), TZ)).toEqual({
       startDate: "2026-08-10",
       endDate: "2026-08-16",
     });
@@ -187,7 +192,7 @@ describe("requestWindow", () => {
     // Sunday 2026-08-16 — "tomorrow" is next Monday, outside this week. A
     // window of just the week would render an empty Tomorrow slide one day in
     // seven.
-    expect(requestWindow(new Date(2026, 7, 16, 9, 0))).toEqual({
+    expect(requestWindow(new Date(2026, 7, 16, 9, 0), TZ)).toEqual({
       startDate: "2026-08-10",
       endDate: "2026-08-17",
     });
@@ -197,7 +202,7 @@ describe("requestWindow", () => {
 describe("formatEventTime", () => {
   it("does not print 12:00p for noon", () => {
     const noon = new Date(2026, 7, 12, 12, 0).toISOString();
-    const formatted = formatEventTime(noon);
+    const formatted = formatEventTime(noon, TZ);
     expect(formatted).not.toMatch(/^0[:.]/);
     expect(formatted).toMatch(/12/);
   });
@@ -207,7 +212,7 @@ describe("formatEventTime", () => {
     // respect the browser, so a 12-hour locale prints "2:30 PM" and a 24-hour
     // one prints "14:30". Both are correct; asserting only the former fails
     // the suite under LC_ALL=en_GB.
-    expect(formatEventTime(new Date(2026, 7, 12, 14, 30).toISOString())).toMatch(
+    expect(formatEventTime(new Date(2026, 7, 12, 14, 30).toISOString(), TZ)).toMatch(
       /(^|\D)(2|14)[:.]30/,
     );
   });
@@ -240,7 +245,7 @@ describe("weekColumns", () => {
       { date: "2026-08-16", truncated: 0, events: [] },
       { date: "2026-08-17", truncated: 0, events: [ev("d", 9)] },
     ];
-    const cols = weekColumns(days, new Date(2026, 7, 16, 9, 0));
+    const cols = weekColumns(days, new Date(2026, 7, 16, 9, 0), TZ);
     expect(cols).toHaveLength(7);
     expect(cols[0].date).toBe("2026-08-10");
     expect(cols[6].date).toBe("2026-08-16");
@@ -268,5 +273,76 @@ describe("nextUpcoming", () => {
   it("returns null when nothing is left", () => {
     const days = [{ date: "2026-08-12", truncated: 0, events: [ev("past", 8)] }];
     expect(nextUpcoming(days, new Date(2026, 7, 12, 23, 0))).toBeNull();
+  });
+});
+
+/**
+ * The zone the clocks are read on.
+ *
+ * The runner's zone is pinned to America/New_York above, so every assertion
+ * here that passes a DIFFERENT zone is proving the browser's is not the one
+ * being used. That is the whole defect: a bare instant plus the reader's own
+ * zone printed 1:45 PM for a 4:45 PM Eastern flight.
+ */
+describe("the calendar's zone, not the browser's", () => {
+  // 4:45 PM Eastern on Aug 13 2026 == 1:45 PM Pacific, same instant.
+  const flight = "2026-08-13T20:45:00Z";
+  // 1:30 AM Eastern on Aug 14 == 10:30 PM Pacific on Aug 13 — the two zones
+  // disagree about which DAY this is, not just which hour.
+  const redEye = "2026-08-14T05:30:00Z";
+
+  it("names the date an instant falls on in the given zone", () => {
+    expect(zonedDateKey(new Date(redEye), "America/New_York")).toBe("2026-08-14");
+    expect(zonedDateKey(new Date(redEye), "America/Los_Angeles")).toBe("2026-08-13");
+  });
+
+  it("formats the clock in the given zone", () => {
+    expect(formatEventTime(flight, "America/New_York")).toMatch(/4:45/);
+    expect(formatEventTime(flight, "America/Los_Angeles")).toMatch(/1:45/);
+  });
+
+  it("steps date keys without letting a DST transition move the day", () => {
+    // Nov 1 2026 is the US fall-back. Stepping across it must still land on
+    // the next calendar date, which naive +24h arithmetic does not.
+    expect(addDaysToKey("2026-10-31", 1)).toBe("2026-11-01");
+    expect(addDaysToKey("2026-11-01", 1)).toBe("2026-11-02");
+    expect(addDaysToKey("2026-01-01", -1)).toBe("2025-12-31");
+  });
+
+  it("builds the request window in the calendar's zone", () => {
+    // 10pm Pacific on Sunday Aug 16 is already Monday Aug 17 in Eastern, so
+    // the two zones are in different WEEKS. The calendar's zone decides.
+    const now = new Date("2026-08-17T05:00:00Z");
+    expect(zonedDateKey(now, "America/Los_Angeles")).toBe("2026-08-16"); // Sunday
+    expect(zonedDateKey(now, "America/New_York")).toBe("2026-08-17"); // Monday
+
+    expect(requestWindow(now, "America/Los_Angeles")).toEqual({
+      startDate: "2026-08-10", // Monday of the Pacific week
+      endDate: "2026-08-17", // Sunday, extended to cover Pacific "tomorrow"
+    });
+    expect(requestWindow(now, "America/New_York")).toEqual({
+      startDate: "2026-08-17", // Monday of the NEXT week, in Eastern
+      endDate: "2026-08-23",
+    });
+  });
+
+  it("fetches one day either side of what it renders", () => {
+    // The calendar's zone is only learned FROM the response, so the first
+    // request is built on a guess. A one-day pad is enough to cover it: no two
+    // zones can disagree about the date by more than a day.
+    const now = new Date("2026-08-12T16:00:00Z");
+    const render = requestWindow(now, "America/New_York");
+    const fetch = fetchWindow(now, "America/New_York");
+    expect(fetch.startDate).toBe(addDaysToKey(render.startDate, -1));
+    expect(fetch.endDate).toBe(addDaysToKey(render.endDate, 1));
+  });
+
+  it("marks today from the calendar's zone", () => {
+    const now = new Date("2026-08-17T05:00:00Z"); // Sun in Pacific, Mon in Eastern
+    const days: CalendarDay[] = [];
+    const pacific = weekColumns(days, now, "America/Los_Angeles");
+    const eastern = weekColumns(days, now, "America/New_York");
+    expect(pacific.find((c) => c.isToday)?.date).toBe("2026-08-16");
+    expect(eastern.find((c) => c.isToday)?.date).toBe("2026-08-17");
   });
 });

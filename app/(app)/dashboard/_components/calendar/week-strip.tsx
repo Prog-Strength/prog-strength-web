@@ -42,12 +42,19 @@ const BAR_FLOOR = 2;
 export function WeekStrip({
   columns,
   next,
+  timeZone,
   onOpenDay,
 }: {
   /** Seven Monday-first columns from `weekColumns()`. */
   columns: WeekColumn[];
   /** The next event that has not started, from `nextUpcoming()`. */
   next: CalendarEvent | null;
+  /**
+   * The CALENDAR's zone, from the events payload. Every clock and day key on
+   * this tile is read on it so the tile prints what Google Calendar prints —
+   * the reader's own zone is a different question and not this one.
+   */
+  timeZone: string;
   onOpenDay: (date: string) => void;
 }) {
   // Normalised against the week's own busiest day, so the strip answers "which
@@ -108,7 +115,9 @@ export function WeekStrip({
           needs the metric and wrapping it would split the sentence into three
           nodes for no gain. */}
       <p className="truncate text-xs tabular-nums text-[var(--muted)]">
-        {next ? `Next: ${formatEventTime(next.start)} ${next.title}` : "Nothing left this week."}
+        {next
+          ? `Next: ${formatEventTime(next.start, timeZone)} ${next.title}`
+          : "Nothing left this week."}
       </p>
     </div>
   );

@@ -38,7 +38,27 @@ import { MINI_CARD_PANEL, MiniCardSkeleton, MiniCardTitle } from "../mini-card";
 import { CalendarWeekModal } from "./calendar-week-modal";
 import { DaySlide } from "./day-slide";
 import { WeekStrip } from "./week-strip";
-import { addDays, localDateKey, nextUpcoming, requestWindow, weekColumns } from "./shared";
+import {
+  addDaysToKey,
+  fetchWindow,
+  nextUpcoming,
+  requestWindow,
+  weekColumns,
+  zonedDateKey,
+} from "./shared";
+
+/**
+ * The zone to read the calendar on until the server names one.
+ *
+ * A guess, and labelled as one. Google renders a calendar's grid in the
+ * CALENDAR's zone, which only the server can tell us — the browser's zone is
+ * merely the best thing available before the first response lands, and the
+ * request window is padded by a day either side so a wrong guess still covers
+ * the days the tile renders.
+ */
+function browserZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
 
 /** Horizontal travel below which a touch is a tap, not a page swipe. */
 const SWIPE_THRESHOLD_PX = 40;
@@ -72,7 +92,7 @@ export function CalendarCard() {
   const [panelDate, setPanelDate] = useState<string | null>(null);
   // The local date this render is about. State because changing it has to
   // re-render the slides — that is how "Today" stops meaning yesterday.
-  const [renderedDate, setRenderedDate] = useState(() => localDateKey(new Date()));
+  const [renderedDate, setRenderedDate] = useState(() => zonedDateKey(new Date(), browserZone()));
 
   // Focus home for the panel: every close path returns focus here.
   const expandRef = useRef<HTMLButtonElement | null>(null);
@@ -83,6 +103,10 @@ export function CalendarCard() {
   // tile's one-request-per-day claim quietly broken. The ref is updated inside
   // the check, so the second call in the tick already sees the new date.
   const dateRef = useRef(renderedDate);
+  // The zone the last response was bucketed in. A ref, not state: `load` reads
+  // it to build the next window and must not be re-created when it changes, or
+  // the effect that calls `load` would refetch on every zone update.
+  const zoneRef = useRef(browserZone());
 
   const load = useCallback(async () => {
     // A failed read renders the SAME calm line an "unavailable" status does —
@@ -112,18 +136,19 @@ export function CalendarCard() {
     // Deliberately no loading flag on a refetch: the rollover path below keeps
     // the day already on screen until the new window lands, rather than
     // flashing the skeleton over data the union window usually already covers.
-    const { startDate, endDate } = requestWindow(new Date());
+    // Padded, and built on the zone the last response named (the browser's
+    // until one has). Both are best-effort: the pad is what makes a wrong
+    // guess harmless. The `timezone` PARAM stays the browser's throughout —
+    // it tells the server which days are being asked for, which is a
+    // different question from which zone the answers are read on.
+    const { startDate, endDate } = fetchWindow(new Date(), zoneRef.current);
     try {
-      const next = await getCalendarEvents(
-        token,
-        Intl.DateTimeFormat().resolvedOptions().timeZone,
-        startDate,
-        endDate,
-      );
+      const next = await getCalendarEvents(token, browserZone(), startDate, endDate);
       if (!next) {
         fail();
         return;
       }
+      zoneRef.current = next.timezone ?? browserZone();
       setData(next);
       setFailed(false);
       setLoading(false);
@@ -146,7 +171,7 @@ export function CalendarCard() {
   useEffect(() => {
     function check() {
       if (document.visibilityState === "hidden") return;
-      const today = localDateKey(new Date());
+      const today = zonedDateKey(new Date(), zoneRef.current);
       if (today === dateRef.current) return;
       dateRef.current = today;
       setRenderedDate(today);
@@ -210,7 +235,18 @@ export function CalendarCard() {
   // render it as a legitimately free week: seven empty strip columns and two
   // days claimed clear. Falling through to the calm unavailable line is the
   // honest reading of a payload that told us nothing.
-  const days = !failed && data?.status === "ok" ? data.days : undefined;
+  // The zone every clock and day key on this tile is read on. The calendar's,
+  // as the server bucketed it; the browser's only until it has said.
+  const timeZone = data?.timezone ?? browserZone();
+  const allDays = !failed && data?.status === "ok" ? data.days : undefined;
+  // Back down to the window the tile actually renders. `fetchWindow` asks for
+  // a day either side to survive a wrong zone guess; nothing downstream should
+  // see those, or "Next" could reach past the end of the week.
+  const render = requestWindow(now, timeZone);
+  const days =
+    allDays === undefined
+      ? undefined
+      : allDays.filter((d) => d.date >= render.startDate && d.date <= render.endDate);
   const status = failed || !data ? "unavailable" : data.status;
   const canExpand = days !== undefined;
 
@@ -222,8 +258,8 @@ export function CalendarCard() {
   } else if (days === undefined) {
     body = <QuietLine text="Calendar is unavailable." />;
   } else {
-    const todayKey = localDateKey(now);
-    const tomorrowKey = localDateKey(addDays(now, 1));
+    const todayKey = zonedDateKey(now, timeZone);
+    const tomorrowKey = addDaysToKey(todayKey, 1);
     const byDate = new Map(days.map((d) => [d.date, d]));
     body = (
       <div
@@ -241,6 +277,7 @@ export function CalendarCard() {
             date={todayKey}
             day={byDate.get(todayKey)}
             now={now}
+            timeZone={timeZone}
             onOpenDay={openDay}
           />
         )}
@@ -250,13 +287,15 @@ export function CalendarCard() {
             date={tomorrowKey}
             day={byDate.get(tomorrowKey)}
             now={now}
+            timeZone={timeZone}
             onOpenDay={openDay}
           />
         )}
         {page === 2 && (
           <WeekStrip
-            columns={weekColumns(days, now)}
+            columns={weekColumns(days, now, timeZone)}
             next={nextUpcoming(days, now)}
+            timeZone={timeZone}
             onOpenDay={openDay}
           />
         )}
@@ -306,7 +345,7 @@ export function CalendarCard() {
             ref={expandRef}
             type="button"
             aria-label="Open the week agenda"
-            onClick={() => setPanelDate(localDateKey(now))}
+            onClick={() => setPanelDate(zonedDateKey(now, timeZone))}
             className="flex h-6 w-6 items-center justify-center rounded text-[var(--muted)] transition hover:text-[var(--foreground)]"
           >
             <ExpandIcon />
@@ -315,7 +354,13 @@ export function CalendarCard() {
       </div>
       {body}
       {panelDate !== null && days !== undefined && (
-        <CalendarWeekModal days={days} initialDate={panelDate} now={now} onClose={closePanel} />
+        <CalendarWeekModal
+          days={days}
+          initialDate={panelDate}
+          now={now}
+          timeZone={timeZone}
+          onClose={closePanel}
+        />
       )}
     </div>
   );

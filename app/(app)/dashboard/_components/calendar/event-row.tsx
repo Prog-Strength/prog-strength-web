@@ -27,10 +27,18 @@ const TIME_COL = "w-[3.5rem] shrink-0";
 
 export function EventRow({
   event,
+  timeZone,
   ended = false,
   allDayLabel = false,
 }: {
   event: CalendarEvent;
+  /**
+   * The CALENDAR's zone, from the events payload — the clock this row is read
+   * on. Google renders a calendar's grid in its own zone, so formatting with
+   * the reader's instead prints a different time than Google does for the same
+   * event. The instant is the same either way; only the clock differs.
+   */
+  timeZone: string;
   /** Renders the row in `--muted`. The row is never hidden — the day reads as
    *  a whole, including the part of it that is over. */
   ended?: boolean;
@@ -56,7 +64,7 @@ export function EventRow({
         )
       ) : (
         <span className={`${TIME_COL} text-xs tabular-nums text-[var(--faint)]`}>
-          {formatEventTime(event.start)}
+          {formatEventTime(event.start, timeZone)}
         </span>
       )}
 

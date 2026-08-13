@@ -23,6 +23,7 @@ export function DaySlide({
   date,
   day,
   now,
+  timeZone,
   onOpenDay,
 }: {
   /** "Today" | "Tomorrow" — the slide's own name, not the date's. */
@@ -31,6 +32,8 @@ export function DaySlide({
   date: string;
   day: CalendarDay | undefined;
   now: Date;
+  /** The calendar's zone — every clock on this slide is read on it. */
+  timeZone: string;
   /** Opens the week panel scrolled to this date. */
   onOpenDay: (date: string) => void;
 }) {
@@ -74,7 +77,12 @@ export function DaySlide({
           )}
           <ul className="flex flex-col">
             {visible.map((event) => (
-              <EventRow key={event.id} event={event} ended={hasEnded(event, now)} />
+              <EventRow
+                key={event.id}
+                timeZone={timeZone}
+                event={event}
+                ended={hasEnded(event, now)}
+              />
             ))}
           </ul>
           {moreCount > 0 && (

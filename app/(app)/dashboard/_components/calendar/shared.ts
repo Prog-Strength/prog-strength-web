@@ -38,9 +38,59 @@ export const WEEKDAY_NAMES = [
 ] as const;
 
 /**
+ * YYYY-MM-DD for an instant, read in `timeZone`.
+ *
+ * THE ZONE IS AN ARGUMENT BECAUSE IT IS A DECISION. Google Calendar renders
+ * its grid in the CALENDAR's zone, and the server now names that zone beside
+ * the days it bucketed in it. A client that reaches for its own zone instead
+ * prints a different clock than Google does for the same event — a reader in
+ * Pacific whose calendar is set to Eastern saw a 4:45 PM flight as 1:45 PM,
+ * and a 1:30 AM event land on the previous day.
+ *
+ * `en-CA` is not a locale choice, it is a format one: it is the locale whose
+ * short date IS YYYY-MM-DD, so this needs no part-reassembly.
+ */
+export function zonedDateKey(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/**
+ * A date key stepped by whole days.
+ *
+ * The arithmetic runs at UTC NOON, where no DST transition can reach it. A
+ * spring-forward day is 23 hours long, so stepping a local midnight by
+ * `+24h` lands on the same calendar date and a week's worth of columns
+ * silently repeats a day. Noon is twelve hours from either edge.
+ */
+export function addDaysToKey(key: string, n: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d, 12));
+  at.setUTCDate(at.getUTCDate() + n);
+  return at.toISOString().slice(0, 10);
+}
+
+/**
+ * Days since Monday for a date key. Same Monday-first convention as
+ * `mondayOffset`, over a key rather than a local Date.
+ */
+export function mondayOffsetOfKey(key: string): number {
+  const [y, m, d] = key.split("-").map(Number);
+  return (new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay() + 6) % 7;
+}
+
+/**
  * YYYY-MM-DD for a Date in the BROWSER's local zone. Not toISOString().slice —
  * that is UTC, and would name the wrong day for most of the world for part of
  * every day.
+ *
+ * The browser's zone is the right answer for exactly one thing now: the zone
+ * to GUESS with before the server has told us the calendar's. Anything reading
+ * an event's clock or day wants `zonedDateKey` with the served zone.
  */
 export function localDateKey(d: Date): string {
   const month = `${d.getMonth() + 1}`.padStart(2, "0");
@@ -76,13 +126,32 @@ export function mondayOffset(d: Date): number {
  * such guard — `weekStart` is today minus a non-negative offset, so it is
  * always on or before today.
  */
-export function requestWindow(now: Date): { startDate: string; endDate: string } {
-  const today = startOfLocalDay(now);
-  const tomorrow = addDays(today, 1);
-  const weekStart = addDays(today, -mondayOffset(today));
-  const weekEnd = addDays(weekStart, 6);
-  const end = weekEnd > tomorrow ? weekEnd : tomorrow;
-  return { startDate: localDateKey(weekStart), endDate: localDateKey(end) };
+export function requestWindow(now: Date, timeZone: string): { startDate: string; endDate: string } {
+  const today = zonedDateKey(now, timeZone);
+  const tomorrow = addDaysToKey(today, 1);
+  const weekStart = addDaysToKey(today, -mondayOffsetOfKey(today));
+  const weekEnd = addDaysToKey(weekStart, 6);
+  // Both are YYYY-MM-DD, so lexicographic order IS chronological order.
+  return { startDate: weekStart, endDate: weekEnd > tomorrow ? weekEnd : tomorrow };
+}
+
+/**
+ * The window to ASK for: `requestWindow` plus a day either side.
+ *
+ * The calendar's zone is only learned FROM a response, so the first request of
+ * a session is built on the browser's zone as a guess. When the two disagree
+ * the guessed window can be a day — and on a Sunday night, a whole WEEK — off
+ * from the one the tile ends up rendering, which would leave the Today slide
+ * asking for a date the response never covered.
+ *
+ * One day of padding closes it completely: no two zones on earth disagree
+ * about the current date by more than a day. The tile slices back down to
+ * `requestWindow` before rendering, so the pad changes what is fetched and
+ * nothing about what is shown.
+ */
+export function fetchWindow(now: Date, timeZone: string): { startDate: string; endDate: string } {
+  const { startDate, endDate } = requestWindow(now, timeZone);
+  return { startDate: addDaysToKey(startDate, -1), endDate: addDaysToKey(endDate, 1) };
 }
 
 /**
@@ -174,15 +243,14 @@ export type WeekColumn = {
   isToday: boolean;
 };
 
-/** The seven Monday-first columns for the week containing `now`. */
-export function weekColumns(days: CalendarDay[], now: Date): WeekColumn[] {
-  const today = startOfLocalDay(now);
-  const weekStart = addDays(today, -mondayOffset(today));
-  const todayKey = localDateKey(today);
+/** The seven Monday-first columns for the week containing `now`, in `timeZone`. */
+export function weekColumns(days: CalendarDay[], now: Date, timeZone: string): WeekColumn[] {
+  const todayKey = zonedDateKey(now, timeZone);
+  const weekStart = addDaysToKey(todayKey, -mondayOffsetOfKey(todayKey));
   const byDate = new Map(days.map((d) => [d.date, d]));
 
   return WEEKDAY_INITIALS.map((initial, i) => {
-    const date = localDateKey(addDays(weekStart, i));
+    const date = addDaysToKey(weekStart, i);
     const day = byDate.get(date);
     return {
       date,
@@ -213,11 +281,20 @@ export function nextUpcoming(days: CalendarDay[], now: Date): CalendarEvent | nu
 }
 
 /**
- * A time in the browser's locale. toLocaleTimeString, not a hand-rolled
- * `h % 12` — that is precisely the formatter that prints "0:00p" for noon.
+ * A time in the browser's LOCALE, on the calendar's ZONE. The two are separate
+ * choices and this function makes both explicitly: `undefined` locale is the
+ * reader's own formatting habits (12- vs 24-hour), `timeZone` is the clock the
+ * event is being read on, which belongs to the calendar and not to the reader.
+ *
+ * toLocaleTimeString, not a hand-rolled `h % 12` — that is precisely the
+ * formatter that prints "0:00p" for noon.
  */
-export function formatEventTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+export function formatEventTime(iso: string, timeZone: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  });
 }
 
 /** "Wed Aug 12" — the day slide's header date. */
