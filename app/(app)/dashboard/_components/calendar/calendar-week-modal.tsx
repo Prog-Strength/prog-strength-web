@@ -20,28 +20,37 @@
  */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { CalendarDay } from "@/lib/api";
-import { EventRow } from "./day-slide";
+import { EventRow } from "./event-row";
 import { formatDayHeading, localDateKey } from "./shared";
 
 export function CalendarWeekModal({
   days,
   initialDate,
+  now,
   onClose,
 }: {
   /** The whole window the tile holds — dense, one entry per date. */
   days: CalendarDay[];
   /** The date the user opened the panel on; scrolled into view on mount. */
   initialDate: string;
+  /**
+   * The instant the tile is rendering — the SAME `now` its slides get, and the
+   * only thing this panel uses it for is deciding which heading is today's.
+   *
+   * A prop and not a `new Date()` here, for the reason the day slide states in
+   * its own header: the tile is the one place that owns the current instant. A
+   * panel that read the clock itself would silently disagree with a caller
+   * rendering a fixture — no `day.date` would match, and NO heading would take
+   * `--foreground`, which is a failure with no symptom to notice.
+   */
+  now: Date;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const initialRef = useRef<HTMLElement | null>(null);
-  // Read once, on mount, rather than on every render: this only decides which
-  // heading is at full strength, and a panel that re-derived "today" mid-render
-  // would be doing clock work the tile already owns.
-  const [todayKey] = useState(() => localDateKey(new Date()));
+  const todayKey = localDateKey(now);
 
   useEffect(() => {
     closeRef.current?.focus();

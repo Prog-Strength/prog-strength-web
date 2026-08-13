@@ -14,6 +14,12 @@
  * keeps each column operable, which is what the strip is for — it is the way
  * into the panel.
  *
+ * THE COUNTS ARE SAID ONCE. The group label is the whole week, so each button
+ * names only its day and what pressing it does. Putting the counts in both
+ * places would make a screen-reader user hear all seven totals on entry and
+ * then hear every one of them a second time, one per column — the group's
+ * label would stop being an overview and become a preamble to be sat through.
+ *
  * `--accent` on a bar means Prog Strength wrote something that day. It is a
  * provenance mark and not a temperature: a heavy day is not painted warm, and
  * there is no red here for a full Wednesday. A busy day is not an alarm.
@@ -57,7 +63,7 @@ export function WeekStrip({
             key={column.date}
             type="button"
             onClick={() => onOpenDay(column.date)}
-            aria-label={`${column.name}, ${column.count} ${column.count === 1 ? "event" : "events"}`}
+            aria-label={`Open ${column.name} in the week agenda`}
             className="flex flex-1 flex-col items-center gap-1 rounded-sm transition hover:bg-[var(--surface-2)]"
           >
             <span
@@ -65,10 +71,18 @@ export function WeekStrip({
               className="flex w-full items-end justify-center"
               style={{ height: RAIL_H }}
             >
+              {/* An ordinary day's bar is `--border-strong` — a TRANSLUCENT
+                  white — and not `--surface-2`, which is the button's own hover
+                  fill: an opaque bar in the hover colour vanishes exactly when
+                  the cursor is on it, so the strip appeared to lose a column
+                  under the pointer, worst on the short bars the 2px floor has
+                  already shrunk. A translucent fill composites lighter over
+                  whatever is behind it, so the bar survives the hover, the
+                  resting panel, and any later change to either. */}
               <span
                 data-testid="strip-bar"
                 className={`w-full rounded-[1px] ${
-                  column.hasOurs ? "bg-[var(--accent)]" : "bg-[var(--surface-2)]"
+                  column.hasOurs ? "bg-[var(--accent)]" : "bg-[var(--border-strong)]"
                 }`}
                 style={{ height: Math.max(BAR_FLOOR, Math.round(heights[i] * RAIL_H)) }}
               />

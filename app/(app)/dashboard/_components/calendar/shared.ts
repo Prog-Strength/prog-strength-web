@@ -86,11 +86,23 @@ export function requestWindow(now: Date): { startDate: string; endDate: string }
 }
 
 /**
- * An event is upcoming until it has ENDED — a meeting you are currently in
- * is the most relevant row on the tile, not a past one.
+ * Whether an event is OVER.
+ *
+ * The windowing rule and the day slide's row styling are one judgement seen
+ * from two sides — an event is upcoming until it has ENDED, because a meeting
+ * you are currently in is the most relevant row on the tile, not a past one —
+ * so the comparison lives here once and `isUpcoming` is its negation rather
+ * than a second boundary written the other way round. A row that recomputed
+ * `end <= now` inline would be free to drift to `start <= now` and grey out the
+ * meeting the user is sitting in, while the window above still called it the
+ * top row.
  */
+export function hasEnded(e: CalendarEvent, now: Date): boolean {
+  return new Date(e.end).getTime() <= now.getTime();
+}
+
 function isUpcoming(e: CalendarEvent, now: Date): boolean {
-  return new Date(e.end).getTime() > now.getTime();
+  return !hasEnded(e, now);
 }
 
 /**

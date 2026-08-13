@@ -3,6 +3,7 @@ import type { CalendarDay, CalendarEvent } from "@/lib/api";
 import {
   formatDayHeading,
   formatEventTime,
+  hasEnded,
   localDateKey,
   nextUpcoming,
   requestWindow,
@@ -115,6 +116,35 @@ describe("visibleEvents", () => {
     // has just ended, so the anchor is e10; backfill pulls e8 and e9 in front.
     expect(visible.slice(1).map((e) => e.id)).toEqual(["e8", "e9", "e10", "e11"]);
     expect(earlierCount).toBe(2);
+  });
+});
+
+describe("hasEnded", () => {
+  it("is false for an event in progress and true only once it is over", () => {
+    // `ev` runs 30 minutes from the hour, so this one is 11:00–11:30.
+    const e = ev("b", 11);
+    expect(hasEnded(e, new Date(2026, 7, 12, 10, 59))).toBe(false);
+    // Mid-meeting. This is the assertion that matters: the row the user is
+    // sitting in must not grey out, and a rule written on `start` would say it
+    // had ended half an hour early.
+    expect(hasEnded(e, new Date(2026, 7, 12, 11, 15))).toBe(false);
+    expect(hasEnded(e, new Date(2026, 7, 12, 11, 31))).toBe(true);
+  });
+
+  it("treats the closing instant as ended, matching the window's own anchor", () => {
+    // `visibleEvents` anchors on `end > now`, so an event ending exactly at
+    // `now` is NOT the anchor. `hasEnded` is that same boundary negated, and
+    // this pins the two agreeing at the one instant they could disagree.
+    const e = ev("b", 11);
+    const closing = new Date(2026, 7, 12, 11, 30);
+    expect(hasEnded(e, closing)).toBe(true);
+    expect(visibleEvents([e, ev("c", 13)], closing, 1).visible.map((v) => v.id)).toEqual(["c"]);
+  });
+
+  it("is true for an all-day event only after its local day is out", () => {
+    const holiday = allDay("h");
+    expect(hasEnded(holiday, new Date(2026, 7, 12, 23, 59))).toBe(false);
+    expect(hasEnded(holiday, new Date(2026, 7, 13, 0, 0))).toBe(true);
   });
 });
 
