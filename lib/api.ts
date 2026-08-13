@@ -4268,6 +4268,46 @@ export async function listWhoopRecovery(
   return Array.isArray(body.recovery) ? body.recovery : [];
 }
 
+/**
+ * GET /recovery/history. Returns the SAME `RecoverySection` shape
+ * `GET /dashboard/summary` serves under `sections.recovery` — `today`, the
+ * date-aligned `days` series, `baseline`, `hrv`, `baseline_trend` — only over
+ * the caller's local-date window rather than the dashboard's fixed one. That
+ * sameness is the point: `adaptRecovery` in `lib/dashboard.ts` maps this
+ * payload as-is, so a history page gets the dashboard tiles' `RecoveryView`
+ * with no second adapter and no second set of band fields to mis-map.
+ *
+ * `timezone` (IANA name, e.g. "America/Denver") is REQUIRED here, unlike
+ * `GET /whoop/recovery` above, which accepts one and ignores it. This endpoint
+ * materializes local dates — it emits a slot per calendar day in the window,
+ * including the days Whoop recorded nothing — and there is no date arithmetic
+ * to do without knowing whose midnight is meant.
+ *
+ * `since`/`until` are inclusive local dates (YYYY-MM-DD). OMITTING `since`
+ * asks for ALL STORED HISTORY, and the server clamps that to its own
+ * `page_window_max_days` rather than erroring — so the caller gets the deepest
+ * window the API is willing to serve, not a failure it has to negotiate.
+ *
+ * Null (rather than an empty section) means the user has no Whoop connection,
+ * which is a render gate the caller answers separately.
+ */
+export async function getRecoveryHistory(
+  token: string,
+  opts: { timezone: string; since?: string; until?: string },
+): Promise<DashboardRecovery | null> {
+  const params = new URLSearchParams();
+  params.set("timezone", opts.timezone);
+  if (opts.since) params.set("since", opts.since);
+  if (opts.until) params.set("until", opts.until);
+  const resp = await fetch(`${config.apiUrl}/recovery/history?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  // Keyed envelope, same convention as GET /whoop/recovery: data is
+  // {recovery: {...}}, not the bare section.
+  const body = await unwrap<{ recovery: DashboardRecovery | null }>(resp, { recovery: null });
+  return body.recovery ?? null;
+}
+
 // --- Social graph: profiles, follows, search ---------------------
 //
 // The social layer adds public profiles addressable by `username`, a

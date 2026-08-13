@@ -17,6 +17,7 @@ import {
   getExerciseOneRMHistory,
   getPlannedWorkoutBySession,
   getProfile,
+  getRecoveryHistory,
   getRunningBestEffortHistory,
   getRunningMaxEffort,
   getRunningMaxEffortSummary,
@@ -40,7 +41,7 @@ import {
   updateWorkout,
   uploadActivityPhoto,
 } from "@/lib/api";
-import type { DashboardSection } from "@/lib/api";
+import type { DashboardRecovery, DashboardSection } from "@/lib/api";
 
 // Unit tests for the running best-efforts + 1RM history client methods.
 // There's no msw in this repo, so we stub the global `fetch` directly with
@@ -969,6 +970,111 @@ describe("listWhoopRecovery", () => {
   it("rejects with the API error text on a non-ok response", async () => {
     mockFetchError("boom");
     await expect(listWhoopRecovery(TOKEN, { timezone: "America/Denver" })).rejects.toThrow("boom");
+  });
+});
+
+describe("getRecoveryHistory", () => {
+  // The endpoint serves the SAME section shape /dashboard/summary puts under
+  // sections.recovery, so the fixture is that section — the client hands it
+  // back untouched for adaptRecovery to map.
+  const section: DashboardRecovery = {
+    today: {
+      date: "2026-08-12",
+      resting_heart_rate: 69,
+      recovery_score: 13,
+      hrv_rmssd_milli: 45,
+    },
+    resting_hr_spark: [50, 47, 69],
+    days: [
+      {
+        date: "2026-08-11",
+        resting_heart_rate: 50,
+        recovery_score: 78,
+        hrv_rmssd_milli: 106,
+        baseline_avg: 92.5,
+        balanced_low: 78,
+        balanced_high: 107,
+        z_score: 0.9,
+        status: "balanced",
+      },
+      {
+        date: "2026-08-12",
+        resting_heart_rate: 69,
+        recovery_score: 13,
+        hrv_rmssd_milli: 45,
+        baseline_avg: 92.1,
+        balanced_low: 77.6,
+        balanced_high: 106.6,
+        z_score: -3.2,
+        status: "suppressed",
+      },
+    ],
+    baseline: {
+      window_days: 30,
+      resting_hr_avg: 54,
+      resting_hr_days: 28,
+      hrv_avg: 92.1,
+      hrv_std_dev: 14.5,
+      hrv_days: 27,
+      recovery_score_avg: 61,
+      recovery_score_days: 28,
+    },
+    hrv: {
+      status: "suppressed",
+      balanced_low: 77.6,
+      balanced_high: 106.6,
+      z_score: -3.2,
+      trend: "falling",
+      short_avg: 61.4,
+    },
+    baseline_trend: {
+      direction: "rising",
+      delta_ms: 6,
+      from_avg: 86.1,
+      over_days: 28,
+    },
+  };
+
+  it("sends timezone + local since/until dates and unwraps the keyed section", async () => {
+    const fetchMock = mockFetchOk({ recovery: section });
+
+    const result = await getRecoveryHistory(TOKEN, {
+      timezone: "America/Denver",
+      since: "2026-07-14",
+      until: "2026-08-12",
+    });
+
+    expect(result).toEqual(section);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${BASE}/recovery/history?timezone=America%2FDenver&since=2026-07-14&until=2026-08-12`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+    );
+  });
+
+  it("omits since/until when not provided — no since asks for all stored history", async () => {
+    const fetchMock = mockFetchOk({ recovery: section });
+
+    await getRecoveryHistory(TOKEN, { timezone: "America/Denver" });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/recovery/history?timezone=America%2FDenver`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  });
+
+  it("returns null when the envelope carries no recovery section", async () => {
+    mockFetchOk({});
+    expect(await getRecoveryHistory(TOKEN, { timezone: "America/Denver" })).toBeNull();
+    mockFetchOk({ recovery: null });
+    expect(await getRecoveryHistory(TOKEN, { timezone: "America/Denver" })).toBeNull();
+    mockFetchOk(undefined);
+    expect(await getRecoveryHistory(TOKEN, { timezone: "America/Denver" })).toBeNull();
+  });
+
+  it("rejects with the API error text on a non-ok response", async () => {
+    mockFetchError("recovery history unavailable");
+    await expect(getRecoveryHistory(TOKEN, { timezone: "America/Denver" })).rejects.toThrow(
+      "recovery history unavailable",
+    );
   });
 });
 

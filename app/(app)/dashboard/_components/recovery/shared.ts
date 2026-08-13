@@ -193,15 +193,19 @@ export type RecoveryBand = "green" | "yellow" | "red" | "none";
  *
  * This is NOT the only `recoveryBand` in the repo. `lib/recovery.ts` already
  * exports `RecoveryBand`, `recoveryBand` and `recoveryBandColor` at these same
- * cut points, and the `/recovery` deep page this tile links into consumes them
- * (`recovery-hero.tsx`, `recovery-log.tsx`). The two agree exactly today — same
- * 67/33 boundaries, same `--success`/`--warning`/`--danger` tokens — so what
- * splits them is vocabulary, not values: `lib/recovery.ts` names the bands after
- * the tokens they paint and takes a non-null score, while this one names them
- * after Whoop's own green/yellow/red, carries a fourth `"none"` member for a
- * morning with no score, and pairs each band with a display word. Those last two
- * are concepts `lib/recovery.ts` has no notion of, which is why this file did
- * not simply import it.
+ * cut points, and the `/recovery` deep page this tile links into no longer
+ * consumes them: the `/recovery` rebuild deleted `recovery-hero.tsx` and
+ * `recovery-log.tsx`, so `lib/recovery.ts` currently has no caller at all. That
+ * makes reconciling the two vocabularies CHEAPER — there is nothing left to
+ * migrate — rather than resolving it: it is still a follow-up, and still the
+ * owner's call which module wins. The two agree exactly today — same 67/33
+ * boundaries, same `--success`/`--warning`/`--danger` tokens — so what splits
+ * them is vocabulary, not values: `lib/recovery.ts` names the bands after the
+ * tokens they paint and takes a non-null score, while this one names them after
+ * Whoop's own green/yellow/red, carries a fourth `"none"` member for a morning
+ * with no score, and pairs each band with a display word. Those last two are
+ * concepts `lib/recovery.ts` has no notion of, which is why this file did not
+ * simply import it.
  *
  * Reconciling the two is deliberately out of this SOW's scope. Picking a single
  * owner for the vocabulary means changing `lib/recovery.ts`'s consumers, and the
