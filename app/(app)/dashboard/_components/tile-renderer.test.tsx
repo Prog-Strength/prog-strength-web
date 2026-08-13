@@ -3,6 +3,27 @@
 import { render, screen } from "@testing-library/react";
 import type { DashboardData, BloodPressureView } from "@/lib/dashboard";
 import type { TileId } from "@/lib/dashboard-tiles";
+
+// The two self-fetching tiles in this switch read the network, so this file
+// keeps the real module and overrides only their fetchers: `calendar` resolves
+// to `not_connected`, which is the one calendar body that is stable and
+// fetch-free, and the Whoop connection resolves to "absent" so the sleep cases
+// below assert on their section alone rather than on a request that jsdom would
+// have to actually make.
+const getCalendarEventsMock = vi.hoisted(() => vi.fn(async () => ({ status: "not_connected" })));
+const getWhoopConnectionMock = vi.hoisted(() => vi.fn(async () => ({ status: "absent" })));
+
+vi.mock("@/lib/api", async (orig) => ({
+  ...(await orig<typeof import("@/lib/api")>()),
+  getCalendarEvents: getCalendarEventsMock,
+  getWhoopConnection: getWhoopConnectionMock,
+}));
+
+vi.mock("@/lib/auth", () => ({
+  getToken: () => "test-token",
+  clearToken: vi.fn(),
+}));
+
 import { TileCard } from "./tile-renderer";
 import { suppressedView } from "./recovery/fixtures";
 import { ordinaryWeek } from "./running/fixtures";
@@ -107,6 +128,17 @@ describe("TileCard", () => {
     // a connect flow the recovery family already owns.
     const { container } = render(<TileCard id="sleep" data={fixture()} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders the self-fetching calendar card for id 'calendar'", async () => {
+    render(<TileCard id="calendar" data={fixture()} />);
+
+    // Nothing on `data` feeds this tile — it holds its own request, its own
+    // auth, and its own degradations, and resolves before the href assertion
+    // because there is no calendar page to deep-link into.
+    expect(await screen.findByRole("heading", { name: "Calendar" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Connect Google Calendar/ })).toBeInTheDocument();
+    expect(getCalendarEventsMock).toHaveBeenCalled();
   });
 
   it("renders the blood-pressure empty CTA when the section is absent", () => {
