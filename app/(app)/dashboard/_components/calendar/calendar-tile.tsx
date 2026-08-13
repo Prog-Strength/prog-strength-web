@@ -70,21 +70,39 @@ export function CalendarCard() {
   // on the week strip yesterday wants today's events today.
   const [page, setPage] = useState(0);
   const [panelDate, setPanelDate] = useState<string | null>(null);
-  // The local date this render is about. The refetch trigger compares against
-  // it; it is state, not a ref, because changing it has to re-render the
-  // slides — that is how "Today" stops meaning yesterday.
+  // The local date this render is about. State because changing it has to
+  // re-render the slides — that is how "Today" stops meaning yesterday.
   const [renderedDate, setRenderedDate] = useState(() => localDateKey(new Date()));
 
   // Focus home for the panel: every close path returns focus here.
   const expandRef = useRef<HTMLButtonElement | null>(null);
   const touchStartX = useRef<number | null>(null);
+  // The same date again, synchronously. Returning to a tab fires
+  // `visibilitychange` AND `focus` in one tick, and both handlers would close
+  // over the pre-update `renderedDate` — two fetches for one rollover, and the
+  // tile's one-request-per-day claim quietly broken. The ref is updated inside
+  // the check, so the second call in the tick already sees the new date.
+  const dateRef = useRef(renderedDate);
 
   const load = useCallback(async () => {
     // A failed read renders the SAME calm line an "unavailable" status does —
     // the user does not care which side of the wire gave up.
+    //
+    // DELIBERATELY UNLIKE weather (see weather-tile.tsx's loadLocations, which
+    // keeps its last-good list on a failed REFETCH): a retained calendar window
+    // lies. `DaySlide` prints "Nothing scheduled." for a date it has no entry
+    // for, so after a Sunday→Monday rollover whose refetch failed, the Tomorrow
+    // slide would assert a free Tuesday it never fetched. A stale temperature
+    // is a shrug; a day claimed empty is not.
+    //
+    // Closing the panel is part of failing: it is a view onto a payload we no
+    // longer have, and leaving it open renders the old week in a dialog over an
+    // unavailable tile whose ⤢ — the focus home every close path returns to —
+    // has just unmounted.
     const fail = () => {
       setFailed(true);
       setLoading(false);
+      setPanelDate(null);
     };
     const token = getToken();
     if (!token) {
@@ -109,6 +127,9 @@ export function CalendarCard() {
       setData(next);
       setFailed(false);
       setLoading(false);
+      // Same reasoning as fail(): a refetch that comes back degraded (or `ok`
+      // with no days) has taken the week away too.
+      if (!next.days) setPanelDate(null);
     } catch {
       fail();
     }
@@ -126,7 +147,8 @@ export function CalendarCard() {
     function check() {
       if (document.visibilityState === "hidden") return;
       const today = localDateKey(new Date());
-      if (today === renderedDate) return;
+      if (today === dateRef.current) return;
+      dateRef.current = today;
       setRenderedDate(today);
       setPage(0);
       void load();
@@ -183,16 +205,21 @@ export function CalendarCard() {
   // The instant this render is about. Read once here so the slides, the strip
   // and the panel cannot disagree about what "now" is mid-render.
   const now = new Date();
+  // Keyed off the PRESENCE of the days, not the status alone — weather's rule.
+  // `ok` with no `days` is a contract violation, and a `?? []` here would
+  // render it as a legitimately free week: seven empty strip columns and two
+  // days claimed clear. Falling through to the calm unavailable line is the
+  // honest reading of a payload that told us nothing.
+  const days = !failed && data?.status === "ok" ? data.days : undefined;
   const status = failed || !data ? "unavailable" : data.status;
-  const days = data?.days ?? [];
-  const canExpand = status === "ok";
+  const canExpand = days !== undefined;
 
   let body: React.ReactNode;
   if (status === "not_connected" || status === "reconnect_needed") {
     body = <ConnectLine label={status === "not_connected" ? "Connect" : "Reconnect"} />;
   } else if (status === "disabled") {
     body = <QuietLine text="Calendar is off." />;
-  } else if (status !== "ok") {
+  } else if (days === undefined) {
     body = <QuietLine text="Calendar is unavailable." />;
   } else {
     const todayKey = localDateKey(now);
@@ -287,7 +314,7 @@ export function CalendarCard() {
         )}
       </div>
       {body}
-      {panelDate !== null && (
+      {panelDate !== null && days !== undefined && (
         <CalendarWeekModal days={days} initialDate={panelDate} now={now} onClose={closePanel} />
       )}
     </div>

@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { config } from "@/lib/config";
 import { CalendarCard } from "./calendar-tile";
 import {
@@ -303,7 +303,14 @@ describe("CalendarCard", () => {
       new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 0, 5),
     );
     const tomorrowWindow = requestWindow(new Date());
-    fireEvent(document, new Event("visibilitychange"));
+    // Returning to a tab fires BOTH events in ONE tick, with no render in
+    // between — one act() block, not two fireEvents, is what reproduces that.
+    // It is still one rollover, so it must still be one request: a pair of
+    // handlers closing over the pre-update date would spend two.
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
 
     await waitFor(() => expect(getCalendarEventsMock).toHaveBeenCalledTimes(2));
     expect(getCalendarEventsMock).toHaveBeenLastCalledWith(
@@ -317,6 +324,50 @@ describe("CalendarCard", () => {
     // And the new date is now the rendered one: a second visit spends nothing.
     fireEvent(document, new Event("visibilitychange"));
     expect(getCalendarEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats an ok payload with no days as unavailable, not as a free week", async () => {
+    vi.setSystemTime(defaultDay().now);
+    // A contract violation, not a quiet week: rendering it as seven empty
+    // columns would claim two days are clear on no evidence at all.
+    getCalendarEventsMock.mockResolvedValue({ status: "ok" });
+    render(<CalendarCard />);
+
+    expect(await screen.findByText("Calendar is unavailable.")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing scheduled.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open the week agenda" })).not.toBeInTheDocument();
+  });
+
+  it("closes the panel when a rollover refetch takes the week away", async () => {
+    const fixture = defaultDay();
+    mount(fixture);
+    await screen.findByText("Today · Wed, Aug 12");
+    fireEvent.click(screen.getByRole("button", { name: "Open the week agenda" }));
+    await screen.findByRole("dialog");
+
+    getCalendarEventsMock.mockRejectedValue(new Error("network"));
+    const tomorrow = addDays(fixture.now, 1);
+    vi.setSystemTime(
+      new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 0, 5),
+    );
+    fireEvent(document, new Event("visibilitychange"));
+
+    // The dialog is a view onto a payload the tile no longer has, and the ⤢ it
+    // would hand focus back to has unmounted with it.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("Calendar is unavailable.")).toBeInTheDocument();
+
+    // And it stays closed: the open date was forgotten, not merely hidden, so
+    // a later successful load does not pop a dialog the user never asked for.
+    getCalendarEventsMock.mockResolvedValue(fixture.response);
+    const dayAfter = addDays(fixture.now, 2);
+    vi.setSystemTime(
+      new Date(dayAfter.getFullYear(), dayAfter.getMonth(), dayAfter.getDate(), 0, 5),
+    );
+    fireEvent(document, new Event("visibilitychange"));
+
+    await screen.findByText("Today · Fri, Aug 14");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("opens the week agenda on the day asked for, closes on Escape, and returns focus", async () => {
