@@ -26,15 +26,16 @@ export type TileId =
   | "sleep"
   | "streak"
   | "quote"
-  | "weather";
+  | "weather"
+  | "calendar";
 
 export type TileCatalogEntry = {
   id: TileId;
   title: string;
   /**
    * Deep link into the tile's full page. Optional: a tile with no page
-   * behind it (the quote tile) omits it and renders as a non-navigable
-   * card. Every data-backed tile sets it.
+   * behind it (quote, weather, calendar) omits it and renders as a
+   * non-navigable card. Every data-backed tile sets it.
    */
   href?: string;
   description: string; // one-line tray description
@@ -167,6 +168,11 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     id: "weather",
     title: "Weather",
     description: "Forecast for your saved places — conditions, high/low, and the next few hours.",
+  },
+  {
+    id: "calendar",
+    title: "Calendar",
+    description: "Today and tomorrow from your Google Calendar, plus the week ahead.",
   },
 ] as const;
 

@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { resolveTileId, TILE_CATALOG, tileEntry, type TileId } from "./dashboard-tiles";
 
 describe("dashboard tile catalog", () => {
-  test("has exactly 21 tiles", () => {
-    expect(TILE_CATALOG.length).toBe(21);
+  test("has exactly 22 tiles", () => {
+    expect(TILE_CATALOG.length).toBe(22);
   });
 
   test("ids are in the Go catalog order", () => {
@@ -29,6 +29,7 @@ describe("dashboard tile catalog", () => {
       "streak",
       "quote",
       "weather",
+      "calendar",
     ]);
   });
 
@@ -42,7 +43,7 @@ describe("dashboard tile catalog", () => {
   // `href` is optional only for tiles with no page behind them. TileCard casts
   // away the undefined for every other id, so this pins exactly which ids are
   // allowed to omit it — without this the cast could silently start lying.
-  const PAGELESS_TILE_IDS: readonly TileId[] = ["quote", "weather"];
+  const PAGELESS_TILE_IDS: readonly TileId[] = ["quote", "weather", "calendar"];
 
   test("every tile has a non-empty href except the pageless ones", () => {
     for (const entry of TILE_CATALOG) {
@@ -82,6 +83,7 @@ describe("dashboard tile catalog", () => {
     streak: true,
     quote: true,
     weather: true,
+    calendar: true,
   };
 
   test("every TileId is in the catalog", () => {
@@ -116,7 +118,7 @@ describe("dashboard tile catalog", () => {
   });
 
   // Weaker than the exact-order test above and cannot fail alone — that test
-  // pins all 21 ids, so nothing can break this run without breaking that array
+  // pins all 22 ids, so nothing can break this run without breaking that array
   // first. It is kept as documentation of WHY resting_hr sits between
   // recovery_log and sleep: catalog order IS the add-tile tray order, so the
   // family staying contiguous is the whole reason for the position.

@@ -78,6 +78,7 @@ import { VerticalGainCard } from "./running/vertical-gain";
 import { RunningEmptyCard } from "./running/empty-card";
 import { QuoteCard } from "./quote-tile";
 import { WeatherCard } from "./weather-tile";
+import { CalendarCard } from "./calendar/calendar-tile";
 
 export function LiftingCard({
   section,
@@ -300,6 +301,13 @@ export function TileCard({ id, data }: { id: TileId; data: DashboardData }) {
   // behind it, so it also resolves before the href assertion.
   if (id === "weather") {
     return <WeatherCard />;
+  }
+  // Calendar self-fetches, like weather: third-party data with its own auth and
+  // failure modes has no business inside the single /dashboard/summary
+  // round-trip, where a slow Google would delay every other tile on the grid.
+  // Like quote and weather it has no page behind it, so it resolves before href.
+  if (id === "calendar") {
+    return <CalendarCard />;
   }
   const href = tileEntry(id).href as string;
   switch (id) {
