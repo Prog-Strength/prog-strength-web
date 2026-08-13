@@ -1,6 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { CalendarEventsResponse } from "@/lib/api";
 import { config } from "@/lib/config";
 import { CalendarCard } from "./calendar-tile";
 import {
@@ -15,7 +16,10 @@ import {
   PLANNED_WORKOUT_ID,
   sunday,
 } from "./fixtures";
-import { addDays, localDateKey, requestWindow } from "./shared";
+import { addDays, fetchWindow, localDateKey } from "./shared";
+
+/** The zone the tile guesses with before a response names the calendar's. */
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const getCalendarEventsMock = vi.hoisted(() => vi.fn());
 
@@ -302,7 +306,7 @@ describe("CalendarCard", () => {
     vi.setSystemTime(
       new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 0, 5),
     );
-    const tomorrowWindow = requestWindow(new Date());
+    const tomorrowWindow = fetchWindow(new Date(), BROWSER_TZ);
     // Returning to a tab fires BOTH events in ONE tick, with no render in
     // between — one act() block, not two fireEvents, is what reproduces that.
     // It is still one rollover, so it must still be one request: a pair of
@@ -408,7 +412,10 @@ describe("CalendarCard", () => {
     mount(fixture);
     await screen.findByText("Today · Wed, Aug 12");
 
-    const window_ = requestWindow(fixture.now);
+    // fetchWindow, not requestWindow: the tile asks for a day either side so a
+    // first-load zone guess cannot leave the Today slide uncovered, then slices
+    // back to requestWindow before rendering.
+    const window_ = fetchWindow(fixture.now, BROWSER_TZ);
     expect(getCalendarEventsMock).toHaveBeenCalledWith(
       "test-token",
       Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -417,7 +424,7 @@ describe("CalendarCard", () => {
     );
     // The window is the union of what the three slides need — Monday through
     // the later of the week's end and tomorrow.
-    expect(window_.startDate).toBe(localDateKey(addDays(fixture.now, -2)));
+    expect(window_.startDate).toBe(localDateKey(addDays(fixture.now, -3)));
 
     pageForward(2);
     expect(screen.getAllByTestId("strip-bar")).toHaveLength(7);
@@ -426,5 +433,78 @@ describe("CalendarCard", () => {
 
     // The panel fetches nothing; the tile already holds the week.
     expect(getCalendarEventsMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The reported bug, end to end.
+ *
+ * A Southwest flight at 4:45 PM Eastern rendered as 1:45 PM on a machine in
+ * Pacific, because the tile formatted a correct UTC instant with the reader's
+ * own zone while Google Calendar formatted it with the calendar's. The instant
+ * was never wrong; the clock it was read on was.
+ */
+describe("the calendar's zone, not the reader's", () => {
+  // 2026-08-13T20:45:00Z — 4:45 PM Eastern, 1:45 PM Pacific.
+  const flightAt = "2026-08-13T20:45:00Z";
+
+  function easternCalendar(): CalendarEventsResponse {
+    return {
+      status: "ok",
+      timezone: "America/New_York",
+      days: [
+        {
+          date: "2026-08-13",
+          truncated: 0,
+          events: [
+            {
+              id: "flight",
+              title: "Southwest Airlines Confirmation CFPBP8",
+              start: flightAt,
+              end: "2026-08-13T23:45:00Z",
+              all_day: false,
+              source: "google",
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("prints the time Google Calendar prints, not the browser's", async () => {
+    // Noon Pacific on the 12th, so the flight is Tomorrow either way and the
+    // only thing under test is the clock.
+    vi.setSystemTime(new Date("2026-08-12T19:00:00Z"));
+    getCalendarEventsMock.mockResolvedValue(easternCalendar());
+    render(<CalendarCard />);
+
+    await screen.findByText(/Today ·/);
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+
+    await screen.findByText("Southwest Airlines Confirmation CFPBP8");
+    expect(screen.getByText("4:45 PM")).toBeInTheDocument();
+    expect(screen.queryByText("1:45 PM")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the browser's zone when the API names none", async () => {
+    vi.setSystemTime(new Date("2026-08-12T19:00:00Z"));
+    const { timezone: _dropped, ...noZone } = easternCalendar();
+    getCalendarEventsMock.mockResolvedValue(noZone as CalendarEventsResponse);
+    render(<CalendarCard />);
+
+    await screen.findByText(/Today ·/);
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+
+    // An older API build must degrade to the PREVIOUS behavior — the reader's
+    // own zone — rather than to a blank row or to UTC. Derived rather than
+    // hardcoded: a literal here would only be true on the runner that wrote
+    // it, which is the same mistake the tile itself was making.
+    await screen.findByText("Southwest Airlines Confirmation CFPBP8");
+    const inBrowserZone = new Date(flightAt).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: BROWSER_TZ,
+    });
+    expect(screen.getByText(inBrowserZone)).toBeInTheDocument();
   });
 });

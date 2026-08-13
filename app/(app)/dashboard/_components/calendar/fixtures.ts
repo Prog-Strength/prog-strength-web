@@ -125,7 +125,7 @@ function on(day: Date, events: CalendarEvent[]): [string, CalendarEvent[]] {
  */
 function denseWindow(now: Date, events: Map<string, CalendarEvent[]> = new Map()): CalendarDay[] {
   const today = startOfLocalDay(now);
-  const { endDate } = requestWindow(now);
+  const { endDate } = requestWindow(now, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const days: CalendarDay[] = [];
   for (
     let d = addDays(today, -mondayOffset(today));
