@@ -17,7 +17,13 @@ import type { CalendarDay, CalendarEvent } from "@/lib/api";
 /** How many rows a day slide shows. */
 export const DAY_ROW_LIMIT = 5;
 
-/** Monday-first weekday initials, matching /calendar's WEEKDAYS constant. */
+/**
+ * Weekday initials for the strip, in the same MONDAY-FIRST order as
+ * /calendar's `WEEKDAYS`. Only the ORDERING is shared — that constant holds
+ * "Mon", "Tue", … and there is no common array to import, so do not go hunting
+ * for one. The initials repeat ("T", "S") and are display-only: never key by
+ * them.
+ */
 export const WEEKDAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"] as const;
 
 /** Full weekday names, for the strip's composed accessible label. */
@@ -64,18 +70,19 @@ export function mondayOffset(d: Date): number {
 /**
  * The one window that feeds all three slides and the panel.
  *
- * The max() matters on Sunday, when "tomorrow" is next Monday and falls
- * OUTSIDE the current week — a window of just the week would render an empty
- * Tomorrow slide one day in seven.
+ * The `end` ternary is the one that earns its keep: on Sunday "tomorrow" is
+ * next Monday and falls OUTSIDE the current week, so a window of just the week
+ * would render an empty Tomorrow slide one day in seven. The start needs no
+ * such guard — `weekStart` is today minus a non-negative offset, so it is
+ * always on or before today.
  */
 export function requestWindow(now: Date): { startDate: string; endDate: string } {
   const today = startOfLocalDay(now);
   const tomorrow = addDays(today, 1);
   const weekStart = addDays(today, -mondayOffset(today));
   const weekEnd = addDays(weekStart, 6);
-  const start = weekStart < today ? weekStart : today;
   const end = weekEnd > tomorrow ? weekEnd : tomorrow;
-  return { startDate: localDateKey(start), endDate: localDateKey(end) };
+  return { startDate: localDateKey(weekStart), endDate: localDateKey(end) };
 }
 
 /**
@@ -92,6 +99,12 @@ function isUpcoming(e: CalendarEvent, now: Date): boolean {
  * All-day events pin to the top and spend row budget; the anchor/backfill rule
  * runs over the timed remainder. With `now` before every event the anchor is
  * index 0, so Tomorrow — which has no past — needs no special case.
+ *
+ * ASSUMES `events` ARRIVES SORTED: all-day first, then ascending by start. The
+ * server guarantees that ordering and applies it BEFORE its per-day cap, so the
+ * contiguous slice below clips exactly the tail the cap already clips. Nothing
+ * here re-sorts on purpose — a client-side sort would duplicate a server rule
+ * and quietly paper over a contract break instead of showing it.
  */
 export function visibleEvents(
   events: CalendarEvent[],
@@ -170,7 +183,15 @@ export function weekColumns(days: CalendarDay[], now: Date): WeekColumn[] {
   });
 }
 
-/** The next event that has not started yet, anywhere in `days`. */
+/**
+ * The next event that HAS NOT STARTED yet, anywhere in `days`.
+ *
+ * Note the deliberate split from `isUpcoming` above, which this module also
+ * calls "upcoming": there it means has not ENDED (a meeting in progress is
+ * still the row worth showing), here it means has not STARTED (a meeting in
+ * progress is not the one coming next). All-day events are excluded outright —
+ * they have no start instant to be next at.
+ */
 export function nextUpcoming(days: CalendarDay[], now: Date): CalendarEvent | null {
   const candidates = days
     .flatMap((d) => d.events)

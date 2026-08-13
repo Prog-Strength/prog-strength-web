@@ -1,13 +1,31 @@
-import { describe, expect, it } from "vitest";
-import type { CalendarEvent } from "@/lib/api";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { CalendarDay, CalendarEvent } from "@/lib/api";
 import {
+  formatDayHeading,
   formatEventTime,
+  localDateKey,
   nextUpcoming,
   requestWindow,
   stripHeights,
   visibleEvents,
   weekColumns,
 } from "./shared";
+
+/**
+ * Pin a NON-UTC zone for this file. The local-vs-UTC assertions below are the
+ * whole point of localDateKey and formatDayHeading, and on a UTC runner (which
+ * is what CI is) local and UTC agree — so those tests would pass against the
+ * very bugs they exist to catch. America/New_York is UTC-4 in August, so a
+ * late-evening local instant lands on the NEXT UTC date. Every other test here
+ * builds and compares local dates, so the pin does not change their meaning.
+ */
+const realTZ = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = "America/New_York";
+});
+afterAll(() => {
+  process.env.TZ = realTZ;
+});
 
 /** A timed event at the given local hour on 2026-08-12. */
 function ev(id: string, hour: number, minutes = 0): CalendarEvent {
@@ -76,8 +94,13 @@ describe("visibleEvents", () => {
     expect(laterCount).toBe(0);
   });
 
-  it("counts an event in progress as upcoming", () => {
-    const events = [ev("a", 9), ev("b", 11), ev("c", 13)];
+  it("counts an event in progress as upcoming, not a past one", () => {
+    // FOUR events, not three, and deliberately so: with only [a, b, c] the
+    // backfill step pulls "b" into frame under EITHER predicate, so the test
+    // passes even when isUpcoming is reverted to `start > now`. The fourth
+    // event gives the window somewhere to slide, which is what makes this
+    // discriminating: end-based yields [b, c], start-based yields [c, d].
+    const events = [ev("a", 9), ev("b", 11), ev("c", 13), ev("d", 15)];
     // 11:15 — "b" started at 11:00 and ends at 11:30.
     const { visible } = visibleEvents(events, new Date(2026, 7, 12, 11, 15), 2);
     expect(visible.map((e) => e.id)).toEqual(["b", "c"]);
@@ -104,6 +127,20 @@ describe("stripHeights", () => {
     const heights = stripHeights([0, 0, 0, 0, 0, 0, 0]);
     expect(heights).toEqual([0, 0, 0, 0, 0, 0, 0]);
     expect(heights.every((h) => Number.isFinite(h))).toBe(true);
+  });
+});
+
+describe("localDateKey", () => {
+  it("names the LOCAL day, not the UTC one", () => {
+    // 23:30 local on the 12th is 03:30 UTC on the 13th in a UTC-4 zone, so
+    // toISOString().slice(0, 10) — the tempting one-liner — answers "13".
+    const lateEvening = new Date(2026, 7, 12, 23, 30);
+    expect(lateEvening.toISOString().slice(0, 10)).toBe("2026-08-13");
+    expect(localDateKey(lateEvening)).toBe("2026-08-12");
+  });
+
+  it("zero-pads single-digit months and days", () => {
+    expect(localDateKey(new Date(2026, 0, 5, 12, 0))).toBe("2026-01-05");
   });
 });
 
@@ -136,16 +173,37 @@ describe("formatEventTime", () => {
   });
 
   it("formats an afternoon time in the browser locale", () => {
-    expect(formatEventTime(new Date(2026, 7, 12, 14, 30).toISOString())).toMatch(/2[:.]30/);
+    // Locale-agnostic on purpose: the production call passes `undefined` to
+    // respect the browser, so a 12-hour locale prints "2:30 PM" and a 24-hour
+    // one prints "14:30". Both are correct; asserting only the former fails
+    // the suite under LC_ALL=en_GB.
+    expect(formatEventTime(new Date(2026, 7, 12, 14, 30).toISOString())).toMatch(
+      /(^|\D)(2|14)[:.]30/,
+    );
+  });
+});
+
+describe("formatDayHeading", () => {
+  it("reads the date string as LOCAL, not as a UTC instant", () => {
+    // new Date("2026-08-12") parses as UTC midnight, which is Aug 11 in a
+    // UTC-4 zone — a heading a whole day wrong for half the planet.
+    expect(new Date("2026-08-12").getDate()).toBe(11);
+    const heading = formatDayHeading("2026-08-12");
+    expect(heading).toMatch(/12/);
+    expect(heading).not.toMatch(/11/);
   });
 });
 
 describe("weekColumns", () => {
   it("returns seven Monday-first columns with counts including truncation", () => {
-    const days = [
+    const days: CalendarDay[] = [
       { date: "2026-08-10", truncated: 0, events: [] },
       { date: "2026-08-11", truncated: 3, events: [ev("a", 9)] },
-      { date: "2026-08-12", truncated: 0, events: [ev("b", 9), ev("c", 10)] },
+      {
+        date: "2026-08-12",
+        truncated: 0,
+        events: [{ ...ev("b", 9), source: "prog_strength" }, ev("c", 10)],
+      },
       { date: "2026-08-13", truncated: 0, events: [] },
       { date: "2026-08-14", truncated: 0, events: [] },
       { date: "2026-08-15", truncated: 0, events: [] },
@@ -158,6 +216,10 @@ describe("weekColumns", () => {
     expect(cols[6].date).toBe("2026-08-16");
     // The cap is never silent: the count is events.length + truncated.
     expect(cols[1].count).toBe(4);
+    // Provenance drives the strip's accent mark: only Wednesday has one of ours.
+    expect(cols.map((c) => c.hasOurs)).toEqual([false, false, true, false, false, false, false]);
+    // `now` is Sunday the 16th — the LAST Monday-first column, not the first.
+    expect(cols.map((c) => c.isToday)).toEqual([false, false, false, false, false, false, true]);
   });
 });
 
