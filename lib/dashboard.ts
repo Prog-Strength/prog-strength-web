@@ -601,7 +601,14 @@ function recoveryTrend(s: string): RecoveryTrendDirection {
     : "unknown";
 }
 
-function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
+/**
+ * Map the wire `RecoverySection` onto the `RecoveryView` the recovery tiles
+ * read. Exported because it now serves two doors — `/dashboard/summary`'s
+ * `sections.recovery` and `GET /recovery/history`, which serves the identical
+ * shape — and a second adapter would be a second place for the band fields
+ * (`balanced_low`/`balanced_high`/`z_score`/`status`) to be mis-mapped.
+ */
+export function adaptRecovery(recovery: DashboardRecovery): RecoveryView {
   return {
     restingToday: recovery.today?.resting_heart_rate ?? null,
     recoveryScore: recovery.today?.recovery_score ?? null,
