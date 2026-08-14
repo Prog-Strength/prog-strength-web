@@ -10,7 +10,7 @@ import {
   recoveryLogView,
   sparseView,
 } from "./fixtures";
-import { MorningLedgerCard, railY } from "./morning-ledger";
+import { DETAIL_ROWS, MorningLedgerCard, railY } from "./morning-ledger";
 
 const HREF = "/recovery";
 /** The rail's contract, mirrored — not an implementation detail. */
@@ -170,11 +170,17 @@ describe("MorningLedgerCard — the rail", () => {
 });
 
 describe("MorningLedgerCard — the detail rows", () => {
-  it("shows exactly three mornings, newest first, with Today leading", () => {
+  it("shows exactly DETAIL_ROWS mornings, newest first, with Today leading", () => {
     const { container } = renderCard(recoveryLogView());
     const detail = rows(container);
-    expect(detail).toHaveLength(3);
-    expect(detail.map((r) => fields(r)[0])).toEqual(["Today", "Mon", "Sun"]);
+    expect(detail).toHaveLength(DETAIL_ROWS);
+    // Spelled out rather than sliced from a generator: the labels are the
+    // assertion that the register walks BACK a calendar day at a time.
+    expect(detail.map((r) => fields(r)[0])).toEqual(["Today", "Mon", "Sun", "Sat", "Fri"]);
+  });
+
+  it("never shows more mornings in detail than the rail draws", () => {
+    expect(DETAIL_ROWS).toBeLessThanOrEqual(RAIL_DAYS);
   });
 
   it("reads Recovery -> resting HR -> HRV, hero to footnote", () => {
@@ -213,10 +219,13 @@ describe("MorningLedgerCard — the detail rows", () => {
     expect(screen.getAllByText("no reading")).toHaveLength(1);
   });
 
-  it("keeps the three most recent calendar days even when all three are empty", () => {
+  it("keeps the most recent calendar days even when the newest three are empty", () => {
     const { container } = renderCard(sparseView());
-    expect(rows(container)).toHaveLength(3);
-    expect(screen.getAllByText("no reading")).toHaveLength(3);
+    // Empty days are never skipped over in search of readings: the register is
+    // a calendar window, so the sparse fixture's tail reads null · 63 · three
+    // nulls in that order.
+    expect(rows(container)).toHaveLength(DETAIL_ROWS);
+    expect(screen.getAllByText("no reading")).toHaveLength(4);
   });
 
   it("prints a dash and NO band word for a morning with readings but no score", () => {

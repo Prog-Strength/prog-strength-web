@@ -11,16 +11,18 @@
  *      is a notch you see before you read a figure.
  *   2. THE SEAM — the 30-day baseline as `score · bpm · ms` on a hairline,
  *      doubling as the register divider.
- *   3. THE DETAIL ROWS — the three most recent mornings in full
+ *   3. THE DETAIL ROWS — the five most recent mornings in full
  *      (weekday · score · band word · bpm · ms). This is where the tile's
  *      distinct job happens: the cross-metric reading — *the score was low and
  *      the resting HR was up* — is a sentence only this tile can make.
  *
- * Fourteen on the rail and three in detail is the idiom's argument, not a
- * budget. Seven identical rows give you a week you must read row by row; a rail
- * gives you a fortnight you read at a glance and detail only where detail is
- * used. It is also what survives a sparse fortnight, where a row-per-day tile
- * degrades into a column of *no reading*.
+ * Fourteen on the rail and a handful in detail is the idiom's argument, not a
+ * budget. A row per day for a fortnight gives you a fortnight you must read row
+ * by row; a rail gives you one you read at a glance and detail only where
+ * detail is used. It is also what survives a sparse fortnight, where a
+ * row-per-day tile degrades into a column of *no reading*. The detail count is
+ * the one dial here: raising it trades card height for a longer readable
+ * stretch, and the rail's fourteen is its ceiling.
  *
  * An absent morning is a FULL-HEIGHT ghost column, never a short bar: a gap and
  * a catastrophic score differ in kind, not in degree, and a stub at the foot of
@@ -51,7 +53,7 @@ import {
 const TITLE = "Recovery Log";
 /** Days on the rail, and mornings in the detail register. */
 const RAIL_DAYS = 14;
-const DETAIL_ROWS = 3;
+export const DETAIL_ROWS = 5;
 /** The rail's height in px. `railY` maps a 0–100 score onto it. */
 const RAIL_H = 40;
 
@@ -113,8 +115,9 @@ export function MorningLedgerCard({ section, href }: { section: RecoveryView; hr
   return (
     <MiniCard title={TITLE} href={href}>
       {/* One child, not three: MiniCard lays its children out on gap-3, and the
-          registers want a tighter 8px seam than that. The whole body is ~154px,
-          under the shipped tile's ~180 — this redesign costs the row no height. */}
+          registers want a tighter 8px seam than that. The body is ~22px per
+          detail row over a fixed ~90px of rail and seam; the grid row sizes to
+          its tallest tile, so this one has slack to spend before it moves. */}
       <div className="flex flex-col gap-2">
         <div
           role="img"

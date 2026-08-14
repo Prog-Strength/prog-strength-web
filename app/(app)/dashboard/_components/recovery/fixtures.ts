@@ -799,9 +799,10 @@ export function recoveryLogView(): RecoveryView {
 /**
  * Three readings in the last eight days — travel, or the strap on the charger.
  * **This is the fixture the idiom was selected on.** The three most recent
- * calendar days are all empty, so the detail register is in its worst state,
- * while the rail still shows a week of readings behind them: the tile has to
- * look intentional here rather than broken.
+ * calendar days are all empty, so the detail register is at its worst — mostly
+ * `no reading`, whatever its row count — while the rail still shows a week of
+ * readings behind them: the tile has to look intentional here rather than
+ * broken.
  */
 export function sparseView(): RecoveryView {
   return logView(bandedDays([...LOG_HISTORY, 58, null, 41, null, 63, null, null, null]));
