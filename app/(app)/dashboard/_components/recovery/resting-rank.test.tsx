@@ -83,14 +83,18 @@ describe("RestingRankCard — default", () => {
     expect(fields(screen.getAllByTestId("rhr-recent-row")[1])).toEqual(["Tue", "50 bpm"]);
   });
 
-  // Adjacency, not preference: recovery_log prints the same three mornings
+  // Adjacency, not preference: recovery_log prints the same five mornings
   // newest-first in the same register and may sit directly beside this tile.
   it("lists the recent mornings newest-first", () => {
     draw(restingHrView());
     const rows = screen.getAllByTestId("rhr-recent-row");
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(5);
     expect(fields(rows[0])).toEqual(["Today", "50 bpm"]);
     expect(fields(rows[2])).toEqual(["Mon", "47 bpm"]);
+    // Sunday's 59 — the DX's bump — now sits inside the register rather than
+    // one row past its bottom edge, which is the point of the deeper window.
+    expect(fields(rows[3])).toEqual(["Sun", "59 bpm"]);
+    expect(fields(rows[4])).toEqual(["Sat", "57 bpm"]);
   });
 
   // POLARITY PIN. Reversing the sort to descending inverts the card's only
@@ -133,10 +137,15 @@ describe("RestingRankCard — creeping-up", () => {
   it("shows the climb in the recent rows", () => {
     draw(creepingUpView());
     const rows = screen.getAllByTestId("rhr-recent-row").map(fields);
+    // Five rows reach back past the climb's foot: 48 is the flat month this
+    // fixture exists to contrast against, and the register now shows where the
+    // rise started rather than only that it is high.
     expect(rows).toEqual([
       ["Today", "58 bpm"],
       ["Tue", "57 bpm"],
       ["Mon", "56 bpm"],
+      ["Sun", "54 bpm"],
+      ["Sat", "48 bpm"],
     ]);
   });
 });
@@ -257,6 +266,8 @@ describe("RestingRankCard — sparse", () => {
       ["Today", "50 bpm"],
       ["Tue", "no reading"],
       ["Mon", "no reading"],
+      ["Sun", "48 bpm"],
+      ["Sat", "no reading"],
     ]);
   });
 });

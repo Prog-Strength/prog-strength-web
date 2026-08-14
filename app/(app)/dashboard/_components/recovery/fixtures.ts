@@ -833,7 +833,7 @@ export function partialMorningView(): RecoveryView {
 
 /**
  * The resting-HR fixtures' "today" — 2026-08-12, a WEDNESDAY and the DX's own
- * headline date, so the tile's three recent rows read `Today / Tue / Mon`.
+ * headline date, so the tile's recent rows read `Today / Tue / Mon / Sun / Sat`.
  */
 export const RESTING_HR_TODAY = "2026-08-12";
 
@@ -999,7 +999,7 @@ export function restingNoReadingView(): RecoveryView {
  * **sparse** — three readings in the last eight days, plus one older gap:
  * travel, or the strap on the charger. `n` drops to 24, so the caption must say
  * `of your last 24` rather than claiming thirty, the tick pitch widens
- * accordingly, and two of the three recent rows print `no reading`. Gaps must
+ * accordingly, and three of the five recent rows print `no reading`. Gaps must
  * read as gaps.
  */
 export function restingSparseView(): RecoveryView {
