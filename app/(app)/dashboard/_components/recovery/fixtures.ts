@@ -21,7 +21,7 @@
  *    bands are null as in (1).
  * 4. `restingDays` + the resting-HR views — a window taking an EXPLICIT resting
  *    heart-rate series, anchored on `RESTING_HR_TODAY` (2026-08-12, a
- *    Wednesday, so the recent rows read Today / Tue / Mon), built to the DX's
+ *    Wednesday, so the recent rows read Today / Tue / Mon / Sun), built to the DX's
  *    own numbers so the tile and the DX preview cannot disagree. Each view's
  *    `restingHrAvg` is DERIVED as the true mean of its own thirty pre-today
  *    readings, because the tile positions the average tick against the strip's
@@ -833,7 +833,7 @@ export function partialMorningView(): RecoveryView {
 
 /**
  * The resting-HR fixtures' "today" — 2026-08-12, a WEDNESDAY and the DX's own
- * headline date, so the tile's recent rows read `Today / Tue / Mon / Sun / Sat`.
+ * headline date, so the tile's recent rows read `Today / Tue / Mon / Sun`.
  */
 export const RESTING_HR_TODAY = "2026-08-12";
 
@@ -999,7 +999,7 @@ export function restingNoReadingView(): RecoveryView {
  * **sparse** — three readings in the last eight days, plus one older gap:
  * travel, or the strap on the charger. `n` drops to 24, so the caption must say
  * `of your last 24` rather than claiming thirty, the tick pitch widens
- * accordingly, and three of the five recent rows print `no reading`. Gaps must
+ * accordingly, and two of the four recent rows print `no reading`. Gaps must
  * read as gaps.
  */
 export function restingSparseView(): RecoveryView {
