@@ -26,8 +26,9 @@
  * this repo mirrors, so read the rollout there rather than inferring it from
  * this catalog; `TestSummary_DefaultLayoutHasNoRestingHRTile` is what pins this
  * tile's absence from it. One more id was in this family once — `recovery_trend`
- * is retired, folded into `hrv_balance` as its second swipeable view (see
- * `recovery/hrv-tile.tsx`).
+ * was retired into `hrv_balance` as a second swipeable view, and that view has
+ * since been deleted outright (see `recovery/hrv-tile.tsx`). The id stays
+ * retired either way.
  *
  * The running FAMILY — running, running_log, running_effort,
  * running_vertical — is the same pattern applied to running: four tiles

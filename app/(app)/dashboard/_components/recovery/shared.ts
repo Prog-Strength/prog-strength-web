@@ -34,7 +34,6 @@ import type {
   RecoveryHrvStatus,
   RecoveryTrendDirection,
 } from "@/lib/dashboard";
-import type { NightMark } from "./hrv-chart";
 
 /** Map an HRV balance status to the CSS var that carries its color. */
 export function hrvStatusColor(status: RecoveryHrvStatus): string {
@@ -48,39 +47,6 @@ export function hrvStatusColor(status: RecoveryHrvStatus): string {
     default:
       return "var(--muted)";
   }
-}
-
-/**
- * The paint for ONE night, shared by both views of the HRV tile.
- *
- * This exists because the tile's two views draw the same thirty-one nights in
- * two idioms — a dot on a chart, a mark on a rail — and the user swipes between
- * them. A night that is green on one and grey on the other reads as the tile
- * contradicting itself, so the color is decided here, once, and neither view
- * keeps a palette of its own. That is what "the same green means balanced on
- * both views" costs: exactly this function.
- *
- * A night with no reading is not a status — it is an absence, and it takes the
- * surface color (a blank slot on the rail; the chart simply draws no dot).
- */
-export function nightColor(mark: NightMark): string {
-  if (!mark.hasReading) return "var(--surface-2)";
-  return hrvStatusColor(mark.status);
-}
-
-/**
- * Weight for one night's paint. Full strength for a night that says something
- * definite, and two deliberate reductions: a night whose own band was not
- * established yet is drawn faintly (0.45) because the color is `--muted`
- * standing in for "no verdict", and an ISOLATED suppressed night is drawn at
- * 0.55 so a genuine sustained dip — three or more in a row — is the thing that
- * reads as solid warning. Both views apply it, so the emphasis matches.
- */
-export function nightOpacity(mark: NightMark): number {
-  if (!mark.hasReading) return 1;
-  if (mark.status === "unknown") return 0.45;
-  if (mark.status === "suppressed" && !mark.sustained) return 0.55;
-  return 1;
 }
 
 /**
@@ -103,30 +69,11 @@ export function statusWord(status: RecoveryHrvStatus, hasReading = true): string
   }
 }
 
-/** A small glyph + word pair for a trend direction. */
-export function trendLabel(trend: RecoveryTrendDirection): { glyph: string; word: string } {
-  switch (trend) {
-    case "rising":
-      return { glyph: "▲", word: "rising this week" };
-    case "falling":
-      return { glyph: "▼", word: "falling this week" };
-    case "steady":
-      return { glyph: "▬", word: "steady this week" };
-    default:
-      return { glyph: "·", word: "calibrating" };
-  }
-}
-
 /** Signed delta string, e.g. +3 / −17 / ±0, always with a unicode minus. */
 export function signed(n: number, digits = 0): string {
   const r = digits > 0 ? Number(n.toFixed(digits)) : Math.round(n);
   if (r === 0) return "±0";
   return r > 0 ? `+${r}` : `−${Math.abs(r)}`;
-}
-
-/** Signed delta with a unit suffix, e.g. "−17 ms". */
-export function signedUnit(n: number, unit: string, digits = 0): string {
-  return `${signed(n, digits)} ${unit}`;
 }
 
 /** The glyph for a baseline-drift direction; `·` when there is no verdict. */

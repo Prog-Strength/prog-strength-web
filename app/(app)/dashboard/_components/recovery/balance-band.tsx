@@ -17,8 +17,7 @@
  *      printed under them. The zone the week is in reads at full token strength
  *      and the other two stay a wash, so the lit segment and the curve's final
  *      mark below are the same colour at the same weight. The tick carries the
- *      WEEK's color, the same figure and colour the Recovery Trend view heroes
- *      one swipe away.
+ *      WEEK's color.
  *   4. THE CHART — the 7-DAY ROLLING AVERAGE, one mark per day joined by a
  *      hairline, over a ribbon that drifts, each day drawn from the band as it
  *      stood that morning. A null baseline breaks the ribbon rather than closing
@@ -50,11 +49,12 @@
  *
  * Each mark's colour is where THAT day's average sat in THAT day's band, and the
  * last one is `week`, the same value the gauge tick above it carries — the curve
- * ends where the gauge points. Marks are NOT painted by `nightColor` any more:
- * that function is about one night's verdict, which is the trend rail's subject
- * now, and a rolling mean asks a different question of the same band. The one
- * weight reduction left is `unknown` at 0.45, for a day whose band was not
- * established yet — the same "no verdict, so no colour" convention the rail keeps.
+ * ends where the gauge points. Marks are NOT painted by a per-night verdict: a
+ * rolling mean asks a different question of the same band. (`nightColor` and
+ * `nightOpacity`, which did that job for the deleted Recovery Trend rail, are
+ * gone with it — the git history has them if a night-scale register returns.)
+ * The one weight reduction left is `unknown` at 0.45, for a day whose band was
+ * not established yet: no verdict, so no colour.
  *
  * Nothing here recomputes a server figure, and nothing here re-derives one the
  * chart object already carries — the rolling series included, which arrives
@@ -78,12 +78,14 @@ const R_MAX = TODAY_R;
 /**
  * The weight one plotted average carries. Full strength for a day with a verdict
  * behind it, 0.45 for one whose band was not established yet — where the colour
- * is `--muted` standing in for "no verdict", exactly as it is on the rail.
+ * is `--muted` standing in for "no verdict".
  *
  * There is deliberately no reduced weight for an isolated low here, which the
- * rail's `nightOpacity` does apply. That reduction exists to stop ONE bad night
- * reading as a bad week; a suppressed seven-night mean already is a bad week, so
- * dimming it would understate the only thing this curve is drawn to show.
+ * deleted trend rail did apply to a single suppressed night. That reduction
+ * existed to stop ONE bad night reading as a bad week; a suppressed seven-night
+ * mean already is a bad week, so dimming it would understate the only thing
+ * this curve is drawn to show. Restate the argument, not the code, if a
+ * night-scale register ever returns.
  */
 function markOpacity(status: RecoveryHrvStatus): number {
   return status === "unknown" ? 0.45 : 1;
@@ -152,9 +154,10 @@ function Mark({
 }
 
 export function HrvBalanceView({ chart }: { chart: HrvChart }) {
-  // Measured on every render: this view is mounted even while the tile is
-  // showing the other one (hidden, but laid out), so the box has a width to
-  // report and the chart is already drawn when the user swipes to it.
+  // Measured on every render, so the chart sizes to whatever cell the grid
+  // gives it. This used to matter doubly: the view stayed mounted-but-hidden
+  // behind the tile's other view so it had a width before the user ever swiped
+  // to it. There is no other view now, and no swipe.
   const [ref, width] = useMeasuredWidth<HTMLDivElement>();
 
   const {

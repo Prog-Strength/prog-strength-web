@@ -124,7 +124,7 @@ export const TILE_CATALOG: readonly TileCatalogEntry[] = [
     id: "hrv_balance",
     title: "HRV Balance",
     href: "/recovery",
-    description: "Your HRV against your own balanced range — swipe for the week's trend.",
+    description: "Your HRV against your own balanced range, and where the week sits in it.",
   },
   {
     id: "morning_vitals",
@@ -183,8 +183,12 @@ const TILE_ID_SET: ReadonlySet<string> = new Set(TILE_IDS);
 /**
  * Tiles that no longer exist, and what took their place.
  *
- * `recovery_trend` was folded into `hrv_balance`, which became a two-view tile
- * (see `recovery/hrv-tile.tsx`). The Go catalog drops retired ids on read, so a
+ * `recovery_trend` was folded into `hrv_balance` as a second swipeable view,
+ * and that view has since been deleted (see `recovery/hrv-tile.tsx`). The
+ * mapping below OUTLIVES the view it was created for and must stay: a stored
+ * layout can still carry the retired id, and resolving it to `hrv_balance`
+ * keeps that slot filled with the surviving half of the merge rather than
+ * dropping it. The Go catalog drops retired ids on read, so a
  * stored layout is repaired server-side eventually — but the two repos deploy
  * independently, so this client repairs the layout it is handed rather than
  * assuming the API has already been updated. A user who had the retired tile

@@ -7,19 +7,16 @@
  * natural import for the `/recovery` page when that chart follows. The tile
  * imports it; nothing here imports the tile.
  *
- * `prepareHrvChart` is ALSO the tile's agreement contract. Both of the tile's
- * views — HRV Balance and Recovery Trend — render from the one object it
- * returns and never re-derive a figure for themselves, so a swipe between them
- * cannot cross a disagreement: one guard (both views calibrate together), one
- * nightly classification (`nights`, which the rail paints from), one verdict for
- * last night (`today.status`) and one for the week (`week` — the balance view's
- * gauge tick, its curve's final mark, and the trend view's delta).
+ * `prepareHrvChart` was ALSO the tile's agreement contract, back when the tile
+ * paged between HRV Balance and a Recovery Trend view: both rendered from the
+ * one object this returns and never re-derived a figure, so a swipe between
+ * them could not cross a disagreement. The trend view is gone and the balance
+ * view is the only caller, which retires the contract but not the discipline it
+ * enforced — one guard, one verdict for last night (`today.status`), one for
+ * the week (`week` — the gauge tick and the curve's final mark).
  *
- * The two views divide the SUBJECT rather than the palette: the balance view
- * draws the smoothed week-scale pattern (`rolling`), the trend rail draws the
- * per-night verdicts (`nights`). They answer different questions from the same
- * object, which is why neither can contradict the other about the one figure
- * they share.
+ * The per-night classification the rail painted from (`nights`, `NightMark`,
+ * `classifyNights`) went with it, along with `trend`. Nothing else read them.
  *
  * The standing rule for this file is that NOTHING recomputes a server figure.
  * Baselines, band bounds, z-scores and the 7-day mean are read straight off the
@@ -45,12 +42,8 @@ import type {
   RecoveryBaselineTrendView,
   RecoveryDayPoint,
   RecoveryHrvStatus,
-  RecoveryTrendDirection,
   RecoveryView,
 } from "@/lib/dashboard";
-
-/** Consecutive suppressed nights that read as a sustained dip rather than one bad night. */
-export const SUSTAINED_DIP_NIGHTS = 3;
 
 /**
  * The trailing window each plotted average covers, and the readings that window
@@ -101,20 +94,6 @@ export const MIN_ROLLING_NIGHTS = 4;
 export const WEEK_BAND_DIVISOR = Math.sqrt(ROLLING_WINDOW_NIGHTS);
 
 /**
- * One night, as both views draw it. `status` is the SERVER's verdict for that
- * morning against that morning's own band — never a re-comparison against
- * today's band, which is what used to make the rail and the chart disagree
- * about the same night.
- */
-export type NightMark = {
-  status: RecoveryHrvStatus;
-  /** False when the morning webhook never landed — an absence, not a status. */
-  hasReading: boolean;
-  /** Inside a run of ≥ SUSTAINED_DIP_NIGHTS consecutive suppressed nights. */
-  sustained: boolean;
-};
-
-/**
  * One plotted point of the balance view's curve: a 7-day rolling mean, and where
  * that mean sat against the band as it stood THAT morning.
  *
@@ -154,15 +133,11 @@ export type HrvChart = {
   /** The 7-day mean; null below min_trend_days, which is a real state. */
   shortAvg: number | null;
   /** Where the WEEK sits against today's band — the gauge's zone and the
-   *  trend view's delta share it, so the tick and the figure agree in color. */
+   *  curve's final mark share it, so the tick and the dot agree in color. */
   week: RecoveryHrvStatus;
-  /** The recent mean against the window it sits in — NOT the baseline's drift. */
-  trend: RecoveryTrendDirection;
   drift: RecoveryBaselineTrendView;
   /** The last charted day. Its `hrv` is null before the morning webhook lands. */
   today: RecoveryDayPoint;
-  /** One entry per charted night, in series order. The trend rail paints from this. */
-  nights: NightMark[];
   /**
    * The days the BALANCE CHART draws — the tail of `days` beginning at the
    * oldest one with a complete rolling window behind it. Six days shorter than
@@ -248,10 +223,8 @@ export function prepareHrvChart(view: RecoveryView): HrvChart | null {
     weekHigh,
     shortAvg: hrv.shortAvg,
     week,
-    trend: hrv.trend,
     drift: baselineTrend,
     today: days[days.length - 1],
-    nights: classifyNights(days),
     series,
     rolling: drawn,
     domain: [Math.min(...values) - 5, Math.max(...values) + 5],
@@ -340,9 +313,9 @@ export function weekBand(low: number, high: number): [number, number] {
  * classifying a mean. Called once per plotted mark with that morning's own
  * bounds, and once for `week` with today's.
  *
- * Deliberately about the WEEK, not last night: it colors the trend view's delta,
- * the balance view's gauge tick and the curve's marks, all of which are figures
- * about a mean. Last night's verdict has its own source (`today.status`).
+ * Deliberately about the WEEK, not last night: it colors the balance view's
+ * gauge tick and the curve's marks, both figures about a mean. Last night's
+ * verdict has its own source (`today.status`).
  */
 export function weekStatus(
   shortAvg: number | null,
@@ -353,41 +326,6 @@ export function weekStatus(
   if (shortAvg < weekLow) return "suppressed";
   if (shortAvg > weekHigh) return "elevated";
   return "balanced";
-}
-
-/**
- * Classify each night once, for every view that draws it.
- *
- * The status is the server's own per-day verdict, passed through: each morning
- * was already judged against the band as it stood THAT morning, which is the
- * only comparison that stays true on a baseline that drifts. Re-testing an old
- * reading against today's bounds — which the rail used to do — reports a night
- * as in-band that the same payload calls suppressed.
- *
- * A run of ≥ SUSTAINED_DIP_NIGHTS consecutive suppressed nights is flagged on
- * every night in the run: one low morning is noise, three in a row is a week
- * going wrong, and the two should not paint identically. Missing nights break a
- * run rather than extending it — an absent reading is not evidence of a dip.
- */
-export function classifyNights(days: RecoveryDayPoint[]): NightMark[] {
-  const nights: NightMark[] = days.map((d) => ({
-    status: d.status,
-    hasReading: d.hrv !== null,
-    sustained: false,
-  }));
-  let start = -1;
-  for (let i = 0; i <= nights.length; i++) {
-    const dipping = i < nights.length && nights[i].hasReading && nights[i].status === "suppressed";
-    if (dipping) {
-      if (start === -1) start = i;
-      continue;
-    }
-    if (start !== -1 && i - start >= SUSTAINED_DIP_NIGHTS) {
-      for (let j = start; j < i; j++) nights[j].sustained = true;
-    }
-    start = -1;
-  }
-  return nights;
 }
 
 /**
