@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import type { RecoveryDayPoint, RecoveryView } from "@/lib/dashboard";
 import {
   bandRuns,
-  classifyNights,
   gaugePct,
   MIN_ROLLING_NIGHTS,
   prepareHrvChart,
@@ -497,51 +496,6 @@ describe("weekStatus — where the 7-day mean sits in today's band", () => {
     expect(weekStatus(weekLow - 0.1, weekLow, weekHigh)).toBe("suppressed");
     expect(gaugePct(weekLow + 0.1, avg, nightHigh)!).toBeGreaterThan(boundary);
     expect(weekStatus(weekLow + 0.1, weekLow, weekHigh)).toBe("balanced");
-  });
-});
-
-describe("classifyNights — the one classification both views paint from", () => {
-  test("passes the server's own per-day status through, untouched", () => {
-    const nights = classifyNights([
-      day({ status: "balanced" }),
-      day({ status: "elevated" }),
-      unbanded(),
-    ]);
-    expect(nights.map((n) => n.status)).toEqual(["balanced", "elevated", "unknown"]);
-    expect(nights.every((n) => n.hasReading)).toBe(true);
-  });
-
-  test("never re-tests a reading against another day's band", () => {
-    // A night the payload calls balanced against ITS OWN band sits outside a
-    // later day's band. Re-comparing would report it suppressed; the whole
-    // agreement contract is that this does not happen.
-    const nights = classifyNights([day({ hrv: 78, balancedLow: 70, balancedHigh: 94 })]);
-    expect(nights[0].status).toBe("balanced");
-  });
-
-  test("a missing morning is an absence, not a status", () => {
-    const nights = classifyNights([day({ hrv: null, status: "unknown" })]);
-    expect(nights[0].hasReading).toBe(false);
-    expect(nights[0].sustained).toBe(false);
-  });
-
-  test("three consecutive suppressed nights all read as a sustained dip", () => {
-    const dip = day({ status: "suppressed", hrv: 60 });
-    const nights = classifyNights([day(), dip, dip, dip, day()]);
-    expect(nights.map((n) => n.sustained)).toEqual([false, true, true, true, false]);
-  });
-
-  test("two is not a run, and a gap does not extend one", () => {
-    const dip = day({ status: "suppressed", hrv: 60 });
-    const absent = day({ hrv: null, status: "unknown" });
-    const nights = classifyNights([dip, dip, absent, dip, dip]);
-    expect(nights.some((n) => n.sustained)).toBe(false);
-  });
-
-  test("a run at the very end of the window still counts", () => {
-    const dip = day({ status: "suppressed", hrv: 60 });
-    const nights = classifyNights([day(), dip, dip, dip]);
-    expect(nights[3].sustained).toBe(true);
   });
 });
 

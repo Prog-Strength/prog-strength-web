@@ -4,7 +4,7 @@
  * IT TAKES A PREPARED `HrvChart`, NOT A `RecoveryView`, and that is a decision
  * rather than a convenience. `prepareDeck` calls `prepareHrvChart` ONCE per
  * render and hands the object down, exactly as `hrv-tile.tsx` runs one guard for
- * its two views: a second call here — one for this panel, one for the deck's
+ * its own chart: a second call here — one for this panel, one for the deck's
  * shared date list — would be two chances to disagree about the very axis
  * correction 1 exists to fix, and they would disagree silently, because both
  * calls return a perfectly valid chart. The deck owns the guard and renders

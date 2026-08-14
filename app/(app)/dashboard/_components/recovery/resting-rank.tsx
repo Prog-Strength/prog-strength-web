@@ -29,7 +29,7 @@
  *      card make sense. `29`, not `30`: the count is the mornings actually
  *      behind the rank, so a sparse month says so. The calibrating progress
  *      goes on a permanently reserved second line.
- *   4. RECENT MORNINGS — the last three newest-first, so chronology is demoted
+ *   4. RECENT MORNINGS — the last four newest-first, so chronology is demoted
  *      but not discarded. A rank alone cannot say "and it has been climbing";
  *      `58 / 57 / 56` can.
  *
@@ -91,8 +91,20 @@ import {
 } from "./resting-strip";
 
 const TITLE = "Resting HR";
-/** Mornings in the recent register. Matches `recovery_log`, which may sit beside this tile. */
-const RECENT_ROWS = 3;
+/**
+ * Mornings in the recent register.
+ *
+ * DELIBERATELY ONE SHORT OF `recovery_log`'s five. The two tiles render the
+ * same idiom and may sit side by side, so matching them was the original rule —
+ * but that tile has ~180px of slack in its grid row and this one is the tallest
+ * card on the grid, so the same row costs the two cards very different amounts.
+ * Four is where this card stops paying for the match: see the body comment
+ * below for what the fifth row costs.
+ *
+ * This is the register the space budget is spent on — at 23px a row it is the
+ * most expensive thing on the card and the only cheap place to reclaim height.
+ */
+const RECENT_ROWS = 4;
 /** The strip's height in px. Fixed, so the card's height cannot move with the data. */
 const STRIP_H = 28;
 
@@ -186,14 +198,27 @@ export function RestingRankCard({ section, href }: { section: RecoveryView; href
   return (
     <MiniCard title={TITLE} href={href}>
       {/* One child, not four: MiniCard lays its children out on gap-3, and these
-          registers want a tighter 6px seam. The body measures ~192px — hero 22,
-          strip block 52 (12 + 28 + 12), caption 28, recent rows 72 (a 1px rule,
-          three 23px rows, two 1px dividers) — plus three 6px gaps, which puts
-          the whole card at ~252px once `p-4`'s 32, the 16px title and `gap-3`'s
-          12 are added. The DX's ceiling is 260px, so roughly 8px is left. Read
-          that as FULL: a fifth register, or a second line anywhere, has to take
-          its height from something already here — the recent rows are 23px
-          each and are the only cheap source. */}
+          registers want a tighter 6px seam. The body measures ~216px — hero 22,
+          strip block 52 (12 + 28 + 12), caption 28, recent rows 96 (a 1px rule,
+          four 23px rows, three 1px dividers) — plus three 6px gaps, which puts
+          the whole card at ~276px once `p-4`'s 32, the 16px title and `gap-3`'s
+          12 are added.
+
+          THAT IS ~16px OVER THE DX's 260px CEILING, knowingly. `TileGrid` has
+          no span support, so this card is the tallest on the grid and its whole
+          dashboard row grows with it, including unrelated tiles — the budget
+          was never about this card fitting, it was about what it does to its
+          neighbours. Each row costs 24px (23 + its divider), so the ladder is:
+          three rows 252px and under the ceiling, four 276, five 300. Four is
+          the chosen point — one more morning than the ceiling strictly allows,
+          and one fewer than `recovery_log` shows.
+
+          There is no slack left to take: the caption's second line is 28px and
+          is reserved precisely so a calibrating card cannot jump height, and
+          the hero is 22px and is the card's only absolute figure. Anything
+          added later comes out of the recent rows at 24px each, or it does not
+          fit — which is why the balanced band, when it lands, belongs INSIDE
+          the strip rather than as a fifth register. */}
       <div className="flex flex-col gap-1.5">
         <p
           data-testid="rhr-hero"

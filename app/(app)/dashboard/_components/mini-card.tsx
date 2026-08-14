@@ -20,7 +20,7 @@ const PANEL = "rounded-[var(--radius-card)] border border-[var(--border)] bg-[va
 
 /**
  * The panel and its navigable-hover treatment, for the one card that cannot use
- * `MiniCard` itself: a tile with its own BUTTONS inside (the HRV tile's pager)
+ * `MiniCard` itself: a tile with its own BUTTONS inside (the calendar tile's pager)
  * can't be wrapped in a single `<a>`, since a button inside an anchor is invalid
  * markup and swallows its own clicks. Such a card composes the panel by hand and
  * links only its body. Exported so it still looks like every other tile — a
